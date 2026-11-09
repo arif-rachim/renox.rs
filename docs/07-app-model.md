@@ -25,6 +25,7 @@ my-app/
 ├── migrations/             SQL owned by the app (tables prefixed app__)
 ├── policies/               Cedar policies owned by the app
 ├── jobs/                   scheduled jobs: jobs/nightly-report.ts with export const schedule
+├── hooks.ts                handlers for module events (on) and fillers for module hook points (hooks)
 └── overrides/<module>/     override module templates without forking
 ```
 
@@ -147,6 +148,71 @@ export async function run(ctx) {               // a named export (ops.md section
 
 Jobs run as the principal `System::"app"` (a module's as `System::"<module>"`) with explicit permissions and are charged to the tenant quota. Each tick is one durable outbox row, run at least once and never twice at the same time; ticks missed while the tenant had no cell (an eviction, a restart, downtime) become one run for the latest of them. `ctx.jobs.enqueue(name, payload, { runAt })` queues a run of one of the caller's own jobs inside the current transaction. The `jobs` module shows the scheduled, queued, running and failed runs and retries or cancels them; `renox jobs` does the same for `renox dev`, which runs the scheduler only with `--jobs`.
 
+## Events and hooks
+
+The app handles events of its installed modules, and its own, and fills their hook points, from one file at the project root, `hooks.ts`. It has the same two exports as a module's `hooks.ts` (`10-modules.md`): `on` for event handlers and `hooks` for hook fillers.
+
+```ts
+// hooks.ts
+export const on = {
+  "billing.invoice_paid": async (ctx, e) => {            // e: { id, name, payload, attempt }
+    await ctx.db.execute(
+      "insert or ignore into app__receipts (event_id, invoice_id) values (?, ?)",
+      [e.id, e.payload.invoice_id],                       // idempotent on e.id
+    );
+  },
+};
+
+export const hooks = {
+  "auth.after_login": { priority: 50, async handle(ctx, { user }) {
+    if (!user.accepted_terms) return { halt: true, response: Response.redirect(new URL("/terms", ctx.url), 303) };
+  }},
+};
+```
+
+A durable event reaches the app's handler exactly as it reaches a module's: one delivery per (event, handler) after the emitting transaction commits, with its own retries, then the dead letter; at least once, so a handler is idempotent on `e.id`. An in-memory event (`{ durable: false }`) runs the handlers before `emit` resolves, the app's last. The details are in `docs/contracts/ops.md` section 15.4 (1.12.0). A hook filler has the module shape `{ priority?, handle(ctx, args) }` and the module order: ascending `priority` (default 100), ties by module name, the app last on a tie. The app needs no `permissions.hooks` and no approval: it is the tenant's own code. The app fills hook points; it does not expose any.
+
+A handler runs with a fresh `ctx` of the app and no request: no user, no session, no `req`. Its principal is the system principal `Renox::System::"app"` (`11-authorization.md`), the one the app's jobs use. `ctx.db` is the attempt's own transaction and has `db.scoped()`, so a handler that acts on a user's behalf can still go through the policies.
+
+`renox check` warns when `hooks.ts` handles an event of a module that is not installed (the handler would never run; `app.*` events are the app's own).
+
+## Slots
+
+A module renders `<r-slot name="…">` (`08-template-engine.md`) and fillers insert partials into it. The app fills slots with its own partials, declared in `renox.toml`:
+
+```toml
+# renox.toml
+[[slots]]
+name = "admin.sidebar"                       # the <r-slot name> some module renders
+template = "partials/reports-link.html"      # a partial of the app
+requires = "report.view"                     # optional: an action from [authz] actions
+priority = 200                               # optional, 0-1000, default 100
+```
+
+The keys are those of a module's `[[slots]]` (`docs/contracts/manifest.md`). `requires` is checked against the viewer, as an `r-can` without a resource is: a user without the action sees nothing of that filler. Within a slot, fillers render by ascending `priority`, then by module name, and the app comes after a module's filler of equal priority. The app needs no `permissions.slots`.
+
+`renox check` and `renox build` refuse a filler whose `template` is not a partial of the app and a `requires` that is not in the merged actions. `renox check` warns when no installed module (nor the app) renders the slot: the filler shows nowhere until one does.
+
+## App events
+
+The app declares the events it emits in `renox.toml`, with a payload schema, and emits them like a module:
+
+```toml
+# renox.toml
+[events."app.appointment_booked"]
+description = "An appointment was booked."
+payload = { type = "object", required = ["appointment_id"], properties = { appointment_id = { type = "string" } } }
+```
+
+```ts
+// pages/appointments/new.ts (an action)
+await ctx.events.emit("app.appointment_booked", { appointment_id: id });
+```
+
+Names are `app.<name>` (`<name>` lower case, digits and `_`), at most 64 events; the payload schema uses the same keyword subset as a module's `[exports] events`. The app emits only the names it declared: an undeclared name rejects with `RENOX_MODULE_UNDECLARED` and a payload that does not match its schema with `RENOX_EVENT_PAYLOAD`, as for a module. A module cannot emit an `app.*` name.
+
+Every installed module may handle an `app.*` event in its `hooks.ts` `on`, without a dependency, and so may the app itself (to move slow work out of the request). Contract: `docs/contracts/artifact.md` 1.8 (the manifest `events` map) and `ops.md` 1.12.0, section 15.4.
+
 ## The `ctx` surface (SDK)
 
 | Field | Available in | Purpose |
@@ -163,7 +229,7 @@ Jobs run as the principal `System::"app"` (a module's as `System::"<module>"`) w
 | `authz` | all | `require(action, resource)`, `can()`, `canBatch()` |
 | `session` | all | Server session (cookie-backed) |
 | `events` | all | `emit(name, payload, { durable })` |
-| `hooks` | services | `run(name, payload)` for modules that expose hook points |
+| `hooks` | services | `run(name, payload)` for modules that expose hook points (the app fills hook points from `hooks.ts`, it does not run them) |
 | `realtime` | all | `publish(topic, payload)`, `subscribe(conn, topic)` |
 | `secrets` | all | Frozen object of declared secrets |
 | `config` | all | Module config from `renox.toml` |
