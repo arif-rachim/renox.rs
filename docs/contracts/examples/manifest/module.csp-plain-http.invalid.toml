@@ -1,0 +1,7 @@
+# [expect: MF17] CSP sources are https:// origins, data: or blob:
+[module]
+name = "pay"
+version = "1.0.0"
+
+[permissions]
+csp = { frame_src = ["http://js.psp.example"] }

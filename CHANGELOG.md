@@ -15,6 +15,12 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 - `renox new --template home-services`: invalid forms answer 422 and re-render with the typed values and the field errors (no more error page), jobs and event handlers use `ctx.db.scoped`, the App MCP tools are gated by plain role policies, and the tests use `t.job` and `t.tool` (#624). Every form keeps its own typed values on a 422, per row where a page has several (branches, user roles, the job's schedule and assign forms, the visit's part form, the services' active checkbox), and the tests use only the public `@renoxium/sdk/test` helpers (#627).
 - `renox deploy` of an app that uses `hooks.ts`, `[[slots]]` or `[events]` is no longer rejected at upload: `@renox/artifact-validate`, which the control plane runs on every upload, accepts artifact 1.8 (the app's `hooks` entry, `module: "app"` slot fillers, the `events` map, rule V31) (#638).
 - `renox dev` warns when a handler writes to global scope (`globalThis.x = ...`, a module-level `let`): a `warn: <file>:<line> ...` line after every build and a yellow "warnings" badge on every page (#656).
+- Modules declare CSP sources (manifest 1.5, artifact 1.8.1, rule MF17): `[permissions] csp = { script_src = [...], frame_src = [...], ... }` in `module.toml` (`https://` origins with an optional `*.` wildcard, `data:`, `blob:`; never `'unsafe-*'`). `renox add` lists them, `renox approve` shows them per directive, a changed set fails MF12 until approved, and `renox build` merges only the approved sources of every installed module into `security.csp.*` (sorted, at most 32 per directive, a build error naming the module beyond that); the gateway is unchanged. `renox check --security` lists each merged source with the app or module it comes from (#660).
+
+**Modules**
+
+- billing 1.0.1: an abandoned 3DS challenge no longer leaves the order stuck: `checkout.session.expired` and `payment_intent.canceled` (reason `abandoned`) expire the checkout, cancel its pending subscription and emit `billing.checkout_expired`; a job (`jobs/checkouts.ts`) expires card checkouts open for 24 h; the order gets a new session (#655).
+- billing 1.1.0 declares the CSP sources Stripe's checkout needs (`script_src` and `frame_src` for `js.stripe.com`, `frame_src` for `hooks.stripe.com`): an app no longer lists them in its own `[security]`; re-approve with `renox add billing` (#660).
 
 **SDK**
 
@@ -56,7 +62,6 @@ On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/relea
 **Modules**
 
 - auth 1.1.0, org 1.1.0: an agent token's principal is built like the user's session: the `auth.principal` hook runs for it (`agent: true`, `org_id`), `verifyAgentToken` returns `principal.roles` (`[{ role, scope_type, scope_id }]`), and `principal.org` is the organisation picked on the consent page (new hook `auth.agent_orgs`, filled by org; a user of one organisation gets it without a choice; an `org_id` outside the list is 422; migration 006), set only while the user is still a member; `mfa_verified` stays false (#590).
-- billing 1.0.1: an abandoned 3DS challenge no longer leaves the order stuck: `checkout.session.expired` and `payment_intent.canceled` (reason `abandoned`) expire the checkout, cancel its pending subscription and emit `billing.checkout_expired`; a job (`jobs/checkouts.ts`) expires card checkouts open for 24 h; the order gets a new session (#655).
 - 2fa 1.0.1: the `auth.principal` filler sets `mfa_verified = false` for an agent token (`agent: true`) without reading a session; before, it threw in the cell's `/mcp` check and the token was refused with 401 (#590).
 - org 1.1.0: a `rename` service (`org.rename({ org, name })`, admin or owner, 1 to 80 characters; the slug and URLs stay) and the `org.renamed` event `{ org_id, name }`; the members page has a name form (#610).
 - booking 1.0.1: `setHours` replaces a staff member's hours for that weekday or day instead of appending a row (migration 003 keeps the newest of duplicated rows and adds unique indexes); `setHours(staff, when, null)` closes it; the README names the `booking.manage` grant an app's own roles need (#572).

@@ -33,7 +33,7 @@ import { dirname, join, relative, resolve } from "node:path";
 
 import { forbiddenReason } from "@renox/artifact-validate";
 
-import { checkSecurity, type SecurityConfig } from "../check/security.ts";
+import { checkSecurity, mergeModuleCsp, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
@@ -438,7 +438,11 @@ export async function buildFiles(
   const reserved = routes.filter((r) => RESERVED_PATHS.includes(r.path));
   if (reserved.length) throw new BuildError("reserved paths", reserved.map((r) => `V21: ${r.path} (${r.module ?? r.path}) is reserved for the App MCP endpoint`));
   const extra = await toolAndJobRoutes(project, toolModules, jobModules, mods);
-  if (config.security) checkSecurity(config.security, routes);
+  // Module CSP sources (manifest.md 1.5): the approved ones join security.csp.* here, so the gateway stays unchanged.
+  const merged = mergeModuleCsp(config.security, (mods?.modules ?? []).map((m) => ({ name: m.lock.name, csp: m.lock.approved.csp })));
+  if (merged.problems.length) throw new BuildError("module CSP sources do not merge", merged.problems);
+  const security = merged.security;
+  if (security) checkSecurity(security, routes);
   const enc = new TextEncoder();
   const files = new Map<string, Uint8Array>();
   const entry: Record<string, string> = {};
@@ -588,7 +592,7 @@ export async function buildFiles(
     ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,
     ...(config.limits ? { limits: config.limits } : {}),
-    ...(config.security ? { security: config.security } : {}),
+    ...(security ? { security } : {}),
     ...(mods ? { modules: mods.field } : {}),
     ...(Object.keys(allSlots).length ? { slots: allSlots } : {}),
     ...(config.events ? { events: config.events } : {}),

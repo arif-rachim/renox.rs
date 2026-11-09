@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { EXIT, UserError, ValidationError } from "../errors.ts";
 import { readProject } from "../lib/project.ts";
 import { readLock, writeLock } from "../lib/modules/lock.ts";
-import { type ModuleProblem, obj } from "../lib/modules/manifest.ts";
+import { CSP_DIRECTIVES, type ModuleProblem, obj } from "../lib/modules/manifest.ts";
 import { type InstallSpec, type ResolvedModule, lockEntryOf, readModulesTable, resolveModules, resolvedConfig } from "../lib/modules/resolve.ts";
 import { setTableEntry } from "../lib/modules/toml.ts";
 import { officialModulesDir } from "../lib/modules/official.ts";
@@ -56,6 +56,7 @@ export function permissionRequest(m: ResolvedModule, installed: Map<string, Reso
     `  secrets  ${list(p.secrets)}`,
     `  slots    ${list(p.slots)}`,
     `  hooks    ${list(p.hooks)}`,
+    ...(p.csp === undefined ? [] : [`  csp      ${CSP_DIRECTIVES.filter((d) => p.csp?.[d]).map((d) => `${d.replace("_", "-")} ${(p.csp?.[d] ?? []).join(" ")}`).join("; ")}`]),
     `  tools    ${list(tools)}`,
     `  config   ${list(Object.entries(config).map(([k, v]) => `${k} = ${JSON.stringify(v)}`))}${needed.length ? `; needs ${needed.join(", ")}` : ""}`,
     `Dependencies: ${list(deps)}`,

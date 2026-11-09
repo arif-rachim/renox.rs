@@ -1,0 +1,7 @@
+# [expect: MF17] a ";" in a source would end the directive and let the module add one of its own
+[module]
+name = "pay"
+version = "1.0.0"
+
+[permissions]
+csp = { script_src = ["https://js.example.com/;report-uri"] }

@@ -1,6 +1,6 @@
 [module]
 name = "billing"
-version = "1.0.1"
+version = "1.1.0"
 description = "Plans, subscriptions, one-off checkouts, invoices, refunds and usage for an app's own customers; a PSP adapter (Stripe UAE) and verified webhooks"
 
 [dependencies]
@@ -22,6 +22,9 @@ slots = ["admin.sidebar"]
 tables = "billing__*"
 network = ["api.stripe.com"]
 secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"]
+# Stripe.js and the frames of Stripe Checkout and Elements (manifest.md 1.5):
+# https://docs.stripe.com/security/guide#content-security-policy
+csp = { script_src = ["https://js.stripe.com"], frame_src = ["https://js.stripe.com", "https://hooks.stripe.com"] }
 
 [imports]
 services = ["auth.loginUrl", "i18n.detectLocale"]

@@ -28,6 +28,48 @@ export interface SecurityConfig {
   ratelimit?: { method: string; path: string; requests: number; window_s: number; key: "ip" }[];
 }
 
+/** Most sources per directive after the merge (artifact.md, Security). */
+export const MAX_CSP_SOURCES = 32;
+type CspKey = "script_src" | "style_src" | "img_src" | "connect_src" | "frame_src" | "font_src";
+const CSP_KEYS: readonly CspKey[] = ["script_src", "style_src", "img_src", "connect_src", "frame_src", "font_src"];
+
+/** Where each merged CSP source came from: `app` (renox.toml) or a module name. */
+export type CspProvenance = Partial<Record<CspKey, Map<string, string[]>>>;
+
+/**
+ * The app's `[security]` with every installed module's approved
+ * `permissions.csp` merged into `security.csp.*` (manifest.md 1.5; artifact.md,
+ * Security): per directive the union, sorted and deduplicated, at most
+ * MAX_CSP_SOURCES. `modules` carry the APPROVED sets (renox.lock); the build
+ * has already refused any manifest that differs (MF12). Without a module
+ * source the security config is returned untouched.
+ */
+export function mergeModuleCsp(
+  security: SecurityConfig | undefined,
+  modules: { name: string; csp?: Partial<Record<CspKey, string[]>> | undefined }[],
+): { security: SecurityConfig | undefined; provenance: CspProvenance; problems: string[] } {
+  const provenance: CspProvenance = {};
+  const problems: string[] = [];
+  const contributing = modules.filter((m) => CSP_KEYS.some((k) => m.csp?.[k]?.length));
+  if (contributing.length === 0) return { security, provenance, problems };
+  const csp: NonNullable<SecurityConfig["csp"]> = { ...(security?.csp ?? {}) };
+  for (const key of CSP_KEYS) {
+    const from = new Map<string, string[]>();
+    const add = (src: string, who: string) => from.set(src, [...(from.get(src) ?? []), who]);
+    for (const src of security?.csp?.[key] ?? []) add(src, "app");
+    for (const m of contributing) {
+      const before = from.size;
+      for (const src of m.csp?.[key] ?? []) add(src, m.name);
+      if (before <= MAX_CSP_SOURCES && from.size > MAX_CSP_SOURCES)
+        problems.push(`module ${m.name}: its permissions.csp.${key} brings security.csp.${key} to ${from.size} sources; at most ${MAX_CSP_SOURCES}`);
+    }
+    if (from.size === 0) continue;
+    provenance[key] = new Map([...from].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    csp[key] = [...provenance[key].keys()];
+  }
+  return { security: { ...(security ?? {}), csp }, provenance, problems };
+}
+
 export const CSP_REPORT_PATH = "/__renox/events?kind=csp";
 /** The `report-to` group, declared by `Reporting-Endpoints` (client-events.md section 6). */
 export const CSP_REPORT_GROUP = "renox-csp";
@@ -104,9 +146,14 @@ export function headerSet(security: SecurityConfig, nonce = "<per-request>", tls
 }
 
 /** `renox check --security`: the effective headers, then CORS and buckets per route. */
-export function securityReport(security: SecurityConfig, routes: Route[]): string {
+export function securityReport(security: SecurityConfig, routes: Route[], provenance: CspProvenance = {}): string {
   const lines = ["Response headers (every route; the nonce is fresh per request):"];
   for (const [k, v] of headerSet(security)) lines.push(`  ${k}: ${v}`);
+  const merged = CSP_KEYS.filter((k) => provenance[k]?.size);
+  if (merged.length) {
+    lines.push("CSP sources added to the platform policy (app = renox.toml [security]; others are modules' approved permissions.csp):");
+    for (const k of merged) for (const [src, who] of provenance[k] ?? []) lines.push(`  ${k.replace("_", "-")} ${src}  (${who.join(", ")})`);
+  }
   const cors = security.cors ?? {};
   const origins = cors.origins ?? [];
   lines.push(

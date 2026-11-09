@@ -1,0 +1,7 @@
+# [expect: MF17] a module never gets 'unsafe-inline' or 'unsafe-eval'
+[module]
+name = "pay"
+version = "1.0.0"
+
+[permissions]
+csp = { script_src = ["'unsafe-inline'"] }

@@ -1038,7 +1038,11 @@ function authzManifestRules(authz: JsonObject, realtime: JsonObject, permissions
   return errors;
 }
 
-/** MF4 on a [permissions] table or a lock entry's `approved`. */
+const CSP_DIRECTIVES = ["script_src", "style_src", "img_src", "connect_src", "frame_src", "font_src"];
+// No `;` or `,` in the path: they separate directives and policies in the header.
+const CSP_SOURCE = /^(https:\/\/(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%!$&()*+=:@\/-]*)?|data:|blob:)$/u;
+
+/** MF4 and MF17 on a [permissions] table or a lock entry's `approved`. */
 function permissionRules(name: string, permissions: JsonObject, where: string): string[] {
   const errors: string[] = [];
   if (permissions.tables !== undefined && permissions.tables !== `${name}__*`) {
@@ -1046,6 +1050,13 @@ function permissionRules(name: string, permissions: JsonObject, where: string): 
   }
   for (const secret of strings(permissions.secrets)) {
     if (!secret.startsWith(`${name.toUpperCase()}_`)) errors.push(`MF4: ${where}.secrets "${secret}" does not start with ${name.toUpperCase()}_`);
+  }
+  // MF17 (1.5): a module's CSP sources use the `renox.toml [security]` grammar, never 'unsafe-*'.
+  for (const [directive, list] of Object.entries(obj(permissions.csp))) {
+    if (!CSP_DIRECTIVES.includes(directive)) errors.push(`MF17: ${where}.csp.${directive} is not a CSP directive a module may extend`);
+    for (const src of strings(list as Json)) {
+      if (!CSP_SOURCE.test(src)) errors.push(`MF17: ${where}.csp.${directive} "${src}" is not an https:// origin (optional *. wildcard and path), data: or blob:`);
+    }
   }
   return errors;
 }
@@ -1196,6 +1207,13 @@ const normalisedPermissions = (p: JsonObject): string =>
     hooks: strings(p.hooks).sort(),
     roles: strings(p.roles).sort(),
     app_access: (p.app_access as Json | undefined) ?? null,
+    // 1.5: per directive, sorted; an empty directive is absent.
+    csp: Object.fromEntries(
+      Object.entries(obj(p.csp))
+        .map(([k, v]) => [k, strings(v as Json).sort()] as const)
+        .filter(([, v]) => v.length > 0)
+        .sort(([a], [b]) => (a < b ? -1 : 1)),
+    ),
   });
 
 /** The project rules (MF2, MF3, MF5, MF7-MF12) on an example app: renox.toml, renox.lock, path: module trees. */
@@ -1762,8 +1780,8 @@ for (const name of listDir(`${manifestDir}/projects`)) {
 for (const [kind, { valid, invalid }] of Object.entries(manifestCounts)) {
   report(valid >= 1 && invalid >= 3, `manifest ${kind}: ${valid} valid and ${invalid} invalid examples (at least 1 and 3)`);
 }
-const mfMissing = Array.from({ length: 16 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
-report(mfMissing.length === 0, "every rule MF1-MF16 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
+const mfMissing = Array.from({ length: 17 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
+report(mfMissing.length === 0, "every rule MF1-MF17 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
 
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);

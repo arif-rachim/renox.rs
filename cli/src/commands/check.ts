@@ -22,10 +22,11 @@ import { type Finding, lintBody, lintCatalogs, lintFetch, lintGlobalState, lintM
 import { mergedActions, PolicyError } from "../lib/policies.ts";
 import { readProject } from "../lib/project.ts";
 import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
-import { securityReport } from "../check/security.ts";
+import { mergeModuleCsp, securityReport } from "../check/security.ts";
 import { discoverAppHooks, discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
 import { unknownEventHandlers, unrenderedSlots } from "../check/app-slots.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
+import { readLock } from "../lib/modules/lock.ts";
 import { projectProblems } from "../lib/modules/resolve.ts";
 import { contractProblems, installedModules } from "../lib/modules/build.ts";
 import { exportProblems } from "../check/exports.ts";
@@ -224,7 +225,9 @@ export function targetFindings(project: string, target: string): SchemaFinding[]
 /** `renox check --security`: the effective headers, CORS, and buckets per route (#47). */
 export function securityOutput(project: string): string {
   const config = readProject(project);
-  return securityReport(config.security ?? {}, sortRoutes(routesOf(discoverFunctions(project), discoverPages(project))));
+  // The approved module sources (renox.lock) are merged as the build merges them.
+  const { security, provenance } = mergeModuleCsp(config.security, (readLock(project).entries ?? []).map((e) => ({ name: e.name, csp: e.approved.csp })));
+  return securityReport(security ?? {}, sortRoutes(routesOf(discoverFunctions(project), discoverPages(project))), provenance);
 }
 
 export async function run(args: string[]): Promise<number> {
