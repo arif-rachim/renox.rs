@@ -8,13 +8,14 @@
 //!   --test ctx_facade_heap -- --ignored --nocapture --test-threads=1
 //! ```
 //!
-//! Two measurements, on artifacts with 0, 6 and 12 modules (`m01`..`m12`,
+//! Two measurements, on artifacts with up to 12 modules (`m01`..`m12`,
 //! each with a config and four services, like a small marketplace module):
 //!
 //! 1. **At isolate creation**: `CreateStats::used_heap_bytes` (the same
 //!    `used_heap_size` the meter's `peak_heap_bytes` reads), median of
-//!    several isolates per artifact, for modules with code (`services.js`)
-//!    and for modules registered with no code at all. The slope is the
+//!    several isolates per artifact, for every module count from 0 to 12,
+//!    for modules with code (`services.js`) and for modules registered with
+//!    no code at all. The median step from N to N + 1 is the
 //!    per-module cost of creation: `harden`'s frozen module info and
 //!    secrets, `buildProxies`' service closures, `register`, and (with
 //!    code) the module's evaluation.
@@ -64,7 +65,10 @@ fn app_source(n: usize) -> String {
     let import = if n == 0 {
         String::new()
     } else {
-        format!("import {{ {} }} from \"renox:modules\";\n", names.join(", "))
+        format!(
+            "import {{ {} }} from \"renox:modules\";\n",
+            names.join(", ")
+        )
     };
     format!(
         r#"{import}const mods = [{list}];
@@ -172,7 +176,10 @@ async fn creation_heap(rt: &Runtime, n: usize, with_code: bool) -> u64 {
 
 async fn call(iso: &IsolateHandle, sink: &MemoryLogSink, op: &str, i: usize) -> u64 {
     let out = iso
-        .dispatch(ctx(&format!("req_facade_{op}_{i}")), get(&format!("/?op={op}")))
+        .dispatch(
+            ctx(&format!("req_facade_{op}_{i}")),
+            get(&format!("/?op={op}")),
+        )
         .await;
     assert_eq!(out.response.status(), 200, "{:?}", sink.lines());
     out.meter.peak_heap_bytes
@@ -200,24 +207,41 @@ fn kb(b: f64) -> f64 {
 async fn ctx_facade_bytes_per_module() {
     let (rt, sink) = runtime();
 
-    // 1. Creation.
+    // 1. Creation, every N from 0 to 12. `used_heap_size` is read right
+    // after creation, with no GC forced: once per run it jumps by about
+    // 0.7 MB at a module count that moves between runs (8, 9 or 10), a heap
+    // growth step and not a per-module cost. The per-module figure is
+    // therefore the median of the 12 steps N -> N + 1, which that one
+    // jump does not move.
     for with_code in [true, false] {
-        let h0 = creation_heap(&rt, 0, with_code).await;
-        let h6 = creation_heap(&rt, 6, with_code).await;
-        let h12 = creation_heap(&rt, 12, with_code).await;
-        let per = (h12 as f64 - h0 as f64) / 12.0;
+        let mut heaps = Vec::with_capacity(13);
+        for n in 0..=12 {
+            heaps.push(creation_heap(&rt, n, with_code).await);
+        }
+        let mut steps: Vec<i64> = heaps
+            .windows(2)
+            .map(|w| w[1] as i64 - w[0] as i64)
+            .collect();
+        steps.sort_unstable();
+        let per = (steps[5] + steps[6]) as f64 / 2.0;
+        let line: Vec<String> = heaps
+            .iter()
+            .enumerate()
+            .map(|(n, h)| format!("{n}: {:.1}", kb(*h as f64)))
+            .collect();
         println!(
-            "[creation, modules {}] used_heap 0: {} B, 6: {} B, 12: {} B; per module (12 - 0) / 12: {:.1} KB ({:.4} MB); 0->6: {:.1} KB, 6->12: {:.1} KB",
-            if with_code { "with services.js" } else { "registered, no code" },
-            h0,
-            h6,
-            h12,
+            "[creation, modules {}] used_heap KB by module count: {}; median step per module {:.2} KB ({:.4} MB); 12 - 0: {:.1} KB",
+            if with_code {
+                "with services.js"
+            } else {
+                "registered, no code"
+            },
+            line.join(", "),
             kb(per),
             per / 1048576.0,
-            kb((h6 as f64 - h0 as f64) / 6.0),
-            kb((h12 as f64 - h6 as f64) / 6.0),
+            kb(heaps[12] as f64 - heaps[0] as f64),
         );
-        assert!(h12 >= h0, "more modules cannot shrink the heap at creation");
+        assert!(per > 0.0, "a module must cost something at creation");
     }
 
     // 2. The facade, built per request by ctxOf(m).
