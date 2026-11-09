@@ -46,13 +46,13 @@
     <x-form action="item" class="stack narrow">
       <p><label><r-t key="contracts.f.site" />
         <select name="site_id" required>
-          <option r-for="x in sites" :value="x.id">{{ x.name }}</option>
+          <option r-for="x in sites" :value="x.id" :selected="x.id == values.site_id">{{ x.name }}</option>
         </select></label></p>
       <p><label><r-t key="contracts.f.service" />
         <select name="service" required>
-          <option r-for="x in catalogue" :value="x.sid">{{ x.name }}</option>
+          <option r-for="x in catalogue" :value="x.sid" :selected="x.sid == values.service">{{ x.name }}</option>
         </select></label></p>
-      <p><label><r-t key="contracts.f.visits" /> <input name="visits" inputmode="numeric" dir="ltr" maxlength="2" required></label></p>
+      <p><label><r-t key="contracts.f.visits" /> <input name="visits" inputmode="numeric" dir="ltr" maxlength="2" :value="values.visits" required></label></p>
       <p><button type="submit"><r-t key="contracts.add_item" /></button></p>
     </x-form>
   </section>

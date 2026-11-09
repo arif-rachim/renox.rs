@@ -28,7 +28,7 @@
       <a href="/"><r-t key="backoffice.open_work" /></a>
     </nav>
     <main>
-      <slot />
+      <x-form-errors :problems="problems" /><slot />
     </main>
   </div>
   <footer><small>{{ brand.footer }}</small></footer>

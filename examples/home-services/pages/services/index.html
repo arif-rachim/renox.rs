@@ -23,7 +23,7 @@
     <x-form action="save" class="row" r-for="s in services">
       <input type="hidden" name="service" :value="s.id">
       <span dir="ltr">{{ s.code }}</span>
-      <label><r-t key="catalogue.f.price" /> <input name="price" dir="ltr" inputmode="decimal" :value="s.price_input" size="8"></label>
+      <label><r-t key="catalogue.f.price" /> <input name="price" dir="ltr" inputmode="decimal" :value="values.price if (values.service == s.id and values.price is defined) else s.price_input" size="8"></label>
       <label><input type="checkbox" name="active" value="1" :checked="s.active"> <r-t key="catalogue.f.active" /></label>
       <button type="submit"><r-t key="catalogue.save" /></button>
     </x-form>

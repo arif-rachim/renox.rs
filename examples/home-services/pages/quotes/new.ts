@@ -1,7 +1,7 @@
 // GET /quotes/new: the quotation form (site, validity, notes, up to eight lines
 // from the catalogue or in free text) with the AI draft box.
 // POST ?/create stores a draft in the dispatcher's branch and redirects to it;
-// an invalid form is a 422 naming each field (lib/problems.ts).
+// an invalid form is a 422 naming each field (lib/invalid.ts).
 // POST ?/draft asks `ctx.ai` for lines from a free-text request and shows the
 // form again with them filled in; without an AI provider it says "AI off" and
 // the form works as it does without it.
@@ -10,7 +10,7 @@ import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { draftLines, type DraftState } from "../../lib/draft";
 import { check, LINE_SLOTS, quoteSchema, valuesOf } from "../../lib/forms";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { catalogueOf, insertQuote, resolveLines, type ServiceRow } from "../../lib/quotes";
 import { branchOf, noBranch, scopedDb, type Branch } from "../../lib/scope";
 
@@ -66,14 +66,16 @@ export const actions = {
     const page = await shell(ctx);
     const branch = await branchOf(ctx);
     if (branch === null) return noBranch();
+    // The form again with what was typed, the lines included (422).
+    const refuse = async (errors: Record<string, string>) => ({ ...invalid(page.locale, ctx.form, errors), ...(await formData(ctx, branch, page.locale, valuesOf(ctx.form), null)) });
     const input = await check(ctx.form, quoteSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, "/quotes/new");
+    if ("errors" in input) return refuse(input.errors);
     const scoped = scopedDb(ctx.db, branch);
     // The site must be the branch's (the fence finds no other); the quotation is the site's customer's.
     const site = await scoped.queryOne<{ id: string; customer_id: string }>("select id, customer_id from app__sites where id = ?", [input.value.site_id]);
-    if (site === null) return unprocessable(page.locale, { site_id: "quotes.err.site" }, "/quotes/new");
+    if (site === null) return refuse({ site_id: "quotes.err.site" });
     const resolved = resolveLines(input.value.lines, await catalogueOf(ctx.db, branch.id));
-    if ("bad" in resolved) return unprocessable(page.locale, { [`service_${resolved.bad}`]: "quotes.err.service" }, "/quotes/new");
+    if ("bad" in resolved) return refuse({ [`service_${resolved.bad}`]: "quotes.err.service" });
     const userId = ctx.principal?.id;
     if (userId === undefined) return new Response("Forbidden", { status: 403 });
     const validUntil = Math.floor(Date.now() / 1000) + input.value.valid_days * 86400;
