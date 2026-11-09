@@ -244,3 +244,67 @@ describe("MF1: reserved module names (#304)", () => {
     expect(reasons.some((r) => r.includes("is reserved (MF1)"))).toBe(true);
   });
 });
+
+describe("artifact 1.8 (#629, #638): the app's hooks entry, app slot fillers, events (V31)", () => {
+  const dir = (): string => artifactDir("artifact/app-events-artifact");
+  const tree = (): Map<string, Uint8Array> => readTree(dir());
+  const manifestOf = (files: Map<string, Uint8Array>): JsonObject => JSON.parse(new TextDecoder().decode(files.get("manifest.json"))) as JsonObject;
+  const single = (name: string): JsonObject => JSON.parse(readFileSync(join(EXAMPLES, "artifact", name), "utf8")) as JsonObject;
+
+  test("app-events-artifact is valid and its directory name is its hash", () => {
+    const result = checkArtifactFiles(tree(), { expectedHash: dir().split("/").pop() as string, tier: TIERS.free });
+    expect(result.violations.map(formatViolation)).toEqual([]);
+    const m = result.manifest as JsonObject;
+    expect(((m.code as JsonObject).entry as JsonObject).hooks).toBe("hooks.js");
+    expect(Object.keys(m.events as JsonObject).length).toBeGreaterThan(0);
+  });
+
+  test("a slot filler of the app whose template is a page is V18 (app-events.undeclared)", () => {
+    const v = checkManifest(single("manifest.app-events-undeclared.invalid.json"));
+    expect(v.map((x) => x.rule)).toEqual(["V18"]);
+    expect(v[0]?.reason).toContain("is not a partial of templates");
+  });
+
+  test("an events key without the app. prefix is rejected (app-events.badname)", () => {
+    const v = checkManifest(single("manifest.app-events-badname.invalid.json")).map(formatViolation);
+    expect(v.length).toBeGreaterThan(0);
+    expect(v.join("\n")).toContain("pattern");
+  });
+
+  test("a 1.7 artifact without the three features is still valid", () => {
+    for (const group of ["artifact/f5-artifact", "artifact/modules-artifact"]) {
+      const d = artifactDir(group);
+      expect(checkArtifactFiles(readTree(d), { expectedHash: d.split("/").pop() as string }).violations.map(formatViolation)).toEqual([]);
+    }
+  });
+
+  test("a 1.8 artifact without events is valid", () => {
+    const files = tree();
+    const m = manifestOf(files);
+    delete m.events;
+    files.set("manifest.json", new TextEncoder().encode(JSON.stringify(m)));
+    expect(checkArtifactFiles(files).violations.map(formatViolation)).toEqual([]);
+  });
+
+  test("V31: a payload outside the keyword subset", () => {
+    const m = manifestOf(tree());
+    const [name, ev] = Object.entries(m.events as JsonObject)[0] as [string, JsonObject];
+    (ev.payload as JsonObject).dependentSchemas = { x: {} };
+    expect(checkManifest(m)).toContainEqual({ rule: "V31", field: `events.${name}.payload`, reason: "#/dependentSchemas: unsupported keyword" });
+  });
+
+  test("V23: the app's hooks entry must stay eager; V22: an app filler needs no permissions.slots", () => {
+    const m = manifestOf(tree());
+    expect(Object.values(m.slots as JsonObject).flat().some((f) => (f as JsonObject).module === "app")).toBe(true);
+    (m.entries as Record<string, JsonObject>).hooks = { ...((m.entries as Record<string, JsonObject>).hooks as JsonObject), eager: false };
+    expect(checkManifest(m)).toEqual([{ rule: "V23", field: "entries.hooks", reason: "must be eager (hooks and services are checked at isolate creation)" }]);
+  });
+
+  test("V18: an app filler whose template belongs to a module", () => {
+    const m = manifestOf(tree());
+    const [slot] = Object.keys(m.slots as JsonObject) as [string];
+    (m.slots as Record<string, JsonObject[]>)[slot] = [{ module: "app", template: "modules/auth/partials/x" }];
+    const v = checkManifest(m).filter((x) => x.rule === "V18").map((x) => x.reason);
+    expect(v).toContain(`template "modules/auth/partials/x" is not under the app's partials/`);
+  });
+});
