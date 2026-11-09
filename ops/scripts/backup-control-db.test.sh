@@ -21,7 +21,7 @@ skip() { echo "SKIP backup-control-db test: $*"; exit 0; }
 command -v age >/dev/null 2>&1 || skip "age is not installed"
 command -v age-keygen >/dev/null 2>&1 || skip "age-keygen is not installed"
 command -v python3 >/dev/null 2>&1 || skip "python3 is not installed"
-curl --help all 2>/dev/null | grep -q -- --aws-sigv4 || skip "curl has no --aws-sigv4"
+curl --help all 2>/dev/null | grep -- --aws-sigv4 >/dev/null || skip "curl has no --aws-sigv4"
 
 tmp=$(mktemp -d)
 server_pid=""
@@ -111,7 +111,7 @@ objects() { find "$tmp/store" -type f | wc -l; }
 if run >"$tmp/out" 2>&1 && grep -q "renoxium-backups/control-db/" "$tmp/out"; then pass "a backup is uploaded with a signed PUT and read back"
 else fail "a backup is uploaded: $(cat "$tmp/out")"; fi
 obj=$(find "$tmp/store" -type f | head -n 1)
-if [[ -n $obj ]] && age --decrypt --identity "$tmp/identity" "$obj" 2>/dev/null | grep -q "PGDMP fake dump of --format=custom --compress=6 --dbname=renox"; then
+if [[ -n $obj ]] && age --decrypt --identity "$tmp/identity" "$obj" 2>/dev/null | grep "PGDMP fake dump of --format=custom --compress=6 --dbname=renox" >/dev/null; then
   pass "the object decrypts with the identity to pg_dump's output"
 else fail "the object decrypts to the dump"; fi
 if [[ -n $obj ]] && ! grep -q "PGDMP" "$obj"; then pass "the object is not the dump in the clear"; else fail "the object is encrypted"; fi
