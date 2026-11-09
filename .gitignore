@@ -18,6 +18,7 @@ perf.data*
 # RSS bisect (#457): worktrees, the shared release target and cached workers
 bench/rss-bisect/.wt/
 bench/rss-bisect/.target/
+bench/rss-bisect/.target-prof/
 bench/rss-bisect/.cache/
 
 # SQLite

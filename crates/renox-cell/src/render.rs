@@ -973,8 +973,11 @@ pub type SharedPages = Arc<PageRenderer>;
 
 /// `ctx.pdf`'s renderer for one deployment (#322; ops.md 1.7.0 section 24):
 /// its templates, rendered like pages, then converted by the runtime.
+/// It is the deployment's page renderer itself, the same `Arc` as the
+/// cell's pages, so the templates are compiled once per deployment, not
+/// once for pages and again for documents (#641).
 struct PdfTemplates(
-    PageRenderer,
+    Arc<PageRenderer>,
     Option<Arc<dyn renox_runtime::ops::pdf::PdfImages>>,
 );
 
@@ -1030,29 +1033,32 @@ pub struct PdfImageSource {
     pub tenant_id: String,
 }
 
-/// `authz` is the deployment's slot: `ctx.render` answers `r-can` from it.
-/// `images` is the tenant's store (`None`: `/_img` images are dropped).
+/// The template slot of `ctx.pdf` and `ctx.render`: `pages`, the
+/// deployment's page renderer (#641; it answers `r-can` from the
+/// deployment's authz slot). `images` is the tenant's store (`None`:
+/// `/_img` images are dropped); its widths come from the artifact's
+/// `[storage.images]`. `None` for an artifact without templates.
 pub fn pdf_templates(
     artifact_dir: &Path,
-    authz: Option<renox_runtime::ops::authz::AuthzSlot>,
+    pages: Option<&Arc<PageRenderer>>,
     images: Option<PdfImageSource>,
 ) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
-    let raw = std::fs::read(artifact_dir.join("manifest.json")).ok()?;
-    let manifest: Manifest = serde_json::from_slice(&raw).ok()?;
-    let mut renderer = PageRenderer::load(artifact_dir, &manifest, "", None).ok()??;
-    if let Some(slot) = authz {
-        renderer = renderer.with_authz(slot);
-    }
+    let pages = pages?.clone();
     let images = images.map(|s| {
+        let widths = std::fs::read(artifact_dir.join("manifest.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<Manifest>(&raw).ok())
+            .map(|m| crate::images::manifest_widths(m.storage.as_ref()))
+            .unwrap_or_default();
         Arc::new(crate::images::PdfImageStore {
             storage: s.storage,
             db: s.db,
             tenant_id: s.tenant_id,
-            widths: crate::images::manifest_widths(manifest.storage.as_ref()),
+            widths,
         }) as Arc<dyn renox_runtime::ops::pdf::PdfImages>
     });
-    Some(renox_runtime::ops::pdf::TemplateSlot(std::sync::Arc::new(
-        PdfTemplates(renderer, images),
+    Some(renox_runtime::ops::pdf::TemplateSlot(Arc::new(
+        PdfTemplates(pages, images),
     )))
 }
 
