@@ -92,11 +92,8 @@ jobs:
         target:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
-          # macOS is off for now: the macos-15-intel runner failed worker-v0.6.0
-          # three times on HTTP 504 downloads (setup-bun, rusty_v8, sccache).
-          # Restore these two rows and the two in `include` below together.
-          # - aarch64-apple-darwin
-          # - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
           # #528: Windows x86_64, default variant only (see exclude).
           - x86_64-pc-windows-msvc
         # #381: `default` without the `pdf` feature, `pdf` with it.
@@ -119,12 +116,12 @@ jobs:
           # upper bound on CPU and does not lag like `thread_info` does).
           # `macos-15` (aarch64) is the current ARM runner; macos-14 was
           # retired on 2026-11-02 (actions/runner-images#13518).
-          # - target: aarch64-apple-darwin
-          #   runner: macos-15
-          #   smoke: native
-          # - target: x86_64-apple-darwin
-          #   runner: macos-15-intel
-          #   smoke: native
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            smoke: native
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            smoke: native
           # #528: no smoke test: fetch-worker.ts and renox dev do not run on
           # Windows yet (the CLI pin and fetch are F7-106, F7-107).
           - target: x86_64-pc-windows-msvc
