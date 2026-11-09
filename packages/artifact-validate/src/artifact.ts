@@ -421,7 +421,11 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
  * V23 (version 1.2): `entries` names exactly the `code.entry` ids; each route's
  * handler is among its module's recorded exports; a module's `services` entry
  * exports every service of `exports.services`, and the `services` and `hooks`
- * entries stay eager (ops.md 1.4.0 section 11).
+ * entries stay eager (ops.md 1.4.0 section 11). Version 1.9 (ops.md 1.13.0,
+ * ADR D32): a `services` entry may be lazy, and a `hooks` entry (a module's or
+ * the app's) may be lazy when it records `hooks` and `on`; those lists appear
+ * only on `hooks` entries, match `exports`, and a module's filled hooks are
+ * approved.
  */
 function entriesRules(manifest: JsonObject): Violation[] {
   if (!isObject(manifest.entries)) return [];
@@ -438,11 +442,29 @@ function entriesRules(manifest: JsonObject): Violation[] {
     if (id === undefined || !(id in entries)) return;
     for (const name of routeExports(route)) if (!exportsOf(id).includes(name)) out.push({ rule: "V23", field: `routes[${i}]`, reason: `module "${id}" does not export "${name}"` });
   });
-  for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
-    for (const part of ["services", "hooks"]) {
-      const id = `modules/${m.name}/${part}`;
-      if (entries[id]?.eager === false) out.push({ rule: "V23", field: `entries.${id}`, reason: "must be eager (hooks and services are checked at isolate creation)" });
+  const modules = Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : [];
+  const hooksIds = new Set(["hooks", ...modules.map((m) => `modules/${m.name}/hooks`)]);
+  const namesOf = (e: JsonObject, key: string): string[] | undefined => (Array.isArray(e[key]) ? strings(e[key]) : undefined);
+  for (const [id, e] of Object.entries(entries)) {
+    if (!isObject(e)) continue;
+    const hooks = namesOf(e, "hooks");
+    const on = namesOf(e, "on");
+    if (!hooksIds.has(id)) {
+      if (hooks !== undefined || on !== undefined) out.push({ rule: "V23", field: `entries.${id}`, reason: "is not a hooks entry and may not record hooks or on" });
+      continue;
     }
+    // Without the recorded names a hooks entry is eager: the broker would
+    // have to evaluate it to route hooks and events.
+    if (e.eager === false && (hooks === undefined || on === undefined))
+      out.push({ rule: "V23", field: `entries.${id}`, reason: "is lazy but does not record hooks and on (version 1.9)" });
+    for (const [key, names] of [["hooks", hooks], ["on", on]] as const)
+      if (names !== undefined && names.length > 0 && !exportsOf(id).includes(key)) out.push({ rule: "V23", field: `entries.${id}`, reason: `records ${key} but does not export "${key}"` });
+  }
+  for (const m of modules) {
+    const hooksEntry = entries[`modules/${m.name}/hooks`];
+    const filled = isObject(hooksEntry) ? (namesOf(hooksEntry, "hooks") ?? []) : [];
+    const approved = strings(obj(m.approved).hooks);
+    for (const h of filled) if (!approved.includes(h)) out.push({ rule: "V23", field: `entries.modules/${m.name}/hooks`, reason: `fills hook "${h}", which is not in the module's approved hooks` });
     const id = `modules/${m.name}/services`;
     if (id in entries) for (const s of strings(obj(m.exports).services)) if (!exportsOf(id).includes(s)) out.push({ rule: "V23", field: `entries.${id}`, reason: `does not export service "${s}"` });
   }

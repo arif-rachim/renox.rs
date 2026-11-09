@@ -1,5 +1,5 @@
 {
-  "$comment": "invalid: a module's services entry may not be lazy [expect: V23]",
+  "$comment": "invalid (1.9): a module's hooks entry may be lazy only when it records hooks and on; a lazy services entry is valid [expect: V23]",
   "artifact": {
     "version": 1
   },
@@ -44,7 +44,10 @@
       "eager": false
     },
     "modules/auth/hooks": {
-      "exports": []
+      "exports": [
+        "on"
+      ],
+      "eager": false
     }
   },
   "routes": [
