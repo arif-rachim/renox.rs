@@ -293,11 +293,16 @@ describe("artifact 1.8 (#629, #638): the app's hooks entry, app slot fillers, ev
     expect(checkManifest(m)).toContainEqual({ rule: "V31", field: `events.${name}.payload`, reason: "#/dependentSchemas: unsupported keyword" });
   });
 
-  test("V23: the app's hooks entry must stay eager; V22: an app filler needs no permissions.slots", () => {
+  test("V23: the app's hooks entry is lazy only when it records hooks and on (artifact 1.9); V22: an app filler needs no permissions.slots", () => {
     const m = manifestOf(tree());
     expect(Object.values(m.slots as JsonObject).flat().some((f) => (f as JsonObject).module === "app")).toBe(true);
-    (m.entries as Record<string, JsonObject>).hooks = { ...((m.entries as Record<string, JsonObject>).hooks as JsonObject), eager: false };
-    expect(checkManifest(m)).toEqual([{ rule: "V23", field: "entries.hooks", reason: "must be eager (hooks and services are checked at isolate creation)" }]);
+    const entries = m.entries as Record<string, JsonObject>;
+    entries.hooks = { ...(entries.hooks as JsonObject), eager: false };
+    expect(checkManifest(m)).toEqual([{ rule: "V23", field: "entries.hooks", reason: "is lazy but does not record hooks and on (version 1.9)" }]);
+    // With the recorded names (artifact 1.9, ADR D32) the same lazy entry is accepted.
+    const exp = entries.hooks.exports as string[];
+    entries.hooks = { ...entries.hooks, hooks: exp.includes("hooks") ? ["x.y"] : [], on: exp.includes("on") ? ["x.y"] : [] };
+    expect(checkManifest(m)).toEqual([]);
   });
 
   test("V18: an app filler whose template belongs to a module", () => {

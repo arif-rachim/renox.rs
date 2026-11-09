@@ -49,7 +49,7 @@ approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks 
 name = "billing"
 version = "1.1.0"
 source = "official"
-hash = "ddfeaecf1fb75c40a1e8ef70aa0a2d99f4d897727b8c4404c2ff361a65803e82"
+hash = "72c2e49aa0ea40d0dff6014e40bfe99b96a09f804034e02d9c68f640e31a20e4"
 isolation = "shared"
 mount = "/billing"
 dependencies = ["auth", "i18n"]

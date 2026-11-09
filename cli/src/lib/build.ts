@@ -438,7 +438,7 @@ export async function buildFiles(
   const reserved = routes.filter((r) => RESERVED_PATHS.includes(r.path));
   if (reserved.length) throw new BuildError("reserved paths", reserved.map((r) => `V21: ${r.path} (${r.module ?? r.path}) is reserved for the App MCP endpoint`));
   const extra = await toolAndJobRoutes(project, toolModules, jobModules, mods);
-  // Module CSP sources (manifest.md 1.5): the approved ones join security.csp.* here, so the gateway stays unchanged.
+  // Module CSP sources (manifest.md 1.6): the approved ones join security.csp.* here, so the gateway stays unchanged.
   const merged = mergeModuleCsp(config.security, (mods?.modules ?? []).map((m) => ({ name: m.lock.name, csp: m.lock.approved.csp })));
   if (merged.problems.length) throw new BuildError("module CSP sources do not merge", merged.problems);
   const security = merged.security;

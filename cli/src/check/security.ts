@@ -38,7 +38,7 @@ export type CspProvenance = Partial<Record<CspKey, Map<string, string[]>>>;
 
 /**
  * The app's `[security]` with every installed module's approved
- * `permissions.csp` merged into `security.csp.*` (manifest.md 1.5; artifact.md,
+ * `permissions.csp` merged into `security.csp.*` (manifest.md 1.6; artifact.md,
  * Security): per directive the union, sorted and deduplicated, at most
  * MAX_CSP_SOURCES. `modules` carry the APPROVED sets (renox.lock); the build
  * has already refused any manifest that differs (MF12). Without a module

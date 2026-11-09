@@ -86,7 +86,7 @@ The Windows `renox-worker.exe` runs isolates only: it has no supervisor, sandbox
 
 ## Web-layer protections (for tenant applications)
 
-Browser-facing protections are enforced by the gateway and the template engine, configured in `renox.toml`, never hand-written as middleware by tenants. A module that needs a third-party script or frame (a payment widget, a map) declares the sources in `[permissions] csp` of its `module.toml`; the tenant approves them at install like any permission (`renox add`, `renox approve`), and `renox build` merges only the approved sources into the artifact's `security.csp.*`, which the gateway applies as it does the app's own (`docs/contracts/manifest.md` 1.5, MF17; `artifact.md` 1.8.1). A module never gets `'unsafe-inline'` or `'unsafe-eval'`.
+Browser-facing protections are enforced by the gateway and the template engine, configured in `renox.toml`, never hand-written as middleware by tenants. A module that needs a third-party script or frame (a payment widget, a map) declares the sources in `[permissions] csp` of its `module.toml`; the tenant approves them at install like any permission (`renox add`, `renox approve`), and `renox build` merges only the approved sources into the artifact's `security.csp.*`, which the gateway applies as it does the app's own (`docs/contracts/manifest.md` 1.6, MF17; `artifact.md` 1.9.1). A module never gets `'unsafe-inline'` or `'unsafe-eval'`.
 
 | Protection | Default | Configuration |
 | --- | --- | --- |

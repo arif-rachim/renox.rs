@@ -34,7 +34,7 @@ export interface Manifest {
   permissions: Permissions;
 }
 
-/** The CSP directives a module may extend (manifest.md 1.5, `[permissions] csp`). */
+/** The CSP directives a module may extend (manifest.md 1.6, `[permissions] csp`). */
 export const CSP_DIRECTIVES = ["script_src", "style_src", "img_src", "connect_src", "frame_src", "font_src"] as const;
 export type CspDirective = (typeof CSP_DIRECTIVES)[number];
 
@@ -44,7 +44,7 @@ export interface Permissions {
   secrets: string[];
   slots: string[];
   hooks: string[];
-  /** 1.5: CSP sources the module needs, per directive; only non-empty directives are present, sources sorted. */
+  /** 1.6: CSP sources the module needs, per directive; only non-empty directives are present, sources sorted. */
   csp?: Partial<Record<CspDirective, string[]>>;
 }
 

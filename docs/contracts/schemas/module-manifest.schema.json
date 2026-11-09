@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renoxium.com/contracts/manifest/v1/module-manifest.schema.json",
-  "title": "Renox module manifest (module.toml) and renox.toml [modules], [authz], [realtime], manifest contract version 1.5",
+  "title": "Renox module manifest (module.toml) and renox.toml [modules], [authz], [realtime], manifest contract version 1.6",
   "description": "The root validates a parsed module.toml. $defs/renoxToml validates a parsed renox.toml, of which this contract owns only [modules]. Prose: docs/contracts/manifest.md. Rules the schema cannot express (reserved names, own prefix, dependency graph, imports, config types, the lock) are MF1-MF12 in section 6. Version 1.1 (#272) adds [authz] ownership, entities, default_roles and sensitive, [realtime.feeds], permissions.roles, and the same [authz] and [realtime] on renox.toml for the app; rules MF13-MF14.",
   "type": "object",
   "additionalProperties": false,
@@ -25,6 +25,10 @@
         },
         "isolation": {
           "$ref": "#/$defs/isolation"
+        },
+        "eager": {
+          "type": "boolean",
+          "description": "1.5: true keeps the module's services and hooks entries eager, evaluated at isolate creation (ADR D32; ops.md 1.14.0 section 11). Default false: evaluated on the first call into the module."
         },
         "description": {
           "type": "string",
@@ -531,7 +535,7 @@
         "csp": {
           "type": "object",
           "additionalProperties": false,
-          "description": "1.5: CSP sources the module needs (a payment widget, a map), per directive. Approved at install like every permission (MF12); the build merges the approved ones into the artifact's security.csp.*. Grammar: MF17.",
+          "description": "1.6: CSP sources the module needs (a payment widget, a map), per directive. Approved at install like every permission (MF12); the build merges the approved ones into the artifact's security.csp.*. Grammar: MF17.",
           "properties": {
             "script_src": {
               "type": "array",
@@ -842,7 +846,7 @@
     "moduleCspSource": {
       "type": "string",
       "maxLength": 256,
-      "description": "1.5: a CSP source a module asks for, at most 256 characters. The grammar (https origin with an optional *. host wildcard and path, data:, blob:; never 'unsafe-*') is rule MF17."
+      "description": "1.6: a CSP source a module asks for, at most 256 characters. The grammar (https origin with an optional *. host wildcard and path, data:, blob:; never 'unsafe-*') is rule MF17."
     }
   }
 }

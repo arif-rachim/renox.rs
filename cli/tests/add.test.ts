@@ -117,7 +117,7 @@ test("a module in renox.toml without a lock entry fails with MF3", () => {
   rmSync(dir, { recursive: true });
 });
 
-// #660: `[permissions] csp` (manifest.md 1.5, MF17) is approved like any permission.
+// #660: `[permissions] csp` (manifest.md 1.6, MF17) is approved like any permission.
 const PAY_CSP = 'csp = { script_src = ["https://js.psp.example"], frame_src = ["https://js.psp.example", "https://*.psp.example"] }';
 const pay = () => app({}, [{ name: "pay", version: "1.0.0", extra: `[permissions]\n${PAY_CSP}\n` }]);
 

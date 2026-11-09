@@ -822,6 +822,10 @@ function webhookStorageRules(manifest: JsonObject): string[] {
  * function route, `load` and `actions` of a page route); a module's
  * `services` entry exports every service of `exports.services`, and the
  * `services` and `hooks` entries stay eager (ops.md 1.4.0 section 11).
+ * Version 1.9 (ops.md 1.14.0, ADR D32): a `services` entry may be lazy, and a
+ * `hooks` entry may be lazy when it records `hooks` and `on`; those lists
+ * appear only on `hooks` entries, match `exports`, and a module's filled hooks
+ * are approved.
  */
 function entriesRules(manifest: JsonObject): string[] {
   if (!isObject(manifest.entries)) return [];
@@ -838,13 +842,29 @@ function entriesRules(manifest: JsonObject): string[] {
     if (id === undefined || !(id in entries)) continue;
     for (const name of routeExports(route)) if (!exportsOf(id).includes(name)) errors.push(`V23: routes[${i}]: module "${id}" does not export "${name}"`);
   }
-  // Version 1.8: the app's own hooks entry is eager like a module's.
-  if (entries.hooks?.eager === false) errors.push(`V23: entries "hooks" must be eager (hooks and services are checked at isolate creation)`);
-  for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
-    for (const part of ["services", "hooks"]) {
-      const id = `modules/${m.name}/${part}`;
-      if (entries[id]?.eager === false) errors.push(`V23: entries "${id}" must be eager (hooks and services are checked at isolate creation)`);
+  // Version 1.9: hooks and on record what a hooks entry fills and handles.
+  const modules = Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : [];
+  const hooksIds = new Set(["hooks", ...modules.map((m) => `modules/${m.name}/hooks`)]);
+  const namesOf = (e: JsonObject, key: string): string[] | undefined => (Array.isArray(e[key]) ? (e[key] as string[]) : undefined);
+  for (const [id, e] of Object.entries(entries)) {
+    if (!isObject(e)) continue;
+    const hooks = namesOf(e, "hooks");
+    const on = namesOf(e, "on");
+    if (!hooksIds.has(id)) {
+      if (hooks !== undefined || on !== undefined) errors.push(`V23: entries "${id}" is not a hooks entry and may not record hooks or on`);
+      continue;
     }
+    // Before 1.9 (or without the recorded names) a hooks entry is eager:
+    // the broker would have to evaluate it to route hooks and events.
+    if (e.eager === false && (hooks === undefined || on === undefined))
+      errors.push(`V23: entries "${id}" is lazy but does not record hooks and on (version 1.9)`);
+    for (const [key, names] of [["hooks", hooks], ["on", on]] as const)
+      if (names !== undefined && names.length > 0 && !exportsOf(id).includes(key)) errors.push(`V23: entries "${id}" records ${key} but does not export "${key}"`);
+  }
+  for (const m of modules) {
+    const filled = isObject(entries[`modules/${m.name}/hooks`]) ? namesOf(entries[`modules/${m.name}/hooks`] as JsonObject, "hooks") : undefined;
+    const approved = isObject(m.approved) && Array.isArray(m.approved.hooks) ? (m.approved.hooks as string[]) : [];
+    for (const h of filled ?? []) if (!approved.includes(h)) errors.push(`V23: "modules/${m.name}/hooks" fills hook "${h}", which is not in the module's approved hooks`);
     const services = isObject(m.exports) && Array.isArray(m.exports.services) ? (m.exports.services as string[]) : [];
     const id = `modules/${m.name}/services`;
     if (id in entries) for (const s of services) if (!exportsOf(id).includes(s)) errors.push(`V23: "${id}" does not export service "${s}"`);
@@ -1051,7 +1071,7 @@ function permissionRules(name: string, permissions: JsonObject, where: string): 
   for (const secret of strings(permissions.secrets)) {
     if (!secret.startsWith(`${name.toUpperCase()}_`)) errors.push(`MF4: ${where}.secrets "${secret}" does not start with ${name.toUpperCase()}_`);
   }
-  // MF17 (1.5): a module's CSP sources use the `renox.toml [security]` grammar, never 'unsafe-*'.
+  // MF17 (1.6): a module's CSP sources use the `renox.toml [security]` grammar, never 'unsafe-*'.
   for (const [directive, list] of Object.entries(obj(permissions.csp))) {
     if (!CSP_DIRECTIVES.includes(directive)) errors.push(`MF17: ${where}.csp.${directive} is not a CSP directive a module may extend`);
     for (const src of strings(list as Json)) {
@@ -1207,7 +1227,7 @@ const normalisedPermissions = (p: JsonObject): string =>
     hooks: strings(p.hooks).sort(),
     roles: strings(p.roles).sort(),
     app_access: (p.app_access as Json | undefined) ?? null,
-    // 1.5: per directive, sorted; an empty directive is absent.
+    // 1.6: per directive, sorted; an empty directive is absent.
     csp: Object.fromEntries(
       Object.entries(obj(p.csp))
         .map(([k, v]) => [k, strings(v as Json).sort()] as const)

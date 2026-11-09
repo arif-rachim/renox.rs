@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renoxium.com/contracts/manifest/v1/renox-lock.schema.json",
-  "title": "Renox lock file (renox.lock), manifest contract version 1.5",
+  "title": "Renox lock file (renox.lock), manifest contract version 1.6",
   "description": "A parsed renox.lock (TOML, written by the CLI). Prose: docs/contracts/manifest.md section 4. Consistency with renox.toml and the module manifests is MF2, MF3, MF5, MF11 and MF12.",
   "type": "object",
   "additionalProperties": false,
@@ -180,7 +180,7 @@
             "csp": {
               "type": "object",
               "additionalProperties": false,
-              "description": "1.5: the CSP sources the tenant approved (MF12); the build merges them into the artifact's security.csp.*. Grammar: MF17.",
+              "description": "1.6: the CSP sources the tenant approved (MF12); the build merges them into the artifact's security.csp.*. Grammar: MF17.",
               "properties": {
                 "script_src": {
                   "type": "array",

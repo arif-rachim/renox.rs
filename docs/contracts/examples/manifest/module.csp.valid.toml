@@ -1,4 +1,4 @@
-# 1.5: a payment module asks for the CSP sources its widget needs; the tenant
+# 1.6: a payment module asks for the CSP sources its widget needs; the tenant
 # approves them at install and the build merges them into security.csp.*.
 [module]
 name = "pay"

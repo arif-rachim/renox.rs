@@ -30,7 +30,7 @@ export function diffPermissions(from: Permissions, to: Permissions): PermissionD
     if (a.length) added[k] = a;
     if (r.length) removed[k] = r;
   }
-  // 1.5: CSP sources, one line per directive (`csp.script_src`).
+  // 1.6: CSP sources, one line per directive (`csp.script_src`).
   for (const d of CSP_DIRECTIVES) {
     const was = from.csp?.[d] ?? [];
     const now = to.csp?.[d] ?? [];

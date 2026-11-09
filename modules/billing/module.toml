@@ -22,7 +22,7 @@ slots = ["admin.sidebar"]
 tables = "billing__*"
 network = ["api.stripe.com"]
 secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"]
-# Stripe.js and the frames of Stripe Checkout and Elements (manifest.md 1.5):
+# Stripe.js and the frames of Stripe Checkout and Elements (manifest.md 1.6):
 # https://docs.stripe.com/security/guide#content-security-policy
 csp = { script_src = ["https://js.stripe.com"], frame_src = ["https://js.stripe.com", "https://hooks.stripe.com"] }
 
