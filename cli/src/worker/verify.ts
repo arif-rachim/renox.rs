@@ -41,17 +41,17 @@ export const PINNED_WORKER: {
   sha256: Readonly<Record<string, string>>;
   pdf: Readonly<Record<string, string>>;
 } = {
-  version: "0.5.0",
+  version: "0.6.0",
   // No macOS pins from 0.6.0: worker-v0.6.0 has no apple-darwin build (#625).
   sha256: {
-    "x86_64-unknown-linux-gnu": "ce2402786755ca17cc6ee93a1e504e7f8e3b4f6b977816e38ed3d7214b8868e7",
-    "aarch64-unknown-linux-gnu": "9aee4d6398f8eb531e4548407c2ed96bd985f5938fc2405abca1603bcd4721f6",
+    "x86_64-unknown-linux-gnu": "71044dd6eae52d4c54188a5068efd61777c8d016de1c1aee94a75c23d51dbf06",
+    "aarch64-unknown-linux-gnu": "8689e580b7939369b861ce6a9273577cbc0fa70be4bece369be46c2973f0d916",
     // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
-    "x86_64-pc-windows-msvc": "efc4d353fba549c34604c10b82116603ab8cf24b99bcc8accbd02b152ffb391d",
+    "x86_64-pc-windows-msvc": "65d280dc6ae7174800e00a1cfe022a500dc6e612668adae14192e94f25115c11",
   },
   pdf: {
-    "x86_64-unknown-linux-gnu": "d5e075619caa1a79ce2a04074b87a84594d3ae4f5ea360bd49b1da9a7b62d71b",
-    "aarch64-unknown-linux-gnu": "c1d07ab162d43be116f997a26808b04d1db33d3ef19bef0340f56af8dd5be06f",
+    "x86_64-unknown-linux-gnu": "6082864f53d084a0b157eb652146baad2d3b2aa3b8e38853abba9d1cb3bf2666",
+    "aarch64-unknown-linux-gnu": "06deab89ee30ecf844c45042fd049582f2680a2135a92a445d022da8dc646a8b",
   },
 };
 

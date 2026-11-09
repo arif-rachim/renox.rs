@@ -29,7 +29,7 @@ renox --version
 ```
 
 ```
-renox 0.1.8 (renox-worker 0.5.0)
+renox 0.1.8 (renox-worker 0.6.0)
 ```
 
 **Windows (x64), in PowerShell:** `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` installs `renox.exe` and `renox-worker.exe`; `renox dev` and `renox test` run without WSL 2.
