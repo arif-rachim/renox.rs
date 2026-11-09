@@ -128,6 +128,12 @@ export interface TestApp {
    * final result returned. Needs the `auth` module.
    */
   tool(name: string, input: Record<string, unknown>, options?: ToolOptions): Promise<ToolReply>;
+  /**
+   * The App MCP `tools/list` result as the agent of `as` (default this user),
+   * with the same token as `tool` (`scope` narrows it): the tools the token
+   * may call, each with `annotations` and `inputSchema`. Needs the `auth` module.
+   */
+  tools(options?: { as?: TestApp; scope?: string }): Promise<ToolList>;
   /** The same app as another user: a separate session (cookie jar). */
   as(user: string): TestApp;
   /** Read a cookie of this user's jar, or plant one (an attacker's token, a forged state). */
@@ -150,6 +156,19 @@ export interface ToolOptions {
   scope?: string;
   /** Confirm a `confirm` tool's preview: the second call runs for real. */
   confirm?: boolean;
+  /**
+   * Sends this string as `_meta["renox/confirmation"]` of the one call, as
+   * given and without a preview first: a made-up, replayed or other-argument
+   * confirmation (a token from `ToolReply.confirmation`). Wins over `confirm`.
+   */
+  confirmation?: string;
+}
+
+/** What `t.tools()` answered: the `tools/list` result. */
+export interface ToolList {
+  /** The HTTP status of the request. */
+  status: number;
+  tools: { name: string; description?: string; annotations?: Record<string, boolean>; inputSchema: { type?: string; required?: string[]; properties?: Record<string, unknown> } }[];
 }
 
 /** What a tool call answered (`ok: false`: an error before `run`, or a result with `isError`). */
@@ -217,10 +236,10 @@ let rpcSeq = 0;
 /**
  * One `tools/call` with the agent `token`; with `confirm`, a preview's
  * confirmation is sent back (`_meta["renox/confirmation"]`) and the final
- * result returned.
+ * result returned; with `sent`, that string is sent as given, in one call.
  * @internal exported for the SDK's tests.
  */
-export async function callTool(app: ToolClient, token: string, name: string, input: Record<string, unknown>, confirm = false): Promise<ToolReply> {
+export async function callTool(app: ToolClient, token: string, name: string, input: Record<string, unknown>, confirm = false, sent?: string): Promise<ToolReply> {
   const once = async (confirmation?: string): Promise<ToolReply> => {
     const params = { name, arguments: input, ...(confirmation === undefined ? {} : { _meta: { "renox/confirmation": confirmation } }) };
     const res = await app.request("POST", "/mcp", { headers: { accept: "application/json", authorization: `Bearer ${token}` }, body: { jsonrpc: "2.0", id: ++rpcSeq, method: "tools/call", params } });
@@ -240,9 +259,20 @@ export async function callTool(app: ToolClient, token: string, name: string, inp
     }
     return { ok: true, result: out };
   };
+  if (sent !== undefined) return once(sent);
   const first = await once();
   if (!confirm || first.confirmation === undefined) return first;
   return once(first.confirmation.token);
+}
+
+/**
+ * `tools/list` with the agent `token`.
+ * @internal exported for the SDK's tests.
+ */
+export async function listTools(app: ToolClient, token: string): Promise<ToolList> {
+  const res = await app.request("POST", "/mcp", { headers: { accept: "application/json", authorization: `Bearer ${token}` }, body: { jsonrpc: "2.0", id: ++rpcSeq, method: "tools/list", params: {} } });
+  if (res.status !== 200) throw new Error(`t.tools: tools/list answered ${res.status}: ${res.html}`);
+  return { status: res.status, tools: res.json<{ result: { tools: ToolList["tools"] } }>().result.tools };
 }
 
 /** One SSE event as received (ops.md section 18, "On the wire"). */
@@ -445,6 +475,18 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
       const text = await res.text();
       return { status: res.status, headers: res.headers, html: text, json: <T>() => JSON.parse(text) as T };
     };
+    // The agent token of `o.as` (default this user) and `o.scope`.
+    const tokenOf = async (o: { as?: TestApp; scope?: string }): Promise<string> => {
+      const as = o.as ?? self;
+      const key = JSON.stringify([userOf.get(as) ?? user, o.scope ?? null]);
+      let token = tokens.get(key);
+      if (token === undefined) {
+        token = agentToken(self, as, o.scope);
+        tokens.set(key, token);
+        token.catch(() => tokens.delete(key));
+      }
+      return token;
+    };
     const self: TestApp = {
       request: send,
       async ws(path, o = {}) {
@@ -514,15 +556,10 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
         }
       },
       async tool(name, input, o = {}) {
-        const as = o.as ?? self;
-        const key = JSON.stringify([userOf.get(as) ?? user, o.scope ?? null]);
-        let token = tokens.get(key);
-        if (token === undefined) {
-          token = agentToken(self, as, o.scope);
-          tokens.set(key, token);
-          token.catch(() => tokens.delete(key));
-        }
-        return callTool(self, await token, name, input, o.confirm === true);
+        return callTool(self, await tokenOf(o), name, input, o.confirm === true, o.confirmation);
+      },
+      async tools(o = {}) {
+        return listTools(self, await tokenOf(o));
       },
       as: (other) => make(other),
       cookie: (name, value) => {

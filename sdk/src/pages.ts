@@ -3,7 +3,7 @@
 // tests/contract.test-d.ts enforces it.
 
 import type { Ctx } from "./ctx.ts";
-import type { DbStatements } from "./db.ts";
+import type { TxDb } from "./db.ts";
 
 /** The session of the request; F2 carries only the id (ops.md section 14, "Session"). */
 export interface Session {
@@ -27,8 +27,8 @@ export type PageData = Record<string, unknown>;
 export type Loader = (ctx: LoaderContext) => PageData | Response | Promise<PageData | Response>;
 
 export interface ActionContext extends Omit<Ctx, "db"> {
-  /** The action's own IMMEDIATE transaction: committed when the action resolves, rolled back when it throws. */
-  readonly db: DbStatements;
+  /** The action's own IMMEDIATE transaction: committed when the action resolves, rolled back when it throws. `scoped` fences it as on a request (section 17). */
+  readonly db: TxDb;
   /** The action name from `?/<name>`, or "default". */
   readonly action: string;
   /** The parsed form body (urlencoded or multipart); empty for other content types. CSRF is checked before. */

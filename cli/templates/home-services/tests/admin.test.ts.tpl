@@ -187,6 +187,16 @@ describe("branches", () => {
     expect(bad.status).toBe(422);
     expect(bad.html).toContain('id="err-name_en"');
     expect((await dispatcher.action("/admin/branches", "create", { name_en: "Ajman", name_ar: "عجمان", emirate: "ajman" })).status).toBe(403);
+    // A refused edit of one branch shows what was typed in that row only, and a refused role change fills no other form.
+    const edit = await owner.action("/admin/branches", "update", { branch_id: "br_dubai", name_en: "", name_ar: "دبي", emirate: "dubai", phone: "+971 4 111 2222", area: "Typed Area", address: "Typed address" });
+    expect(edit.status).toBe(422);
+    expect(edit.html).toMatch(/name="area"[^>]*value="Typed Area"/u);
+    expect(edit.html.match(/value="Typed Area"/gu)?.length).toBe(1);
+    const role = await owner.action("/admin/users", "role", { user_id: "u_owner", role: "dispatcher" });
+    expect(role.status).toBe(422);
+    const invite = role.html.split('action="?/invite"')[1] ?? "";
+    expect(invite).toMatch(/<option value="technician"[^>]*selected/u);
+    expect(invite).not.toMatch(/<option value="dispatcher"[^>]*selected/u);
 
     const res = await owner.action("/admin/branches", "create", { name_en: "Ajman", name_ar: "عجمان", emirate: "ajman", phone: "+971 6 000 0003", area: "Al Nuaimiya", address: "Ajman" });
     expect(res.status).toBe(303);

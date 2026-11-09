@@ -49,7 +49,7 @@
           <input type="hidden" name="phase" :value="ph.phase">
           <input type="hidden" name="key" :id="'photo-key-' ~ ph.phase">
           <p><label><r-t key="visits.photos.file" /> <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" :data-upload-action="'/me/visits/' ~ job.id ~ '?/photo_url'" data-key-field="key"> <span data-upload-status class="muted"></span></label></p>
-          <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200" :value="values.caption"></label></p>
+          <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200" :value="values.caption if values.phase == ph.phase else ''"></label></p>
           <p><small class="muted"><r-t key="visits.photos.limit" /></small></p>
           <p><button type="submit"><r-t key="visits.photos.add" /></button></p>
         </x-form></r-group>

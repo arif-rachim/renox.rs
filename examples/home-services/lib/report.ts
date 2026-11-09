@@ -11,12 +11,12 @@ import type { DbStatements, Pdf, Storage } from "@renoxium/sdk";
 
 import { aed } from "./money";
 import { getSettings, pdfBrand } from "./settings";
-import { type Branch, branchDb } from "./scope";
+import { type Branch, branchDb, type Scopable } from "./scope";
 import { memberName } from "./technicians";
 import { photosOf, partsOf, partTotal, visitById } from "./visit-data";
 
 interface ReportCtx {
-  readonly db: DbStatements;
+  readonly db: Scopable;
   readonly storage: Pick<Storage, "put">;
   readonly pdf: Pick<Pdf, "render">;
 }

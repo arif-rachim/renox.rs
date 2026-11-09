@@ -288,6 +288,15 @@ describe("an approved quotation becomes a job, which is scheduled with a technic
     expect(rows("select technician_user_id from app__jobs where id = ?", [third])[0]?.technician_user_id).toBe(ALI);
   });
 
+  test("a refused schedule form comes back with the typed note in its own form only", async () => {
+    const res = await dubai.action("/jobs/jb_seed_06", "schedule", { slot: "nonsense", note: "Typed note" });
+    expect(res.status).toBe(422);
+    expect(res.html).toContain('id="err-slot"');
+    expect(res.html).toMatch(/name="note"[^>]*value="Typed note"/u);
+    // The cancel form shares the field name but is not filled.
+    expect(res.html.match(/value="Typed note"/gu)?.length).toBe(1);
+  });
+
   test("error case: a technician scheduling a job is 403", async () => {
     const res = await ali.action("/jobs/jb_seed_06", "schedule", { slot: slot(ALI, mondayAt(15, 9).ms) });
     expect(res.status).toBe(403);

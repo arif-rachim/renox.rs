@@ -159,7 +159,7 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 
 ## Tests: `@renoxium/sdk/test` (#238)
 
-`app()` starts the worker of `renox test` on a fresh tenant file for the test file; the `TestApp` it returns has `request`, `page`, `action`, `as(user)`, `service(module)`, `ws`, `sse`, `logs`, `meters`, a read-only `db` and `dbFile` (`docs/12-developer-experience.md`, "renox test"). Two helpers stand in for hand-written outbox rows and JSON-RPC (#593):
+`app()` starts the worker of `renox test` on a fresh tenant file for the test file; the `TestApp` it returns has `request`, `page`, `action`, `as(user)`, `service(module)`, `tool`, `tools`, `ws`, `sse`, `logs`, `meters`, a read-only `db` and `dbFile` (`docs/12-developer-experience.md`, "renox test"). Two helpers stand in for hand-written outbox rows and JSON-RPC (#593):
 
 ```ts
 const t = await app();
@@ -167,6 +167,8 @@ await t.job("nightly");                                  // jobs/nightly.ts runs
 const alice = t.as("alice");                             // signed in through the auth module's pages
 const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
 const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }
+await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirmation: "any-token" }); // that string as _meta["renox/confirmation"], as given: { ok: false, error: RENOX_TOOL_CONFIRM }
+const { tools } = await t.tools({ as: alice, scope: "tools:job_status" }); // the tools/list result of that agent's token
 ```
 
 - `job(name, { module?, timeoutMs? })` writes a tick of the job (as `renox jobs run`) and waits until its outbox row is gone; it rejects with the job's error text when a run fails, or after `timeoutMs` (10 s).
