@@ -57,24 +57,6 @@ export function inBranch(ctx: ToolCtx, branch: Branch): ToolCtx & { readonly pri
   return { db: ctx.db, authz: ctx.authz, realtime: ctx.realtime, principal: { ...me, attrs: { ...me.attrs, org: branch.org_id } } };
 }
 
-const STAFF = ["owner", "branch_manager", "dispatcher", "technician", "accountant"];
-
-/** The app roles the user holds in `branch`: global assignments and those scoped to its organisation. */
-export async function rolesIn(ctx: Pick<ToolCtx, "authz">, userId: string, branch: Branch): Promise<string[]> {
-  return (await ctx.authz.roles.list(userId)).filter((r) => STAFF.includes(r.role) && (r.scope_type === "global" || r.scope_id === branch.org_id)).map((r) => r.role);
-}
-
-/**
- * Whether the user's token may do `action` in `branch`. A token's principal has
- * no roles (policies/app/base.cedar, "App MCP tools"), so the roles are read
- * here and handed to the policies in `context.staff_roles`, which decide.
- */
-export async function canAs(ctx: Pick<ToolCtx, "authz" | "principal">, branch: Branch, action: string, resource?: Parameters<ToolCtx["authz"]["can"]>[1]): Promise<boolean> {
-  const me = ctx.principal;
-  if (me === null) return false;
-  return ctx.authz.can(action, resource, { staff_roles: await rolesIn(ctx, me.id, branch) });
-}
-
 export const isToolError = (v: unknown): v is ToolError => typeof v === "object" && v !== null && "error" in v && "message" in v;
 
 /** A catalogue service by code (`AC-SERVICE`) or English name, active, of the company or the branch. */

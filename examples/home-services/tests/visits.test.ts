@@ -437,6 +437,7 @@ describe("the AI summary", () => {
 describe("the ownership fence", () => {
   test("every visit row repeats its job's branch", () => {
     const db = new Database(t.dbFile, { readonly: true });
+    db.exec("pragma busy_timeout = 5000");
     const stray = db.query("select count(*) as n from app__visits v join app__jobs j on j.id = v.job_id where v.branch_id != j.branch_id").get() as { n: number };
     const photos = db.query("select count(*) as n from app__visit_photos p join app__visits v on v.id = p.visit_id where p.branch_id != v.branch_id").get() as { n: number };
     const parts = db.query("select count(*) as n from app__visit_parts p join app__visits v on v.id = p.visit_id where p.branch_id != v.branch_id").get() as { n: number };

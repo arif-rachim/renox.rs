@@ -45,12 +45,12 @@ export default tool({
   ),
   action: "job.read",
   async run(ctx) {
-    const { canAs, findService, isToolError, nextFreeSlots, pickBranch, refuse } = await import("../../lib/tools");
+    const { findService, isToolError, nextFreeSlots, pickBranch, refuse } = await import("../../lib/tools");
     const { service, branch: wanted, from } = ctx.tool.input;
     const picked = await pickBranch(ctx, wanted);
     if (isToolError(picked)) return picked;
-    // The cell checked the action without roles (policies/app/base.cedar, "App MCP tools"): the user's roles for this branch decide.
-    if (!(await canAs(ctx, picked.branch, READ))) return refuse("forbidden", "You may not read jobs in this branch.");
+    // The cell checked the action for the token's principal; asked again here as the pages do.
+    if (!(await ctx.authz.can(READ))) return refuse("forbidden", "You may not read jobs in this branch.");
     const found = await findService(ctx.db, service, picked.branch.id);
     if (found === null) return refuse("not_found", `No active service "${service}".`);
     const slots = await nextFreeSlots(ctx, picked.branch, found.code, from);

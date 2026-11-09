@@ -361,6 +361,7 @@ describe("the state machine", () => {
 describe("booking is told about technicians the first time they are seen", () => {
   test("a technician added later is registered once, with the branch's hours", async () => {
     const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
     db.run("insert into auth__users (id, email, display_name, password_hash, email_verified_at, created_at, updated_at) select 'u_dxb_chandra', 'chandra.dubai@fixit.example', 'Chandra Iyer', password_hash, email_verified_at, created_at, updated_at from auth__users where id = 'u_dxb_dispatcher'");
     db.run("insert into org__members (org_id, user_id, role, created_at) values ('org_dubai', 'u_dxb_chandra', 'member', 1793000000)");
     db.run("insert into renox__role_assignments (user_id, role, scope_type, scope_id, granted_by, at) values ('u_dxb_chandra', 'technician', 'global', '', 'test', 1793000000000)");
