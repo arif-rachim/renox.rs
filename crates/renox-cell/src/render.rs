@@ -973,13 +973,20 @@ pub type SharedPages = Arc<PageRenderer>;
 
 /// `ctx.pdf`'s renderer for one deployment (#322; ops.md 1.7.0 section 24):
 /// its templates, rendered like pages, then converted by the runtime.
-struct PdfTemplates(PageRenderer);
+struct PdfTemplates(
+    PageRenderer,
+    Option<Arc<dyn renox_runtime::ops::pdf::PdfImages>>,
+);
 
 use renox_runtime::ops::pdf::TemplateError;
 
 impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
     fn render(&self, template: &str, data_json: &str) -> Result<String, String> {
         self.0.render_document(template, data_json)
+    }
+
+    fn images(&self) -> Option<Arc<dyn renox_runtime::ops::pdf::PdfImages>> {
+        self.1.clone()
     }
 
     fn render_fragment(
@@ -1016,10 +1023,19 @@ fn wall_now_ms() -> i64 {
         .as_millis() as i64
 }
 
+/// The tenant's file store for `ctx.pdf`'s `/_img` images (#582).
+pub struct PdfImageSource {
+    pub storage: Arc<crate::storage::CellStorage>,
+    pub db: renox_runtime::ops::db::DbHandle,
+    pub tenant_id: String,
+}
+
 /// `authz` is the deployment's slot: `ctx.render` answers `r-can` from it.
+/// `images` is the tenant's store (`None`: `/_img` images are dropped).
 pub fn pdf_templates(
     artifact_dir: &Path,
     authz: Option<renox_runtime::ops::authz::AuthzSlot>,
+    images: Option<PdfImageSource>,
 ) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
     let raw = std::fs::read(artifact_dir.join("manifest.json")).ok()?;
     let manifest: Manifest = serde_json::from_slice(&raw).ok()?;
@@ -1027,8 +1043,16 @@ pub fn pdf_templates(
     if let Some(slot) = authz {
         renderer = renderer.with_authz(slot);
     }
+    let images = images.map(|s| {
+        Arc::new(crate::images::PdfImageStore {
+            storage: s.storage,
+            db: s.db,
+            tenant_id: s.tenant_id,
+            widths: crate::images::manifest_widths(manifest.storage.as_ref()),
+        }) as Arc<dyn renox_runtime::ops::pdf::PdfImages>
+    });
     Some(renox_runtime::ops::pdf::TemplateSlot(std::sync::Arc::new(
-        PdfTemplates(renderer),
+        PdfTemplates(renderer, images),
     )))
 }
 

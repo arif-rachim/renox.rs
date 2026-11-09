@@ -10,7 +10,7 @@
 //! carries a small runtime (`runtime.js`) that reproduces the renderer's
 //! semantics: HTML escaping without `/`, `none`/`undefined` printing nothing,
 //! chainable undefined lookups, minijinja truthiness and equality, the
-//! platform filters for `en-AE` and `ar-AE`, and `__url`.
+//! platform filters for `en-AE` and `ar-AE`, `__url` and `__img_url`.
 //!
 //! ```js
 //! import { render, renderFragment } from "./templates.js";
@@ -52,8 +52,23 @@ const RUNTIME: &str = include_str!("runtime.js");
 
 /// Filters the runtime implements (`runtime.js`, `F`).
 const FILTERS: &[&str] = &[
-    "money", "number", "truncate", "json", "upper", "lower", "default", "length", "first", "last",
-    "join", "trim", "abs", "safe", "__loop", "__url",
+    "money",
+    "number",
+    "truncate",
+    "json",
+    "upper",
+    "lower",
+    "default",
+    "length",
+    "first",
+    "last",
+    "join",
+    "trim",
+    "abs",
+    "safe",
+    "__loop",
+    "__url",
+    "__img_url",
 ];
 
 /// Tests the runtime implements (`runtime.js`, `TESTS`).
