@@ -7,10 +7,10 @@
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { brandingSchema, saveSettings, sensitive, storeLogo } from "../../lib/admin";
-import { check } from "../../lib/forms";
+import { check, valuesOf } from "../../lib/forms";
 import { bytesOfDataUrl } from "../../lib/visit-data";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { getSettings, logoSrc } from "../../lib/settings";
 
 export const guard = { action: "settings.read" };
@@ -44,7 +44,7 @@ export const actions = {
     if (refused !== null) return refused;
     const page = await shell(ctx);
     const input = await check(ctx.form, brandingSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, "/admin/settings");
+    if ("errors" in input) return { ...invalid(page.locale, ctx.form, input.errors), f: valuesOf(ctx.form) };
     const current = await getSettings(ctx.db);
     const next: Record<string, string> = { ...input.value };
     // The logo is optional: no file leaves the current one.
@@ -55,7 +55,7 @@ export const actions = {
     else if (typeof ctx.form.get("logo_data") === "string") upload = bytesOfDataUrl(String(ctx.form.get("logo_data")).trim());
     if (upload !== null) {
       const stored = await storeLogo(ctx.storage, upload, current.brand_logo_key ?? "");
-      if (!stored.ok) return unprocessable(page.locale, { logo: `backoffice.err.logo_${stored.error}` }, "/admin/settings");
+      if (!stored.ok) return { ...invalid(page.locale, ctx.form, { logo: `backoffice.err.logo_${stored.error}` }), f: valuesOf(ctx.form) };
       next.brand_logo_key = stored.key;
       logo = true;
     }

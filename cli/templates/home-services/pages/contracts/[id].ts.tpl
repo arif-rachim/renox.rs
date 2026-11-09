@@ -20,7 +20,7 @@ import { activate, addItem, cancelContract, findContract, readyToActivate, remov
 import { findCustomer } from "../../lib/customers";
 import { check } from "../../lib/forms";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { catalogueOf } from "../../lib/quotes";
 import { branchOf, noBranch, scopedDb } from "../../lib/scope";
 
@@ -57,6 +57,7 @@ export async function load(ctx: LoaderContext) {
   const origin = contract.renewed_from === null ? null : await sdb.queryOne<{ id: string; number: string }>("select id, number from app__contracts where id = ?", [contract.renewed_from]);
   return {
     ...page,
+    values: {},
     contract: { id: contract.id, number: contract.number, status: contract.status, starts_on: contract.starts_on, ends_on: contract.ends_on, notes: contract.notes, invoice_id: contract.invoice_id, ...priceView(contract) },
     customer: customer === null ? null : { id: customer.id, name: customer.name },
     items: await itemViews(ctx, sdb, contract.id, language),
@@ -80,7 +81,7 @@ export const actions = {
     if (refused !== null) return refused;
     const back = `/contracts/${ctx.params.id}`;
     const input = await check(ctx.form, itemSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const r = await addItem(ctx, ctx.params.id, input.value);
     return r.ok ? redirect(back) : plain(r.status, r.message);
   },
@@ -91,7 +92,7 @@ export const actions = {
     if (refused !== null) return refused;
     const back = `/contracts/${ctx.params.id}`;
     const input = await check(ctx.form, itemIdSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const r = await removeItem(ctx, ctx.params.id, input.value.item);
     return r.ok ? redirect(back) : plain(r.status, r.message);
   },
@@ -102,7 +103,7 @@ export const actions = {
     if (refused !== null) return refused;
     const back = `/contracts/${ctx.params.id}`;
     const ready = await readyToActivate(ctx, ctx.params.id);
-    if (!ready.ok) return ready.status === 422 ? unprocessable(page.locale, { items: "contracts.err.no_items" }, back) : plain(ready.status, ready.message);
+    if (!ready.ok) return ready.status === 422 ? invalid(page.locale, ctx.form, { items: "contracts.err.no_items" }) : plain(ready.status, ready.message);
     // The upfront invoice is a tax invoice: the same sensitive action as issuing one from a job.
     if (ready.value.price_fils > 0) {
       const issuer = await allowed(ctx, "invoice.issue");

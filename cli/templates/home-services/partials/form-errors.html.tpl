@@ -1,0 +1,1 @@
+<r-props problems="object" /><section r-if="problems" class="problem" role="alert"><h2><r-t key="problem.title" /></h2><ul><li r-for="p in problems" :id="'err-' ~ p.field"><strong>{{ p.label }}</strong>: {{ p.message }}</li></ul></section>

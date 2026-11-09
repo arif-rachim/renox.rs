@@ -7,7 +7,7 @@ import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { findCustomer, insertSite, sitesOf } from "../../lib/customers";
 import { check, emirateOptions, siteSchema } from "../../lib/forms";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { branchOf, noBranch, scopedDb } from "../../lib/scope";
 
 export const guard = { action: "customer.read" };
@@ -26,6 +26,7 @@ export async function load(ctx: LoaderContext) {
   const sites = await sitesOf(scoped, customer.id);
   return {
     ...page,
+    values: {},
     customer: { id: customer.id, name: customer.name, kind: customer.kind, trn: customer.trn, phone: customer.phone, email: customer.email, language: customer.language },
     sites: sites.map((s) => ({ ...s, emirate_name: names.get(s.emirate) ?? s.emirate })),
     emirates,
@@ -47,7 +48,7 @@ export const actions = {
       throw e;
     }
     const site = await check(ctx.form, siteSchema);
-    if ("errors" in site) return unprocessable(page.locale, site.errors, `/customers/${customer.id}`);
+    if ("errors" in site) return invalid(page.locale, ctx.form, site.errors);
     await insertSite(scoped, branch.id, customer.id, site.value);
     return new Response(null, { status: 303, headers: { location: `/customers/${customer.id}`, "cache-control": "no-store" } });
   },

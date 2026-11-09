@@ -18,7 +18,7 @@ import { storage } from "renox:modules";
 import { clock } from "../../../lib/booking-sync";
 import { check } from "../../../lib/forms";
 import { shell } from "../../../lib/page";
-import { unprocessable } from "../../../lib/problems";
+import { invalid } from "../../../lib/invalid";
 import { day } from "../../../lib/quotes";
 import { aed } from "../../../lib/money";
 import { imageOf, partsOf, partTotal, photosOf, type VisitRow } from "../../../lib/visit-data";
@@ -85,6 +85,7 @@ export async function load(ctx: LoaderContext) {
     has_parts: parts.length > 0,
     parts_total: aed(partsTotal),
     report: visit !== null && visit.checkout_at !== null,
+    values: {},
   };
 }
 
@@ -99,7 +100,7 @@ export const actions = {
   async checkin(ctx: ActionContext) {
     const page = await shell(ctx);
     const input = await check(ctx.form, checkinSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back(ctx.params.id));
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await checkIn(ctx, ctx.params.id, input.value), back(ctx.params.id));
   },
 
@@ -119,7 +120,7 @@ export const actions = {
   async photo(ctx: ActionContext) {
     const page = await shell(ctx);
     const phase = ctx.form.get("phase");
-    if (!isPhase(phase)) return unprocessable(page.locale, { phase: "visits.err.phase" }, back(ctx.params.id));
+    if (!isPhase(phase)) return invalid(page.locale, ctx.form, { phase: "visits.err.phase" });
     const caption = String(ctx.form.get("caption") ?? "").trim().slice(0, 200);
     return answer(await addPhoto(storage, ctx, ctx.params.id, phase, { key: ctx.form.get("key"), caption }), back(ctx.params.id));
   },
@@ -127,7 +128,7 @@ export const actions = {
   async part(ctx: ActionContext) {
     const page = await shell(ctx);
     const input = await check(ctx.form, partSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back(ctx.params.id));
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await addPart(ctx, ctx.params.id, input.value), back(ctx.params.id));
   },
 
@@ -140,14 +141,14 @@ export const actions = {
   async notes(ctx: ActionContext) {
     const page = await shell(ctx);
     const input = await check(ctx.form, notesSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back(ctx.params.id));
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await saveNotes(ctx, ctx.params.id, input.value.notes), back(ctx.params.id));
   },
 
   async signature(ctx: ActionContext) {
     const page = await shell(ctx);
     const input = await check(ctx.form, signatureSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back(ctx.params.id));
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await saveSignature(ctx, ctx.params.id, input.value), back(ctx.params.id));
   },
 
@@ -160,7 +161,7 @@ export const actions = {
   async summary(ctx: ActionContext) {
     const page = await shell(ctx);
     const input = await check(ctx.form, summarySchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back(ctx.params.id));
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const got = await performerOf(ctx, ctx.params.id);
     if (!got.ok) return plain(got.status, got.message);
     const visit: VisitRow | null = got.value.visit;

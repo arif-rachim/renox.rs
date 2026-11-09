@@ -7,7 +7,7 @@ import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { allBranches, branchEmirates, branchSchema, createBranch, sensitive, updateBranch } from "../../lib/admin";
 import { check } from "../../lib/forms";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { branchOf, noBranch } from "../../lib/scope";
 
 export const guard = { action: "settings.read" };
@@ -26,6 +26,7 @@ export async function load(ctx: LoaderContext) {
     created: saved === "created",
     updated: saved === "updated",
     emirates: branchEmirates(page.locale),
+    values: {},
     branches: rows.map((b) => ({ ...b, name: page.locale === "ar" ? b.name_ar : b.name_en, current: b.id === branch.id })),
   };
 }
@@ -38,9 +39,9 @@ export const actions = {
     const branch = await branchOf(ctx);
     if (branch === null) return noBranch();
     const input = await check(ctx.form, branchSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, "/admin/branches");
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const made = await createBranch(ctx, input.value, branch.org_id);
-    if (!made.ok) return unprocessable(page.locale, { name_en: made.error }, "/admin/branches");
+    if (!made.ok) return invalid(page.locale, ctx.form, { name_en: made.error });
     return redirect("/admin/branches?saved=created");
   },
 
@@ -51,7 +52,7 @@ export const actions = {
     const id = ctx.form.get("branch_id");
     if (typeof id !== "string" || !/^[a-z0-9_]{1,64}$/u.test(id)) return plain(404, "Branch not found");
     const input = await check(ctx.form, branchSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, "/admin/branches");
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     if (!(await updateBranch(ctx, id, input.value))) return plain(404, "Branch not found");
     return redirect("/admin/branches?saved=updated");
   },

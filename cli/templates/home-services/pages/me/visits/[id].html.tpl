@@ -49,7 +49,7 @@
           <input type="hidden" name="phase" :value="ph.phase">
           <input type="hidden" name="key" :id="'photo-key-' ~ ph.phase">
           <p><label><r-t key="visits.photos.file" /> <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" :data-upload-action="'/me/visits/' ~ job.id ~ '?/photo_url'" data-key-field="key"> <span data-upload-status class="muted"></span></label></p>
-          <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200"></label></p>
+          <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200" :value="values.caption"></label></p>
           <p><small class="muted"><r-t key="visits.photos.limit" /></small></p>
           <p><button type="submit"><r-t key="visits.photos.add" /></button></p>
         </x-form></r-group>
@@ -70,9 +70,9 @@
       </table>
       <p r-else class="muted"><r-t key="visits.parts.none" /></p>
       <r-group r-if="open"><x-form action="part" class="stack narrow" id="part-form">
-        <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" required></label></p>
-        <p><label><r-t key="visits.parts.qty" /> <input name="qty" value="1" inputmode="decimal" dir="ltr" required></label></p>
-        <p><label><r-t key="visits.parts.price" /> <input name="price" value="0" inputmode="decimal" dir="ltr" required></label></p>
+        <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" :value="values.description" required></label></p>
+        <p><label><r-t key="visits.parts.qty" /> <input name="qty" :value="values.qty if values.qty is defined else '1'" inputmode="decimal" dir="ltr" required></label></p>
+        <p><label><r-t key="visits.parts.price" /> <input name="price" :value="values.price if values.price is defined else '0'" inputmode="decimal" dir="ltr" required></label></p>
         <p><button type="submit"><r-t key="visits.parts.add" /></button></p>
       </x-form></r-group>
     </section>
@@ -80,7 +80,7 @@
     <section id="notes">
       <h2><r-t key="visits.notes.title" /></h2>
       <r-group r-if="open"><x-form action="notes" class="stack narrow">
-        <p><textarea name="notes" rows="4" maxlength="2000" dir="auto">{{ visit.notes }}</textarea></p>
+        <p><textarea name="notes" rows="4" maxlength="2000" dir="auto">{{ values.notes if values.notes is defined else visit.notes }}</textarea></p>
         <p><button type="submit"><r-t key="visits.notes.save" /></button></p>
       </x-form></r-group>
       <p r-else dir="auto" id="notes-text">{{ visit.notes }}</p>
@@ -92,7 +92,7 @@
       <p r-if="visit.signed_by" id="signed-by"><r-t key="visits.signature.saved" :name="visit.signed_by" /></p>
       <p r-else class="muted"><r-t key="visits.signature.none" /></p>
       <r-group r-if="open"><x-form action="signature" class="stack narrow" id="signature-form">
-        <p><label><r-t key="visits.signature.name" /> <input name="signed_by" maxlength="120" dir="auto" required></label></p>
+        <p><label><r-t key="visits.signature.name" /> <input name="signed_by" maxlength="120" dir="auto" :value="values.signed_by" required></label></p>
         <p class="muted"><r-t key="visits.signature.draw" /></p>
         <canvas id="sig-canvas" class="sig-canvas" width="320" height="160"></canvas>
         <input type="hidden" name="signature" id="sig-data">
@@ -104,8 +104,8 @@
       <h2><r-t key="visits.summary.title" /></h2>
       <p class="muted"><r-t key="visits.summary.hint" /></p>
       <x-form action="summary" class="stack narrow">
-        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">{{ visit.summary_en }}</textarea></label></p>
-        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">{{ visit.summary_ar }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">{{ values.summary_en if values.summary_en is defined else visit.summary_en }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">{{ values.summary_ar if values.summary_ar is defined else visit.summary_ar }}</textarea></label></p>
         <p><button type="submit"><r-t key="visits.summary.save" /></button></p>
       </x-form>
     </section>

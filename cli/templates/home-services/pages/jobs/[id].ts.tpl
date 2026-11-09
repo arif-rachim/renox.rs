@@ -22,7 +22,7 @@ import { assignSchema, scheduleSchema, statusSchema } from "../../lib/job-forms"
 import { invoiceOfJob } from "../../lib/invoices";
 import { assign, eventsOf, findJob, jobResource, schedule, TRANSITIONS, transition, type JobRow, type Outcome } from "../../lib/jobs";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { day } from "../../lib/quotes";
 import { branchOf, noBranch, scopedDb, type Branch } from "../../lib/scope";
 import { techniciansOf } from "../../lib/technicians";
@@ -90,6 +90,7 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
   const invoice = reads ? await invoiceOfJob(scoped, branch.id, job.id) : null;
   return {
     visit,
+    values: {},
     invoice: invoice === null ? null : { id: invoice.invoice_id, status: invoice.status },
     can_invoice: job.status === "done" && (await ctx.authz.can("invoice.issue")),
     can_edit_summary: visit !== null && (await ctx.authz.can("job.write")),
@@ -170,7 +171,7 @@ export const actions = {
     const refused = await deniedWrite(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, summarySchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, `/jobs/${ctx.params.id}`);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const branch = await branchOf(ctx);
     if (branch === null) return noBranch();
     const scoped = scopedDb(ctx.db, branch);
@@ -187,7 +188,7 @@ export const actions = {
     const refused = await denied(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, scheduleSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, `/jobs/${ctx.params.id}`);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await schedule(ctx, ctx.params.id, input.value.technician, input.value.start, input.value.note), `/jobs/${ctx.params.id}`);
   },
 
@@ -196,7 +197,7 @@ export const actions = {
     const refused = await denied(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, assignSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, `/jobs/${ctx.params.id}`);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await assign(ctx, ctx.params.id, input.value.technician), `/jobs/${ctx.params.id}`);
   },
 
@@ -212,7 +213,7 @@ export const actions = {
     const refused = await denied(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, statusSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, `/jobs/${ctx.params.id}`);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     return answer(await transition(ctx, ctx.params.id, input.value.to, input.value.note), `/jobs/${ctx.params.id}`);
   },
 };

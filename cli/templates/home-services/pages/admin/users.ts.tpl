@@ -9,7 +9,7 @@ import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { claimInvites, inviteStaff, isStaffRole, pendingInvites, removeStaff, sensitive, setStaffRole, staffOf, STAFF_ROLES } from "../../lib/admin";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { day } from "../../lib/quotes";
 import { branchOf, noBranch, scopedDb } from "../../lib/scope";
 
@@ -33,6 +33,7 @@ export async function load(ctx: LoaderContext) {
   return {
     ...page,
     branch_name: page.locale === "ar" ? branch.name_ar : branch.name_en,
+    values: {},
     saved,
     claimed,
     roles: STAFF_ROLES.map((value) => ({ value })),
@@ -52,9 +53,9 @@ export const actions = {
     if (branch === null) return noBranch();
     const email = String(ctx.form.get("email") ?? "").trim().slice(0, 254);
     const role = ctx.form.get("role");
-    if (!isStaffRole(role)) return unprocessable(page.locale, { role: "backoffice.err.role" }, back);
+    if (!isStaffRole(role)) return invalid(page.locale, ctx.form, { role: "backoffice.err.role" });
     const r = await inviteStaff(ctx, scopedDb(ctx.db, branch), branch, email, role);
-    if (!r.ok) return unprocessable(page.locale, { email: r.error }, back);
+    if (!r.ok) return invalid(page.locale, ctx.form, { email: r.error });
     return redirect(`${back}?saved=invited`);
   },
 
@@ -65,12 +66,12 @@ export const actions = {
     const branch = await branchOf(ctx);
     if (branch === null) return noBranch();
     const role = ctx.form.get("role");
-    if (!isStaffRole(role)) return unprocessable(page.locale, { role: "backoffice.err.role" }, back);
+    if (!isStaffRole(role)) return invalid(page.locale, ctx.form, { role: "backoffice.err.role" });
     const target = String(ctx.form.get("user_id") ?? "");
     const staff = await staffOf(ctx, branch);
     const member = staff.find((s) => s.user_id === target);
-    if (member === undefined) return unprocessable(page.locale, { user_id: "backoffice.err.member" }, back);
-    if (member.self) return unprocessable(page.locale, { user_id: "backoffice.err.self" }, back);
+    if (member === undefined) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.member" });
+    if (member.self) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.self" });
     await setStaffRole(ctx, branch, target, role);
     return redirect(`${back}?saved=role`);
   },
@@ -84,10 +85,10 @@ export const actions = {
     const target = String(ctx.form.get("user_id") ?? "");
     const staff = await staffOf(ctx, branch);
     const member = staff.find((s) => s.user_id === target);
-    if (member === undefined) return unprocessable(page.locale, { user_id: "backoffice.err.member" }, back);
-    if (member.self) return unprocessable(page.locale, { user_id: "backoffice.err.self" }, back);
+    if (member === undefined) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.member" });
+    if (member.self) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.self" });
     const r = await removeStaff(ctx, branch, target);
-    if (!r.ok) return unprocessable(page.locale, { user_id: r.error }, back);
+    if (!r.ok) return invalid(page.locale, ctx.form, { user_id: r.error });
     return redirect(`${back}?saved=removed`);
   },
 };
