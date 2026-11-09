@@ -1357,6 +1357,7 @@ impl CellManager {
             && let Some(retry) =
                 buckets.check(parts.method.as_str(), parts.uri.path(), ctx.client_ip)
         {
+            crate::telemetry::counters::security_event(&ctx.tenant_id, "rate_limited");
             return Response::builder()
                 .status(http::StatusCode::TOO_MANY_REQUESTS)
                 .header(http::header::RETRY_AFTER, retry)
@@ -1387,6 +1388,7 @@ impl CellManager {
                 f.insert("route".into(), route.into());
                 f.insert("action".into(), action.into());
                 f.insert("reason".into(), reason.into());
+                crate::telemetry::counters::security_event(&ctx.tenant_id, "csrf_failed");
                 cell.isolate
                     .log("warn", Some(&ctx.request_id), "csrf check failed", f);
                 // 403 with the error page; no tenant code ran, no meter record.
@@ -1669,6 +1671,13 @@ impl CellManager {
         let Some(route) = m.route.clone() else {
             return;
         };
+        // #659: refusals the runtime counted during the request.
+        crate::telemetry::counters::security_events(&rc.tenant_id, "fetch_denied", m.fetch_blocked);
+        crate::telemetry::counters::security_events(
+            &rc.tenant_id,
+            "db_auth_refused",
+            m.db_auth_refused,
+        );
         // #295: the request families of `/metrics`.
         self.inner.metrics.request(
             &rc.tenant_id,

@@ -175,6 +175,8 @@ pub struct InvocationMeter {
     pub fetch_sent_bytes: u64,
     pub fetch_received_bytes: u64,
     pub fetch_blocked: u64,
+    /// Statements the SQLite authorizer refused (`RENOX_DB_AUTH`, #659).
+    pub db_auth_refused: u64,
     /// Wall time in database statements (`meter.md`, `db_ms`).
     pub db_ms: f64,
     /// Rows returned plus rows changed (`meter.md`, `db_rows`).
@@ -208,6 +210,7 @@ impl InvocationMeter {
             fetch_sent_bytes: 0,
             fetch_received_bytes: 0,
             fetch_blocked: 0,
+            db_auth_refused: 0,
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,
@@ -1540,6 +1543,7 @@ impl Pool {
             fetch_sent_bytes: m.fetch_sent_bytes,
             fetch_received_bytes: m.fetch_received_bytes,
             fetch_blocked: m.fetch_blocked,
+            db_auth_refused: m.db_auth_refused,
             logs_dropped: m.logs_dropped,
             authz_evals: m.authz_evals,
         };
@@ -3299,6 +3303,7 @@ impl InFlight {
             fetch_sent_bytes: self.used.fetch_sent_bytes,
             fetch_received_bytes: self.used.fetch_received_bytes,
             fetch_blocked: self.used.fetch_blocked,
+            db_auth_refused: self.used.db_auth_refused,
             db_ms: (self.used.db_ms * 1_000.0).round() / 1_000.0,
             db_rows: self.used.db_rows,
             logs_dropped: self.used.logs_dropped,
@@ -3760,6 +3765,7 @@ struct RequestEnd {
     fetch_sent_bytes: u64,
     fetch_received_bytes: u64,
     fetch_blocked: u64,
+    db_auth_refused: u64,
     db_ms: f64,
     db_rows: u64,
     logs_dropped: u64,
@@ -3845,6 +3851,7 @@ fn end_request(
         fetch_sent_bytes: request.egress.sent.load(Ordering::Relaxed),
         fetch_received_bytes: request.egress.received.load(Ordering::Relaxed),
         fetch_blocked: request.fetch_blocked,
+        db_auth_refused: request.db_auth_refused,
         db_ms: request.db_ms,
         db_rows: request.db_rows,
         logs_dropped: request.logs_dropped,

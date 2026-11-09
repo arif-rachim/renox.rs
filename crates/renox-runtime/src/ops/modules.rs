@@ -431,6 +431,7 @@ mod cross_ops {
         pub fetch_sent_bytes: u64,
         pub fetch_received_bytes: u64,
         pub fetch_blocked: u64,
+        pub db_auth_refused: u64,
         pub logs_dropped: u64,
         pub authz_evals: u64,
     }
@@ -510,6 +511,7 @@ mod cross_ops {
             r.db_ms += used.db_ms;
             r.db_rows += used.db_rows;
             r.fetch_blocked += used.fetch_blocked;
+            r.db_auth_refused += used.db_auth_refused;
             r.logs_dropped += used.logs_dropped;
             r.authz.evals += used.authz_evals;
             r.egress

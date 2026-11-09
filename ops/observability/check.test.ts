@@ -38,6 +38,18 @@ test("metric names are read out of PromQL; labels, strings, durations and functi
   expect(metricsOf("label_values(renox_cp_node_healthy, node_id)")).toEqual(["renox_cp_node_healthy"]);
 });
 
+test("the security events family and its two alerts are documented and read (#659)", async () => {
+  const dir = import.meta.dir;
+  const readme = await Bun.file(`${dir}/README.md`).text();
+  expect(tableNames(readme, "Family")).toContain("renox_security_events_total");
+  expect(tableNames(readme, "Rule")).toEqual(expect.arrayContaining(["RenoxSecurityEventsSpike", "RenoxLoginFailuresBurst"]));
+  const tenantRules = await Bun.file(`${dir}/rules/tenant.yml`).text();
+  expect(tenantRules).toContain("alert: RenoxSecurityEventsSpike");
+  expect(tenantRules).toContain('kind="login_failed"');
+  // The spike rule's subquery and quantile function are not read as metrics.
+  expect(metricsOf("sum by (tenant_id, kind) (rate(renox_security_events_total[5m])) > 10 * quantile_over_time(0.5, sum by (kind) (rate(renox_security_events_total[5m]))[1h:5m])")).toEqual(["renox_security_events_total"]);
+});
+
 test("dashboard mistakes are reported", () => {
   expect(checkDashboard("d", dashboard([panel()]), KNOWN)).toEqual([]);
   expect(checkDashboard("d", "{", KNOWN)[0]).toContain("not JSON");

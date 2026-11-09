@@ -205,6 +205,9 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   if (locked || row === null || !valid) {
     await bucket(ctx, acct, true);
     await bucket(ctx, ip, true);
+    // #659: the cell counts it (`renox_security_events_total{kind="login_failed"}`). No email, no address: a truncated hash of the address only.
+    const reason = locked ? "locked" : row === null ? "unknown_user" : "password";
+    await ctx.events.emit("auth.login_failed", { reason, ip_hash: (await sha256Hex(clientIp(ctx.headers))).slice(0, 16) });
     return { ok: false, error: GENERIC_LOGIN_ERROR };
   }
   await ctx.db.execute("delete from auth__attempts where bucket = ?", [acct]);

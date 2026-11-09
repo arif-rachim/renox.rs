@@ -56,6 +56,8 @@ Two sources. The **control plane** (`control/api/src/ops/metrics.ts`) answers to
 | `renox_worker_disk_level` | gauge | | worker (`crate::disk`, #103: 0 ok, 1 warn, 2 no new cells, 3 no writes) | exists (#295) |
 | `renox_worker_db_unavailable` | gauge | | worker (files being restored after damage, #103) | exists (#295, `telemetry::counters`) |
 | `renox_worker_log_lines_sampled_out_total` | counter | | worker (`crate::pruning`, #103) | exists (#295, `telemetry::counters`) |
+| `renox_security_events_total` | counter | `tenant_id`, `kind` | worker (`telemetry::counters`; `kind` is `fetch_denied`, `db_auth_refused`, `csrf_failed`, `rate_limited` for a per-route 429, `login_failed` from auth's `auth.login_failed` event) | exists (#659) |
+| `renox_gateway_rate_limited_total` | counter | | worker (the gateway's per-IP 429s; it refuses before a tenant is known, so no `tenant_id`) | exists (#659) |
 
 The worker families are served by `GET /metrics` on the worker's operator listener (`[control] health_listen`, #295: `crates/renox-cell/src/telemetry/metrics.rs`) under these names. The last five families (`renox_worker_sandbox_denials_total`, `renox_worker_replication_lag_seconds`, `renox_worker_process_restarts_total`, `renox_worker_db_unavailable`, `renox_worker_log_lines_sampled_out_total`) are counted where their events happen (`crates/renox-cell/src/telemetry/counters.rs`): a child killed by seccomp (SIGSYS), a child restart, the lag of the last replication status computed, the databases being restored after damage, the lines the volume limit sampled out; a change to a name changes this table, the rules and the dashboards in the same PR (`check.ts` fails otherwise).
 
@@ -76,6 +78,8 @@ The worker families are served by `GET /metrics` on the worker's operator listen
 | `RenoxTenantErrorRatio` | ticket | `renox_worker_requests_total` | Worker process crashes | yes (#295) |
 | `RenoxColdStartP95` | ticket | `renox_worker_cold_start_duration_seconds` | Isolate evicted while a request arrives | yes (#295) |
 | `RenoxTenantFileRestoring` | page | `renox_worker_db_unavailable` | SQLite file corrupted, WAL unreadable | after #295 |
+| `RenoxSecurityEventsSpike` | ticket | `renox_security_events_total` | Security events spike on one tenant | yes (#659) |
+| `RenoxLoginFailuresBurst` | ticket | `renox_security_events_total` | Flood on login/register/reset | yes (#659) |
 | `RenoxReplicationLag` | page | `renox_worker_replication_lag_seconds`, `renox_cp_replication_lag_max_seconds` | Replica lagging / Litestream behind | yes (control-plane view) |
 | `RenoxFailoverRestoreFailed` | page | `renox_cp_alerts_total` | Node dies, restore fails | yes |
 | `RenoxFailoverFailed` | ticket | `renox_cp_failovers_total` | Node dies, restore fails | yes |

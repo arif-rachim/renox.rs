@@ -46,3 +46,24 @@ groups:
         annotations:
           summary: "Node {{ $labels.instance }}: {{ $value }} tenant file(s) damaged and being restored (503 RENOX_DB_UNAVAILABLE)"
           failure_mode: "SQLite file corrupted, WAL unreadable"
+      # #659: renox_security_events_total, per tenant and kind (docs/24 "Security events not visible to operators").
+      - alert: RenoxSecurityEventsSpike
+        # The 5 m rate over 10 times the 1 h median of that rate, and at least 5 events in the window
+        # (a tenant whose median is 0 would otherwise page on its first event).
+        expr: |
+          sum by (tenant_id, kind) (rate(renox_security_events_total[5m]))
+            > 10 * quantile_over_time(0.5, sum by (tenant_id, kind) (rate(renox_security_events_total[5m]))[1h:5m])
+          and sum by (tenant_id, kind) (increase(renox_security_events_total[5m])) >= 5
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }}: {{ $labels.kind }} security events run at over 10 times the last hour's median ({{ $value | humanize }} per second)"
+          failure_mode: "Security events spike on one tenant"
+      - alert: RenoxLoginFailuresBurst
+        expr: sum by (tenant_id) (increase(renox_security_events_total{kind="login_failed"}[5m])) > 50
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }}: {{ $value | humanize }} failed sign-ins in 5 minutes (credential stuffing or a brute-force run)"
+          failure_mode: "Flood on login/register/reset"
