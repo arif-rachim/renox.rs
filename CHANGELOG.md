@@ -8,6 +8,10 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - Artifact 1.8: the app's own `hooks.ts` (project root) is the `hooks` code entry (`on` handlers for module events, `hooks` fillers for module hook points); `renox.toml [[slots]]` (`name`, `template = "partials/<x>.html"`, `requires?`, `priority?` 0 to 1000) fills slots as module `app` (after a module's filler of equal priority); `[events."app.<name>"]` (`payload`, `description?`) declares the events the app may emit, written to the manifest as `events`. `renox check` reports a filler whose template is missing or not a partial, a `requires` outside the merged actions, and an event name that is not `app.<name>` or a payload outside the schema keyword subset as errors, a slot no installed module renders and a handled event of a module that is not installed as warnings (#630).
 
+**Worker**
+
+- The app handles module events, fills hook points and emits its own events (artifact 1.8, ops.md 1.12.0 section 15.4): the `hooks` code entry registers as module `app` (no `permissions.hooks`; in memory and in hook order after the modules of equal priority; deliveries as `Renox::System::"app"`, route `EVENT app <name>`, the same retries and dead letter); `ctx.events.emit("app.<name>", …)` is allowed for the names of the manifest `events` map, with the payload checked against its schema; an undeclared `app.*` name, or one emitted by a module, is `RENOX_MODULE_UNDECLARED`. App slot fillers render in a module's `<r-slot>` (#633).
+
 ## 0.1.10 (2026-11-09)
 
 **Worker**

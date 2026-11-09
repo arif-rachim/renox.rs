@@ -167,16 +167,102 @@ fn artifact(store: &Path) -> String {
     hash
 }
 
+/// Artifact 1.8 (#633): a module page with its own `<r-slot>` filled by a
+/// module partial and two of the app's own partials (`module: "app"`), one
+/// of them with `requires`.
+fn app_filler_artifact(store: &Path) -> String {
+    let mut project = TemplateProject::new();
+    project.insert("pages/_layouts/main.html", LAYOUT);
+    project.insert("pages/index.html", INDEX_HTML);
+    project.insert(
+        "modules/auth/pages/login.html",
+        r#"<r-layout use="main"><h1 id="title">{{ title }}</h1><aside><r-slot name="auth.sidebar" /></aside></r-layout>"#,
+    );
+    project.insert(
+        "modules/billing/partials/plan.html",
+        r#"<span class="plan-badge">Pro</span>"#,
+    );
+    project.insert(
+        "partials/promo.html",
+        r#"<span class="app-promo">Spring sale</span>"#,
+    );
+    project.insert(
+        "partials/vip.html",
+        r#"<span class="app-vip">VIP desk</span>"#,
+    );
+    let slots = BTreeMap::from([(
+        "auth.sidebar".to_string(),
+        vec![
+            SlotFiller::from("modules/billing/partials/plan"),
+            SlotFiller::from("partials/promo"),
+            SlotFiller {
+                template: "partials/vip".into(),
+                requires: Some("billing.view".into()),
+            },
+        ],
+    )]);
+    let compiled = Compiler::new(CompileOptions {
+        slots,
+        ..CompileOptions::default()
+    })
+    .compile(&project)
+    .unwrap_or_else(|d| panic!("{d:?}"));
+    let tmp = scratch("app-filler-artifact");
+    for (rel, src) in compiled.files() {
+        let p = tmp.join("templates").join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, src).unwrap();
+    }
+    let code = tmp.join("code/modules/auth/pages/login.js");
+    std::fs::create_dir_all(code.parent().unwrap()).unwrap();
+    std::fs::write(
+        code,
+        r#"export async function load(ctx) {
+  return { title: "Sign in", actions: ctx.url.searchParams.has("billing") ? ["billing.view"] : [] };
+}"#,
+    )
+    .unwrap();
+    let manifest = serde_json::json!({
+        "artifact": { "version": 1 },
+        "app": { "name": "shop", "timezone": "Asia/Dubai" },
+        "code": { "format": "esm-dir", "entry": { "modules/auth/pages/login": "modules/auth/pages/login.js" } },
+        "routes": [
+            { "kind": "page", "path": "/", "template": "pages/index" },
+            { "kind": "page", "path": "/auth/login", "module": "modules/auth/pages/login", "load": true, "template": "modules/auth/pages/login" },
+        ],
+        "templates": compiled.manifest_entries(),
+        "permissions": { "network": [], "secrets": [] },
+        "modules": [module("auth", "/auth", &[]), module("billing", "/billing", &["auth.sidebar"])],
+        "slots": { "auth.sidebar": [
+            { "module": "billing", "template": "modules/billing/partials/plan" },
+            { "module": "app", "template": "partials/promo" },
+            { "module": "app", "template": "partials/vip", "requires": "billing.view" },
+        ] },
+    });
+    std::fs::write(
+        tmp.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let hash = renox_cell::artifact::canonical_hash(&tmp).unwrap();
+    std::fs::rename(&tmp, store.join(&hash)).unwrap();
+    hash
+}
+
 struct Node {
     manager: CellManager,
     hash: String,
 }
 
 fn node() -> Node {
+    node_with(artifact)
+}
+
+fn node_with(build: fn(&Path) -> String) -> Node {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let data = scratch("data");
     let artifacts = scratch("artifacts");
-    let hash = artifact(&artifacts);
+    let hash = build(&artifacts);
     let meter = Meter::start(MeterConfig::new("t_pages@test", "test", &data), StdoutSink);
     let manager = CellManager::new(
         Runtime::new(RuntimeConfig::default()),
@@ -282,4 +368,24 @@ async fn slot_fillers_render_in_order_and_requires_skips() {
         .find("plan-badge")
         .expect("second filler with its action");
     assert!(a < b, "provider order: {html}");
+}
+
+/// Artifact 1.8 (#633): the app's own partials fill a module's `<r-slot>`
+/// after the module's filler; the app filler with `requires` is skipped
+/// without the action and rendered with it.
+#[tokio::test]
+async fn app_slot_fillers_render_in_a_module_slot_and_requires_skips() {
+    let n = node_with(app_filler_artifact);
+    let (status, html) = n.get("/auth/login").await;
+    assert_eq!(status, 200, "{html}");
+    let plan = html.find("plan-badge").expect("the module's filler");
+    let promo = html.find("app-promo").expect("the app's filler");
+    assert!(plan < promo, "the module first, the app after: {html}");
+    assert!(!html.contains("app-vip"), "requires billing.view: {html}");
+    let (_, html) = n.get("/auth/login?billing=1").await;
+    let promo = html.find("app-promo").expect("the app's filler");
+    let vip = html
+        .find("app-vip")
+        .expect("the app filler with its action");
+    assert!(promo < vip, "{html}");
 }
