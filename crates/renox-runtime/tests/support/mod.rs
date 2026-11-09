@@ -102,6 +102,7 @@ pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
         storage: None,
         ai: None,
         templates: None,
+        authz: None,
     }
 }
 

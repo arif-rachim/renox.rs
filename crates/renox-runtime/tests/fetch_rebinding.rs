@@ -232,6 +232,7 @@ mod tenant {
             storage: None,
             ai: None,
             templates: None,
+            authz: None,
         })
         .await
         .unwrap()
@@ -461,6 +462,7 @@ mod tenant {
                 storage: None,
                 ai: None,
                 templates: None,
+                authz: None,
             })
             .await
             .unwrap();

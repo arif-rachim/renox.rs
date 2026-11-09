@@ -17,6 +17,11 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 - whatsapp 1.1.0: `sandbox = true` records each outgoing message as sent (`wa_id` `sandbox-<id>`, a template's name, language and components in `body`) without calling the Cloud API, and needs no `WHATSAPP_*` secrets; `api_host` points the module at a fake Cloud API in tests (the host must be in the app's network allow-list); a read-only `outbox(limit)` service lists outgoing messages (#591).
 - email 1.1.0: a display name on the sender, from the `from_name` config or per message (`send` and `sendRaw` take `from_name`; at most 80 characters, no `<`, `>` or line breaks; migration 004): mails go out as `"Name" <address>` (an RFC 5322 quoted name, `\` and `"` escaped) to Resend and SES; no name keeps the bare address; a config name that breaks the rule fails the message as `not_configured` (#611).
 - reports 1.1.0: the service `reports.xlsx(sheet, rows)` returns a one-sheet .xlsx (numbers stay numbers, strings are never formulas; a sheet name of 1 to 31 characters without `[]:*?/\`, at most 100,000 cells, else `ValidationError`); the nightly summary goes to the addresses a filler of the new hook `reports.nightly_to` pushes onto `args.to`, with `email_to` as the fallback (#594).
+- `r-can` inside a `ctx.render` fragment answers for the request's principal against the deployment's policies, as on a page: a permitted principal sees the block, others and anonymous do not; realtime fragments still deny (`ops.md` section 25) (#603).
+- Scheduled jobs and event handlers get `ctx.db.scoped(scope)`: the run's statements carry the scope and are fenced as on a request (owner predicate, `RENOX_DB_SCOPE` `owner_mismatch`); the scope is explicit, never derived from the System principal (`ops.md` 1.11.0) (#612).
+- The gateway answers no CORS preflight (405, `Allow: GET, HEAD, PUT`) and adds no `Access-Control-*` header for `PUT /_files/`, whatever `security.cors` says: signed uploads stay same origin (`ops.md` section 21) (#607).
+- The seccomp allowlist includes `pkey_mprotect` and `pkey_free`, which V8 calls on CPUs with memory protection keys; a worker under `[sandbox] mode = "enforce"` on such a host was killed with SIGSYS (#608).
+- App MCP: a `confirm: true` tool whose preview returns an object with a top-level `error` gets a tool error (`isError: true`, `structuredContent.preview` holds the object) and no confirmation token, so the call cannot be confirmed (#609).
 
 **CLI**
 
@@ -27,6 +32,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **SDK**
 
+- `JobContext.db` and `EventContext.db` are the new `TxDb` (statements plus `scoped`, no `transaction`), so `ctx.db.scoped(...)` type-checks in jobs and event handlers (#612).
 - `@renoxium/sdk/test`: `t.job(name, { module?, timeoutMs? })` runs a scheduled job now and resolves after its commit (rejects with the job's error text); `t.tool(name, input, { as?, scope?, confirm? })` calls an App MCP tool as a user's agent (the auth module's OAuth flow, then `tools/call`, with the confirmation loop); `t.db` waits on the worker's write lock instead of failing with `SQLITE_BUSY` (#593).
 
 ## 0.1.8 (2026-11-08)

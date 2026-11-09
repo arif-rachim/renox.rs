@@ -73,6 +73,12 @@ export async function load(ctx) {
 }
 "#;
 
+const RENDER_JS: &str = r#"
+export async function GET(ctx) {
+  return new Response(await ctx.render("partials/row", {}), { headers: { "content-type": "text/html" } });
+}
+"#;
+
 const REPORTS_JS: &str = r#"
 export async function GET(ctx) { return Response.json({ report: "q3" }); }
 "#;
@@ -121,6 +127,11 @@ fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
         "pages/menu.html",
         format!(r#"<nav><a r-can="{menu_action}" href="/reports">Reports</a><i>menu</i></nav>"#),
     );
+    // #603: a partial `ctx.render` shows to whoever `r-can` allows.
+    project.insert(
+        "partials/row.html",
+        r#"<div r-can="report.read"><b>secret</b></div><i>row</i>"#,
+    );
     let compiled = Compiler::new(CompileOptions::default())
         .compile(&project)
         .unwrap_or_else(|d| panic!("{d:?}"));
@@ -134,6 +145,7 @@ fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
         ("pages/orders/[id].js", ORDER_JS),
         ("functions/api.js", API_JS),
         ("functions/reports.js", REPORTS_JS),
+        ("functions/render.js", RENDER_JS),
         ("pages/board.js", BOARD_JS),
     ];
     if with_auth {
@@ -160,6 +172,7 @@ fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
         ("pages/orders/[id]", "pages/orders/[id].js"),
         ("functions/api", "functions/api.js"),
         ("functions/reports", "functions/reports.js"),
+        ("functions/render", "functions/render.js"),
         ("pages/board", "pages/board.js"),
     ]);
     if with_auth {
@@ -176,6 +189,7 @@ fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
             { "kind": "function", "method": "POST", "path": "/api", "module": "functions/api", "export": "POST" },
             { "kind": "function", "method": "GET", "path": "/reports", "module": "functions/reports", "export": "GET",
               "guard": { "action": "report.read" } },
+            { "kind": "function", "method": "GET", "path": "/render", "module": "functions/render", "export": "GET" },
             { "kind": "page", "path": "/board", "module": "pages/board", "load": true, "template": "pages/board" },
             { "kind": "page", "path": "/menu", "template": "pages/menu" },
         ],
@@ -440,4 +454,39 @@ async fn an_undeclared_template_action_refuses_the_deployment() {
     };
     let (status, body) = n.send("GET", "/menu", &[]).await;
     assert_eq!(status, 500, "{body}");
+}
+
+/// #603 (`ops.md` section 25): `r-can` inside a `ctx.render` fragment sees
+/// the request's principal: the block shows for a principal holding the
+/// action, and is absent for one without it and for anonymous.
+#[tokio::test]
+async fn ctx_render_sees_the_principal_for_r_can() {
+    let n = node(true);
+    let alice = [("cookie", "uid=u_alice")];
+    let bob = [("cookie", "uid=u_bob")];
+    // Bob gets the `auditor` role (`report.read`); alice has none.
+    let (status, body) = n.send("POST", "/api?user=u_bob", &[]).await;
+    assert_eq!(status, 200, "{body}");
+    let t0 = Instant::now();
+    loop {
+        let (status, html) = n.send("GET", "/render", &bob).await;
+        assert_eq!(status, 200, "{html}");
+        if html.contains("<b>secret</b>") {
+            assert!(html.contains("<i>row</i>"), "{html}");
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the permitted principal never saw the block: {html}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (status, html) = n.send("GET", "/render", &alice).await;
+    assert_eq!(status, 200, "{html}");
+    assert!(html.contains("<i>row</i>"), "{html}");
+    assert!(!html.contains("secret"), "no role: {html}");
+    let (status, html) = n.send("GET", "/render", &[]).await;
+    assert_eq!(status, 200, "{html}");
+    assert!(html.contains("<i>row</i>"), "{html}");
+    assert!(!html.contains("secret"), "anonymous: {html}");
 }

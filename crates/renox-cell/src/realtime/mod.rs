@@ -106,7 +106,7 @@ impl CellRealtime {
                 };
                 let id = partial_id(&fragment, &module);
                 let rendered = tokio::task::spawn_blocking(move || {
-                    pages.render_partial(&id, &data, None, None)
+                    pages.render_partial(&id, &data, None, None, None, 0)
                 })
                 .await
                 .map_err(|_| unknown_fragment(&fragment))?;

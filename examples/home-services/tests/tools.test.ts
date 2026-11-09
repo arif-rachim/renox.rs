@@ -207,7 +207,10 @@ describe("create_job", () => {
 
   test("edge case: the slot is taken now, an unknown phone, a customer with two sites, a malformed slot: objects, nothing written", async () => {
     const jobs = rows("select count(*) as n from app__jobs")[0]?.n;
-    expect((await call(dinaToken, "create_job", args(slot))).out.preview).toMatchObject({ error: "slot_unavailable" });
+    const taken = await call(dinaToken, "create_job", args(slot));
+    expect(taken.isError).toBe(true);
+    expect(taken.out.preview).toMatchObject({ error: "slot_unavailable" });
+    expect(taken.out.confirmation).toBeUndefined();
     expect((await call(dinaToken, "create_job", args(slot, { customer_phone: "+971 50 999 9999" }))).out.preview).toMatchObject({ error: "not_found" });
     const two = await call(dinaToken, "create_job", args(slot, { customer_phone: "+971 52 111 0002" }));
     expect(two.out.preview).toMatchObject({ error: "bad_input" });
@@ -220,11 +223,16 @@ describe("create_job", () => {
     const free = ((await call(dinaToken, "next_free_slot", { service: "AC-SERVICE", from: day })).out.slots as { slot: string }[])[0]?.slot as string;
     const jobs = rows("select count(*) as n from app__jobs")[0]?.n;
     for (const token of [aliToken, accountantToken]) {
-      // The token's principal carries the user's roles and branch (#590), so the cell's check of the tool's action
-      // refuses a technician's and an accountant's token before the tool runs.
+      // The cell lets the token through (it names no roles); the tool asks the policies with the user's roles and answers forbidden
+      // on the preview. A preview that returns an error is a tool error with no confirmation (#609), so no token can confirm it.
       const preview = await call(token, "create_job", args(free));
-      expect(preview.status, preview.text).toBe(403);
-      expect(preview.text).toContain("RENOX_FORBIDDEN");
+      expect(preview.status, preview.text).toBe(200);
+      expect(preview.isError).toBe(true);
+      expect(preview.out.preview).toMatchObject({ error: "forbidden" });
+      expect(preview.out.confirmation).toBeUndefined();
+      const confirmed = await call(token, "create_job", args(free), "any-token");
+      expect(confirmed.status).toBe(409);
+      expect(confirmed.text).toContain("RENOX_TOOL_CONFIRM");
     }
     const unverified = await call(strangerToken, "create_job", args(free));
     expect(unverified.status).toBe(403);

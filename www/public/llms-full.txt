@@ -2540,7 +2540,7 @@ Example: the refund button is hidden because `inv.amount > 10,000,000`. The user
 "shop__cart_items" = { owner = "session_id" }
 ```
 
-`db.scoped({ user_id, org_id })` rewrites statements against declared tables to add the ownership predicate (via SQLite's authorizer callback plus a statement rewriter for `SELECT/UPDATE/DELETE`). Official modules must use `scoped` for user-owned tables, and `renox check` flags unscoped access to tables with declared ownership. This is weaker than database-level RLS and is acknowledged as a trade-off (D16); authorization tests for official modules are mandatory.
+`db.scoped({ user_id, org_id })` rewrites statements against declared tables to add the ownership predicate (via SQLite's authorizer callback plus a statement rewriter for `SELECT/UPDATE/DELETE`). Official modules must use `scoped` for user-owned tables, and `renox check` flags unscoped access to tables with declared ownership. This is weaker than database-level RLS and is acknowledged as a trade-off (D16); authorization tests for official modules are mandatory. Scheduled jobs and event handlers have `db.scoped` too: their `ctx.db` is the run's transaction (`TxDb`), and the scope is always an explicit argument, never derived from the System principal they run as.
 
 ## In templates
 
@@ -2918,7 +2918,7 @@ export default tool({
 | Authorization | Each tool declares an `action`; Cedar evaluates it with the token's user as principal, exactly like a UI action. No bypass path |
 | Resources | Declared public views and read models can be exposed as read-only MCP resources (`resource://billing/invoices/{id}`), filtered by the same policies |
 | Limits | Rate limit per token, timeout per tool call, output size cap, and per-call metering billed to the tenant |
-| Confirmation | Tools marked `confirm: true` (payments, refunds, deletes) return a preview; the agent must send a confirmation token to execute |
+| Confirmation | Tools marked `confirm: true` (payments, refunds, deletes) return a preview; the agent must send a confirmation token to execute; a preview that returns an error gets no confirmation |
 | Discovery | `/.well-known/oauth-authorization-server` and tool descriptions are served so general-purpose agents can find and connect to the app |
 | Transport | Streamable HTTP on `/mcp`; SSE for server-initiated notifications (job finished, new message) |
 

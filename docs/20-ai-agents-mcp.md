@@ -80,7 +80,7 @@ export default tool({
 | Authorization | Each tool declares an `action`; Cedar evaluates it with the token's user as principal, exactly like a UI action. No bypass path |
 | Resources | Declared public views and read models can be exposed as read-only MCP resources (`resource://billing/invoices/{id}`), filtered by the same policies |
 | Limits | Rate limit per token, timeout per tool call, output size cap, and per-call metering billed to the tenant |
-| Confirmation | Tools marked `confirm: true` (payments, refunds, deletes) return a preview; the agent must send a confirmation token to execute |
+| Confirmation | Tools marked `confirm: true` (payments, refunds, deletes) return a preview; the agent must send a confirmation token to execute; a preview that returns an error gets no confirmation |
 | Discovery | `/.well-known/oauth-authorization-server` and tool descriptions are served so general-purpose agents can find and connect to the app |
 | Transport | Streamable HTTP on `/mcp`; SSE for server-initiated notifications (job finished, new message) |
 
