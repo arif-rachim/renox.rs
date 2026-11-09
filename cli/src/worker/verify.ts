@@ -41,18 +41,18 @@ export const PINNED_WORKER: {
   sha256: Readonly<Record<string, string>>;
   pdf: Readonly<Record<string, string>>;
 } = {
-  version: "0.6.0",
+  version: "0.6.1",
   sha256: {
-    "x86_64-unknown-linux-gnu": "71044dd6eae52d4c54188a5068efd61777c8d016de1c1aee94a75c23d51dbf06",
-    "aarch64-unknown-linux-gnu": "8689e580b7939369b861ce6a9273577cbc0fa70be4bece369be46c2973f0d916",
+    "x86_64-unknown-linux-gnu": "069e36500f4ba85c8c6438bb115a0ecfbeab4d21f629149bcce57d29d3ce5d11",
+    "aarch64-unknown-linux-gnu": "65804364f326fbe59ae2b654f502d2ea4145fbdde2f4a69886afc9f27ff9e8f0",
     "x86_64-apple-darwin": "f6e38bfcda429d2b2601af6c07356a4c875fa2dff0c44b4ac4a09b1f11477398",
     "aarch64-apple-darwin": "9fc16ae25e3416982c169480b3cbede3ac4b53382e3ad985411efc94832ed45e",
     // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
-    "x86_64-pc-windows-msvc": "65d280dc6ae7174800e00a1cfe022a500dc6e612668adae14192e94f25115c11",
+    "x86_64-pc-windows-msvc": "9d99fe2dee21a5ef5aeded4a3a52898189336f74bcdaeeb91d450053285cd8d7",
   },
   pdf: {
-    "x86_64-unknown-linux-gnu": "6082864f53d084a0b157eb652146baad2d3b2aa3b8e38853abba9d1cb3bf2666",
-    "aarch64-unknown-linux-gnu": "06deab89ee30ecf844c45042fd049582f2680a2135a92a445d022da8dc646a8b",
+    "x86_64-unknown-linux-gnu": "2a59bac049a2b38d55fc02ff7e03f7f4eee3570e2e8e61adbc4699937ab85092",
+    "aarch64-unknown-linux-gnu": "c8050f124150fe570b60675609bba4190922dad53f7b19aa50800c1fdbe198e9",
     "x86_64-apple-darwin": "c0ae4ae9be597c4245232d412abc56f49b6d6c6b8f7aa766e02cbf52f969170a",
     "aarch64-apple-darwin": "ae55de9edb7cf4b87e8879560ed9b0397ec4d6b09a53c65de47278a4a4ba3fb0",
   },

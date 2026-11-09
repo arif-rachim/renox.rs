@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.10 (unreleased)
+
+**Worker**
+
+- Pins `renox-worker` 0.6.1.
+
 ## 0.1.9 (2026-11-09)
 
 **Worker**

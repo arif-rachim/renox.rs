@@ -13,7 +13,7 @@ renox --version
 ```
 
 ```
-renox 0.1.9 (renox-worker 0.6.0)
+renox 0.1.9 (renox-worker 0.6.1)
 ```
 
 On Windows (x64), in PowerShell: `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
