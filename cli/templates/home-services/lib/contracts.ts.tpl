@@ -12,7 +12,7 @@
 // A module service that throws inside the caller's transaction rolls it back,
 // so what can fail (the checks, then the module's invoice) comes before the
 // first write of `activate`.
-import type { Db, DbStatements } from "@renoxium/sdk";
+import type { DbStatements } from "@renoxium/sdk";
 import { audit, tax_gcc } from "renox:modules";
 
 import { addDays, nextVisit, RENEWAL_NOTICE_DAYS, VISIT_AHEAD_DAYS, yearEnd } from "./contract-dates";
@@ -24,7 +24,7 @@ import { issueLink } from "./links";
 import { aed } from "./money";
 import { notifyCustomer } from "./notify";
 import { day } from "./quotes";
-import { branchById, branchOf, fencedTo, scopedDb } from "./scope";
+import { branchDb, branchOf, findBranch, scopedDb } from "./scope";
 
 export const STATUSES = ["draft", "active", "expired", "cancelled"] as const;
 export type ContractStatus = (typeof STATUSES)[number];
@@ -74,7 +74,7 @@ export async function findContract(sdb: DbStatements, id: unknown): Promise<Cont
 export type ContractListRow = ContractRow & { customer_name: string; items: number };
 
 /** The branch's contracts, newest first, optionally of one status. */
-export async function listContracts(sdb: Db, status: string): Promise<ContractListRow[]> {
+export async function listContracts(sdb: DbStatements, status: string): Promise<ContractListRow[]> {
   const rows = await sdb.query<Omit<ContractListRow, "items">>(
     `select c.id, c.branch_id, c.customer_id, c.number, c.status, c.starts_on, c.ends_on, c.price_fils, c.vat_rate, c.billing, c.notes, c.invoice_id, c.renewed_from, c.renewal_notified_on, c.created_by, c.created_at, c.activated_at, cu.name as customer_name
      from app__contracts c join app__customers cu on cu.id = c.customer_id where (?1 = '' or c.status = ?1) order by c.created_at desc, c.number desc limit 300`,
@@ -100,14 +100,14 @@ export async function visitsOf(sdb: DbStatements, contract: string): Promise<Vis
 }
 
 /** The site of the customer and the service of the catalogue an item names, or the reason it is wrong. */
-async function checkItem(ctx: { db: DbStatements }, sdb: Db, branchId: string, customerId: string, item: ItemInput): Promise<string | null> {
+async function checkItem(ctx: { db: DbStatements }, sdb: DbStatements, branchId: string, customerId: string, item: ItemInput): Promise<string | null> {
   const site = await sdb.queryOne<{ customer_id: string }>("select customer_id from app__sites where id = ?", [item.site_id]);
   if (site === null || site.customer_id !== customerId) return "Choose a site of this customer.";
   const service = await ctx.db.queryOne<{ id: number }>("select id from app__services where id = ? and active = 1 and (branch_id is null or branch_id = ?)", [item.service_id, branchId]);
   return service === null ? "Unknown service." : null;
 }
 
-async function insertItem(sdb: Db, branchId: string, contract: string, startsOn: string, item: ItemInput): Promise<void> {
+async function insertItem(sdb: DbStatements, branchId: string, contract: string, startsOn: string, item: ItemInput): Promise<void> {
   await sdb.execute("insert into app__contract_items (contract_id, branch_id, site_id, service_id, visits_per_year, next_visit_on) values (?, ?, ?, ?, ?, ?)", [
     contract,
     branchId,
@@ -314,9 +314,9 @@ export async function generateVisits(ctx: JobWorkCtx, from = today()): Promise<V
   );
   const result: VisitsResult = { jobs: 0 };
   for (const item of due) {
-    const branch = await branchById(ctx.db, item.branch_id);
+    const branch = await findBranch(ctx.db, item.branch_id);
     if (branch === null) continue;
-    const sdb = fencedTo(ctx.db, branch.id);
+    const sdb = branchDb(ctx.db, branch.id);
     const site = await sdb.queryOne<{ id: string; customer_id: string }>("select id, customer_id from app__sites where id = ?", [item.site_id]);
     if (site === null) continue;
     let dueOn = item.next_visit_on < from ? from : item.next_visit_on;
@@ -362,7 +362,7 @@ export async function remindRenewals(ctx: JobWorkCtx, from = today()): Promise<R
     [addDays(from, RENEWAL_NOTICE_DAYS)],
   );
   for (const c of due) {
-    const marked = await fencedTo(ctx.db, c.branch_id).execute("update app__contracts set renewal_notified_on = ? where id = ? and renewal_notified_on is null", [from, c.id]);
+    const marked = await branchDb(ctx.db, c.branch_id).execute("update app__contracts set renewal_notified_on = ? where id = ? and renewal_notified_on is null", [from, c.id]);
     if (marked.changes !== 1) continue;
     await notifyCustomer(ctx, { id: c.customer_id }, "amc_renewal", {
       branch_id: c.branch_id,
@@ -378,7 +378,7 @@ export async function remindRenewals(ctx: JobWorkCtx, from = today()): Promise<R
   }
   const gone = await ctx.db.query<{ id: string; number: string; branch_id: string }>("select id, number, branch_id from app__contracts where status = 'active' and ends_on < ? order by number", [from]);
   for (const c of gone) {
-    const won = await fencedTo(ctx.db, c.branch_id).execute("update app__contracts set status = 'expired' where id = ? and status = 'active'", [c.id]);
+    const won = await branchDb(ctx.db, c.branch_id).execute("update app__contracts set status = 'expired' where id = ? and status = 'active'", [c.id]);
     if (won.changes !== 1) continue;
     await audit.record({ action: "contract.expire", actor: { kind: "system", id: "amc-renewals" }, resource: { type: "Contract", id: c.id }, details: { number: c.number } });
     result.expired += 1;

@@ -4,7 +4,7 @@
 // `principal.attrs.org`) of the session. Each branch is one organisation
 // (app__branches.org_id). The customers and sites of other branches are out of
 // reach: every loader and action reads and writes them through `scopedDb`.
-import type { Db, DbStatements, Principal } from "@renoxium/sdk";
+import type { DbStatements, Principal, Scope } from "@renoxium/sdk";
 
 export type Branch = {
   id: string;
@@ -15,6 +15,9 @@ export type Branch = {
   emirate: string;
   area: string;
 };
+
+/** A request `Db` or a job / handler `TxDb`: both have `scoped`. */
+export type Scopable = DbStatements & { scoped(scope: Scope): DbStatements };
 
 interface BranchCtx {
   readonly principal: Principal | null;
@@ -29,27 +32,25 @@ export async function branchOf(ctx: BranchCtx): Promise<Branch | null> {
 }
 
 /** The branch with this id: for scheduled jobs, which have no principal and so no active organisation. */
-export async function branchById(db: DbStatements, id: string): Promise<Branch | null> {
+export async function findBranch(db: DbStatements, id: string): Promise<Branch | null> {
   return db.queryOne<Branch>("select id, org_id, name_en, name_ar, slug, emirate, area from app__branches where id = ?", [id]);
 }
 
 /**
- * `db` fenced to `branch`: app__customers and app__sites statements get
- * `branch_id = <branch>` added, and an insert must carry that branch_id.
- * `[authz.ownership]` names `branch_id` as the owner column, which
- * db.scoped compares to `user_id`: the branch id goes there.
+ * `db` fenced to the branch with this id: app__customers and app__sites
+ * statements get `branch_id = <branch>` added, and an insert must carry that
+ * branch_id. `[authz.ownership]` names `branch_id` as the owner column, which
+ * db.scoped compares to `user_id`: the branch id goes there. Requests, jobs and
+ * event handlers all have `db.scoped`; the cast is because the SDK types an
+ * action's `ctx.db` as DbStatements, without it. There is no unfenced fallback.
  */
-export function scopedDb(db: DbStatements, branch: Branch): Db {
-  return fencedTo(db, branch.id);
+export function branchDb(db: DbStatements, branchId: string): DbStatements {
+  return (db as Scopable).scoped({ user_id: branchId });
 }
 
-/** `db` fenced to the branch with this id: for the public pages, where the branch is the one a token's quotation belongs to, and for jobs (see below). */
-export function fencedTo(db: DbStatements, branchId: string): Db {
-  const d = db as Db;
-  // A scheduled job's `db` is the run's transaction and has no `scoped`: its
-  // statements are unfenced (app code may; renox.toml [authz.ownership]) and
-  // name the branch themselves, as every owned row's insert does.
-  return typeof d.scoped === "function" ? d.scoped({ user_id: branchId }) : d;
+/** `db` fenced to `branch` (see `branchDb`). */
+export function scopedDb(db: DbStatements, branch: Branch): DbStatements {
+  return branchDb(db, branch.id);
 }
 
 /** A request without a branch ends here: signed in people with no branch have nothing to see. */

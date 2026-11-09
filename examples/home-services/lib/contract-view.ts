@@ -1,7 +1,7 @@
 // What the contract page and the contract PDF are given: the contract, its
 // items with the site and service named in the page's language, and the visits
 // made for it.
-import type { Db, DbStatements, Pdf } from "@renoxium/sdk";
+import type { DbStatements, Pdf } from "@renoxium/sdk";
 
 import { type ContractRow, itemsOf, visitsOf } from "./contracts";
 import { findCustomer } from "./customers";
@@ -19,7 +19,7 @@ export function priceView(c: Pick<ContractRow, "price_fils" | "vat_rate">) {
   return { price: c.price_fils / 100, vat: vat / 100, total: (c.price_fils + vat) / 100, total_text: aed(c.price_fils + vat) };
 }
 
-export async function itemViews(ctx: { readonly db: DbStatements }, sdb: Db, contract: string, language: Language) {
+export async function itemViews(ctx: { readonly db: DbStatements }, sdb: DbStatements, contract: string, language: Language) {
   const items = await itemsOf(sdb, contract);
   const out = [];
   for (const i of items) {
@@ -37,7 +37,7 @@ export async function itemViews(ctx: { readonly db: DbStatements }, sdb: Db, con
   return out;
 }
 
-export async function visitViews(ctx: { readonly db: DbStatements }, sdb: Db, contract: string, language: Language) {
+export async function visitViews(ctx: { readonly db: DbStatements }, sdb: DbStatements, contract: string, language: Language) {
   const visits = await visitsOf(sdb, contract);
   const out = [];
   for (const v of visits) {
@@ -49,7 +49,7 @@ export async function visitViews(ctx: { readonly db: DbStatements }, sdb: Db, co
 }
 
 /** The contract as a PDF in `language`: the parties, the term, the services and sites with their visit counts, the yearly price. */
-export async function contractPdf(ctx: PdfCtx, sdb: Db, contract: ContractRow, language: Language): Promise<Uint8Array> {
+export async function contractPdf(ctx: PdfCtx, sdb: DbStatements, contract: ContractRow, language: Language): Promise<Uint8Array> {
   const customer = await findCustomer(sdb, contract.customer_id);
   const items = await itemViews(ctx, sdb, contract.id, language);
   const data = {

@@ -1,6 +1,6 @@
 // Customer and site statements. Every function takes the branch-scoped Db of
 // lib/scope.ts: the branch fence is added to each statement by the platform.
-import type { Db } from "@renoxium/sdk";
+import type { DbStatements } from "@renoxium/sdk";
 
 import type { CustomerInput, SiteInput } from "./forms";
 
@@ -38,7 +38,7 @@ const like = (q: string): string => `%${q.replace(/[\\%_]/gu, (c) => `\\${c}`)}%
 export const customerId = (raw: unknown): string | null => (typeof raw === "string" && /^[A-Za-z0-9_-]{1,64}$/u.test(raw) ? raw : null);
 
 /** The branch's customers whose name or phone contains `q` (the phone as typed, `050…` or `+971…`), by name. */
-export async function listCustomers(sdb: Db, q: string): Promise<CustomerRow[]> {
+export async function listCustomers(sdb: DbStatements, q: string): Promise<CustomerRow[]> {
   const digits = q.replace(/\D/gu, "").replace(/^(00971|971|0)/u, "");
   // A phone search needs three digits; with fewer, the pattern "+" matches no stored phone.
   const phone = digits.length >= 3 ? like(digits) : "+";
@@ -46,29 +46,29 @@ export async function listCustomers(sdb: Db, q: string): Promise<CustomerRow[]> 
 }
 
 /** One customer of the branch, or null: another branch's id finds nothing. */
-export async function findCustomer(sdb: Db, id: unknown): Promise<CustomerRow | null> {
+export async function findCustomer(sdb: DbStatements, id: unknown): Promise<CustomerRow | null> {
   const key = customerId(id);
   return key === null ? null : sdb.queryOne<CustomerRow>(`select ${COLUMNS} from app__customers where id = ?`, [key]);
 }
 
-export async function sitesOf(sdb: Db, customer: string): Promise<SiteRow[]> {
+export async function sitesOf(sdb: DbStatements, customer: string): Promise<SiteRow[]> {
   return sdb.query<SiteRow>("select id, customer_id, label, emirate, area, address, makani, lat, lng, access_notes from app__sites where customer_id = ? order by label, id", [customer]);
 }
 
-export async function siteCounts(sdb: Db): Promise<Map<string, number>> {
+export async function siteCounts(sdb: DbStatements): Promise<Map<string, number>> {
   const rows = await sdb.query<{ customer_id: string; n: number }>("select customer_id, count(*) as n from app__sites group by customer_id");
   return new Map(rows.map((r) => [r.customer_id, r.n]));
 }
 
 const newId = (prefix: string): string => `${prefix}_${crypto.randomUUID().replace(/-/gu, "").slice(0, 16)}`;
 
-export async function insertCustomer(sdb: Db, branch: string, c: CustomerInput, now: number): Promise<string> {
+export async function insertCustomer(sdb: DbStatements, branch: string, c: CustomerInput, now: number): Promise<string> {
   const id = newId("cu");
   await sdb.execute("insert into app__customers (id, branch_id, kind, name, trn, phone, email, language, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", [id, branch, c.kind, c.name, c.trn, c.phone, c.email, c.language, now]);
   return id;
 }
 
-export async function insertSite(sdb: Db, branch: string, customer: string, s: SiteInput): Promise<string> {
+export async function insertSite(sdb: DbStatements, branch: string, customer: string, s: SiteInput): Promise<string> {
   const id = newId("st");
   await sdb.execute("insert into app__sites (id, customer_id, branch_id, label, emirate, area, address, makani, lat, lng, access_notes) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
     id,

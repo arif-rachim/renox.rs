@@ -8,13 +8,13 @@
 // session do not apply. The user's branches come from org's public view
 // (org__public_members_v1); when more than one holds the user, the agent names
 // the branch (its slug) and the call runs as if that branch were the active one.
-import type { ActionContext, Db, DbStatements, Principal, Realtime } from "@renoxium/sdk";
+import type { ActionContext, DbStatements, Principal, Realtime } from "@renoxium/sdk";
 
 import { addDays } from "./contract-dates";
 import { bookingService, clock, ensureSynced, slotsOn } from "./booking-sync";
 import { listCustomers } from "./customers";
 import { day as dayOf } from "./quotes";
-import { type Branch, fencedTo } from "./scope";
+import { type Branch, branchDb } from "./scope";
 import { techniciansOf } from "./technicians";
 
 export interface ToolCtx {
@@ -115,7 +115,7 @@ export async function nextFreeSlots(ctx: ToolCtx, branch: Branch, serviceCode: s
 }
 
 /** The customer of the branch whose stored phone matches `phone` (digits compared without the country prefix). */
-export async function customerByPhone(sdb: Db, phone: string): Promise<{ id: string; name: string } | "none" | "several"> {
+export async function customerByPhone(sdb: DbStatements, phone: string): Promise<{ id: string; name: string } | "none" | "several"> {
   const digits = (p: string): string => p.replace(/\D/gu, "").replace(/^(00971|971|0)/u, "");
   const want = digits(phone);
   if (want.length < 7) return "none";
@@ -124,4 +124,4 @@ export async function customerByPhone(sdb: Db, phone: string): Promise<{ id: str
 }
 
 /** `db` fenced to the branch (the tools' reads of owned tables). */
-export const fenced = (db: DbStatements, branch: Branch): Db => fencedTo(db, branch.id);
+export const fenced = (db: DbStatements, branch: Branch): DbStatements => branchDb(db, branch.id);

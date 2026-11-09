@@ -3,13 +3,13 @@
 // on purpose, like /l/approve: no `guard`; the token (lib/links.ts, kind
 // `invoice`: random, stored hashed, expiring) names one invoice and the page
 // shows only that. A tampered or unknown token is a 404, an expired one a 410.
+import { branchDb } from "../../../lib/scope";
 import type { LoaderContext } from "@renoxium/sdk";
 
 import { documentView, invoiceView } from "../../../lib/invoice-view";
 import { documentOf, findInvoice, paymentsOf } from "../../../lib/invoices";
 import { verifyLink } from "../../../lib/links";
 import { shell } from "../../../lib/page";
-import { fencedTo } from "../../../lib/scope";
 
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
 
@@ -21,7 +21,7 @@ export async function load(ctx: LoaderContext) {
   // The token names one invoice; from here every statement is fenced to its branch.
   const named = await ctx.db.queryOne<{ branch_id: string }>("select branch_id from app__job_invoices where invoice_id = ?", [link.refId]);
   if (named === null) return plain(404, "Not found");
-  const sdb = fencedTo(ctx.db, named.branch_id);
+  const sdb = branchDb(ctx.db, named.branch_id);
   const invoice = await findInvoice(sdb, named.branch_id, link.refId);
   const doc = invoice === null ? null : await documentOf(invoice.invoice_id);
   if (invoice === null || doc === null) return plain(404, "Not found");

@@ -11,7 +11,7 @@ import type { DbStatements, Pdf, Storage } from "@renoxium/sdk";
 
 import { aed } from "./money";
 import { getSettings, pdfBrand } from "./settings";
-import { fencedTo, type Branch } from "./scope";
+import { type Branch, branchDb } from "./scope";
 import { memberName } from "./technicians";
 import { photosOf, partsOf, partTotal, visitById } from "./visit-data";
 
@@ -40,7 +40,7 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
   const visit = await visitById(ctx.db, visitId);
   if (visit === null) return null;
   // Everything else is read through the visit's own branch.
-  const sdb = fencedTo(ctx.db, visit.branch_id);
+  const sdb = branchDb(ctx.db, visit.branch_id);
   const job = await sdb.queryOne<{ number: string; customer_id: string; site_id: string; service_id: number; description: string; branch_id: string }>(
     "select number, customer_id, site_id, service_id, description, branch_id from app__jobs where id = ?",
     [visit.job_id],
@@ -97,6 +97,6 @@ export async function buildReport(ctx: ReportCtx, visitId: string, lang?: Report
   const bytes = await ctx.pdf.render(`partials/pdf/visit-report.${r.language}`, r.data, { page: "A4" });
   const key = `app/visits/${r.visit.id}/report-${r.language}.pdf`;
   await ctx.storage.put(key, bytes, { contentType: "application/pdf" });
-  if (r.language === r.own) await fencedTo(ctx.db, r.visit.branch_id).execute("update app__visits set report_key = ? where id = ?", [key, r.visit.id]);
+  if (r.language === r.own) await branchDb(ctx.db, r.visit.branch_id).execute("update app__visits set report_key = ? where id = ?", [key, r.visit.id]);
   return { key, bytes, lang: r.language };
 }

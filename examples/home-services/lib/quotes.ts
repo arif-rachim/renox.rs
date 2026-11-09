@@ -2,7 +2,7 @@
 // of the branch's own tables take the branch-scoped Db of lib/scope.ts (the
 // fence adds branch_id); the number sequence and the public approval page take
 // the plain one, with the quotation named by id.
-import type { Db, DbStatements } from "@renoxium/sdk";
+import type { DbStatements } from "@renoxium/sdk";
 
 import { lineTotal, totals, type PricedLine } from "./money";
 
@@ -75,7 +75,7 @@ const newId = (): string => `qt_${crypto.randomUUID().replace(/-/gu, "").slice(0
 export const quoteId = (raw: unknown): string | null => (typeof raw === "string" && /^[A-Za-z0-9_-]{1,64}$/u.test(raw) ? raw : null);
 
 /** A `sent` quotation past its date is `expired` (all of the branch's, or the one `id`). `sdb` is fenced to the quotation's branch. */
-export async function expireDue(sdb: Db, id?: string): Promise<void> {
+export async function expireDue(sdb: DbStatements, id?: string): Promise<void> {
   if (id === undefined) await sdb.execute("update app__quotes set status = 'expired' where status = 'sent' and valid_until <= ?", [now()]);
   else await sdb.execute("update app__quotes set status = 'expired' where id = ? and status = 'sent' and valid_until <= ?", [id, now()]);
 }
@@ -85,7 +85,7 @@ export interface QuoteListRow extends QuoteRow {
 }
 
 /** The branch's quotations, newest first, optionally of one status; with the customer's name. */
-export async function listQuotes(sdb: Db, status: string): Promise<QuoteListRow[]> {
+export async function listQuotes(sdb: DbStatements, status: string): Promise<QuoteListRow[]> {
   const rows = await sdb.query<QuoteRow>(`select ${COLUMNS} from app__quotes where (?1 = '' or status = ?1) order by created_at desc, number desc limit 200`, [status]);
   const names = await sdb.query<{ id: string; name: string }>("select id, name from app__customers", []);
   const byId = new Map(names.map((n) => [n.id, n.name]));
@@ -130,7 +130,7 @@ export function resolveLines(inputs: readonly LineInput[], catalogue: readonly S
 }
 
 /** Stores a draft quotation with its lines and totals; returns its id. `plain` draws the number, `sdb` writes the branch's rows. */
-export async function insertQuote(plain: DbStatements, sdb: Db, q: { branch: string; customer: string; site: string; validUntil: number; notes: string; by: string; lines: readonly LineValue[] }): Promise<string> {
+export async function insertQuote(plain: DbStatements, sdb: DbStatements, q: { branch: string; customer: string; site: string; validUntil: number; notes: string; by: string; lines: readonly LineValue[] }): Promise<string> {
   const id = newId();
   const sum = totals(q.lines);
   const n = await plain.execute("insert into app__quote_numbers (quote_id) values (?)", [id]);
@@ -166,13 +166,13 @@ export async function insertQuote(plain: DbStatements, sdb: Db, q: { branch: str
 }
 
 /** draft -> sent; false when the quotation was not a draft (or is another branch's: the fence finds nothing). */
-export async function markSent(sdb: Db, id: string): Promise<boolean> {
+export async function markSent(sdb: DbStatements, id: string): Promise<boolean> {
   const r = await sdb.execute("update app__quotes set status = 'sent' where id = ? and status = 'draft'", [id]);
   return r.changes === 1;
 }
 
 /** sent -> approved or rejected, once; false when the quotation was no longer `sent`. */
-export async function decide(sdb: Db, id: string, to: "approved" | "rejected", ip: string | null): Promise<boolean> {
+export async function decide(sdb: DbStatements, id: string, to: "approved" | "rejected", ip: string | null): Promise<boolean> {
   const r = await sdb.execute("update app__quotes set status = ?, approved_at = ?, approved_ip = ? where id = ? and status = 'sent' and valid_until > ?", [to, now(), ip, id, now()]);
   return r.changes === 1;
 }
