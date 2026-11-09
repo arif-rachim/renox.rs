@@ -220,13 +220,11 @@ describe("create_job", () => {
     const free = ((await call(dinaToken, "next_free_slot", { service: "AC-SERVICE", from: day })).out.slots as { slot: string }[])[0]?.slot as string;
     const jobs = rows("select count(*) as n from app__jobs")[0]?.n;
     for (const token of [aliToken, accountantToken]) {
-      // The cell lets the token through (it names no roles); the tool asks the policies with the user's roles and answers forbidden,
-      // on the preview and on the confirmed call alike.
+      // The token's principal carries the user's roles and branch (#590), so the cell's check of the tool's action
+      // refuses a technician's and an accountant's token before the tool runs.
       const preview = await call(token, "create_job", args(free));
-      expect(preview.status, preview.text).toBe(200);
-      expect(preview.out.preview).toMatchObject({ error: "forbidden" });
-      const confirmed = await call(token, "create_job", args(free), preview.out.confirmation?.token);
-      expect(confirmed.out).toMatchObject({ error: "forbidden" });
+      expect(preview.status, preview.text).toBe(403);
+      expect(preview.text).toContain("RENOX_FORBIDDEN");
     }
     const unverified = await call(strangerToken, "create_job", args(free));
     expect(unverified.status).toBe(403);
