@@ -1,0 +1,273 @@
+{
+ "issue": 641,
+ "date": "2026-11-09",
+ "host": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.30GHz",
+  "cpus": 4,
+  "ram_mb": 16086,
+  "kernel": "Linux 6.18.44-fc-v310",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "bun": "1.4.4",
+  "node": "v22.23.4",
+  "deno": null,
+  "git": "07a8b614"
+ },
+ "heaptrack": {
+  "method": "heaptrack 1.5.0 LD_PRELOAD, 100 shop tenants (artifact built by each commit's CLI, same hash c927216a), one GET /api/products each, SIGKILL 8 s later: 'leaked' = live at that moment. Bytes per tenant attributed to the deepest renox frame (depth 2 = it and its renox caller).",
+  "workers": {
+   "1664c60": "release, line-tables-only, no LTO, codegen-units 16",
+   "f11fadd": "same"
+  },
+  "sites_depth1": {
+   "total_mb_per_tenant": {
+    "1664c60": 4.987,
+    "f11fadd": 3.863
+   },
+   "rows": [
+    {
+     "site": "make_owned_template (loader.rs)",
+     "1664c60_mb": 2.031,
+     "f11fadd_mb": 1.016,
+     "delta_mb": 1.016
+    },
+    {
+     "site": "load (render.rs)",
+     "1664c60_mb": 0.195,
+     "f11fadd_mb": 0.098,
+     "delta_mb": 0.098
+    },
+    {
+     "site": "{async_block#5} (manager.rs)",
+     "1664c60_mb": 0.065,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.065
+    },
+    {
+     "site": "{async_fn#0} (manager.rs)",
+     "1664c60_mb": 0.007,
+     "f11fadd_mb": 0.069,
+     "delta_mb": -0.063
+    },
+    {
+     "site": "execute_batch (lib.rs)",
+     "1664c60_mb": 0.603,
+     "f11fadd_mb": 0.622,
+     "delta_mb": -0.019
+    },
+    {
+     "site": "rows (db.rs)",
+     "1664c60_mb": 0.021,
+     "f11fadd_mb": 0.013,
+     "delta_mb": 0.008
+    },
+    {
+     "site": "{async_fn#0} (isolate.rs)",
+     "1664c60_mb": 0.628,
+     "f11fadd_mb": 0.621,
+     "delta_mb": 0.007
+    },
+    {
+     "site": "poll::{async_fn#0} (isolate.rs)",
+     "1664c60_mb": 0.016,
+     "f11fadd_mb": 0.022,
+     "delta_mb": -0.006
+    },
+    {
+     "site": "insert_cow (loader.rs)",
+     "1664c60_mb": 0.01,
+     "f11fadd_mb": 0.005,
+     "delta_mb": 0.005
+    },
+    {
+     "site": "(no renox frame)",
+     "1664c60_mb": 0.046,
+     "f11fadd_mb": 0.041,
+     "delta_mb": 0.004
+    },
+    {
+     "site": "poll::{closure#0} (manager.rs)",
+     "1664c60_mb": 0.019,
+     "f11fadd_mb": 0.018,
+     "delta_mb": 0.001
+    },
+    {
+     "site": "enter_runtime (runtime.rs)",
+     "1664c60_mb": 0.004,
+     "f11fadd_mb": 0.003,
+     "delta_mb": 0.001
+    },
+    {
+     "site": "deserialize_any::visit_map (manifest.rs)",
+     "1664c60_mb": 0.001,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.001
+    },
+    {
+     "site": "deserialize_struct::deserialize_any::visit_map (manifest.rs)",
+     "1664c60_mb": 0.0,
+     "f11fadd_mb": 0.001,
+     "delta_mb": -0.001
+    },
+    {
+     "site": "poll::{async_block#0} (manager.rs)",
+     "1664c60_mb": 0.004,
+     "f11fadd_mb": 0.003,
+     "delta_mb": 0.001
+    }
+   ]
+  },
+  "sites_depth2": {
+   "total_mb_per_tenant": {
+    "1664c60": 4.987,
+    "f11fadd": 3.863
+   },
+   "rows": [
+    {
+     "site": "make_owned_template::try_new::{closure#0} (loader.rs) > make_owned_template (loader.rs)",
+     "1664c60_mb": 2.015,
+     "f11fadd_mb": 1.007,
+     "delta_mb": 1.007
+    },
+    {
+     "site": "enter::{closure#0}::budget::with_budget::{closure#0}::{async_block#0} (isolate.rs) > {async_fn#0} (isolate.rs)",
+     "1664c60_mb": 0.628,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.628
+    },
+    {
+     "site": "set::{closure#0}::{closure#0}::enter::{closure#0}::budget::with_budget::{closure#0}::{asyn > {async_fn#0} (isolate.rs)",
+     "1664c60_mb": 0.0,
+     "f11fadd_mb": 0.62,
+     "delta_mb": -0.62
+    },
+    {
+     "site": "{async_fn#0} (manager.rs) > {async_block#5} (manager.rs)",
+     "1664c60_mb": 0.065,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.065
+    },
+    {
+     "site": "{async_fn#0}::{async_block#5} (manager.rs) > {async_fn#0} (manager.rs)",
+     "1664c60_mb": 0.0,
+     "f11fadd_mb": 0.064,
+     "delta_mb": -0.064
+    },
+    {
+     "site": "pdf_templates (render.rs) > load (render.rs)",
+     "1664c60_mb": 0.057,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.057
+    },
+    {
+     "site": "load::load_catalogs (render.rs) > load (render.rs)",
+     "1664c60_mb": 0.079,
+     "f11fadd_mb": 0.04,
+     "delta_mb": 0.04
+    },
+    {
+     "site": "{async_fn#0} (manager.rs) > insert (lib.rs)",
+     "1664c60_mb": 0.0,
+     "f11fadd_mb": 0.014,
+     "delta_mb": -0.014
+    },
+    {
+     "site": "{async_block#5} (manager.rs) > insert (lib.rs)",
+     "1664c60_mb": 0.014,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.014
+    },
+    {
+     "site": "open (db.rs) > execute_batch (lib.rs)",
+     "1664c60_mb": 0.191,
+     "f11fadd_mb": 0.204,
+     "delta_mb": -0.012
+    },
+    {
+     "site": "insert_cow (loader.rs) > make_owned_template (loader.rs)",
+     "1664c60_mb": 0.016,
+     "f11fadd_mb": 0.008,
+     "delta_mb": 0.008
+    },
+    {
+     "site": "run_query (db.rs) > rows (db.rs)",
+     "1664c60_mb": 0.021,
+     "f11fadd_mb": 0.013,
+     "delta_mb": 0.008
+    },
+    {
+     "site": "with_writer_policy (db.rs) > execute_batch (lib.rs)",
+     "1664c60_mb": 0.412,
+     "f11fadd_mb": 0.418,
+     "delta_mb": -0.006
+    },
+    {
+     "site": "enter::{closure#0}::budget::with_budget::{closure#0}::{async_block#0} (isolate.rs) > poll::{closure#1} (isolate.rs)",
+     "1664c60_mb": 0.006,
+     "f11fadd_mb": 0.0,
+     "delta_mb": 0.006
+    },
+    {
+     "site": "{async_fn#0} (isolate.rs) > poll::{async_fn#0} (isolate.rs)",
+     "1664c60_mb": 0.016,
+     "f11fadd_mb": 0.022,
+     "delta_mb": -0.006
+    }
+   ]
+  }
+ },
+ "b1": {
+  "main_b866c13": {
+   "id": "B1",
+   "scenario": "renox-worker (release), N tenants per app each with one warm isolate after one request; shop, hello at N = 100; esm-dir artifacts from the CLI; median of 3 runs; judged: shop at N = 100",
+   "notes": "shop N=100: RSS 11.97 MB, PSS 11.97 MB, V8 heap 4.51 MB per isolate; hello N=100: RSS 6.71 MB, PSS 6.71 MB, V8 heap 4.19 MB per isolate",
+   "samples": {
+    "shop_n100_rss_delta_mb": [
+     11.96,
+     11.97,
+     11.97
+    ],
+    "hello_n100_rss_delta_mb": [
+     6.71,
+     6.7,
+     6.71
+    ]
+   },
+   "summary": {
+    "rss_delta_mb": 11.97,
+    "shop_n100_rss_delta_mb": 11.97,
+    "shop_n100_pss_delta_mb": 11.97,
+    "shop_n100_v8_heap_mb": 4.51,
+    "hello_n100_rss_delta_mb": 6.71,
+    "hello_n100_pss_delta_mb": 6.71,
+    "hello_n100_v8_heap_mb": 4.19
+   }
+  },
+  "fix": {
+   "id": "B1",
+   "scenario": "renox-worker (release), N tenants per app each with one warm isolate after one request; shop, hello at N = 100; esm-dir artifacts from the CLI; median of 3 runs; judged: shop at N = 100",
+   "notes": "shop N=100: RSS 10.71 MB, PSS 10.71 MB, V8 heap 4.51 MB per isolate; hello N=100: RSS 6.71 MB, PSS 6.71 MB, V8 heap 4.19 MB per isolate",
+   "samples": {
+    "shop_n100_rss_delta_mb": [
+     10.71,
+     10.71,
+     10.71
+    ],
+    "hello_n100_rss_delta_mb": [
+     6.71,
+     6.71,
+     6.71
+    ]
+   },
+   "summary": {
+    "rss_delta_mb": 10.71,
+    "shop_n100_rss_delta_mb": 10.71,
+    "shop_n100_pss_delta_mb": 10.71,
+    "shop_n100_v8_heap_mb": 4.51,
+    "hello_n100_rss_delta_mb": 6.71,
+    "hello_n100_pss_delta_mb": 6.71,
+    "hello_n100_v8_heap_mb": 4.19
+   }
+  }
+ }
+}

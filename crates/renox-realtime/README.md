@@ -7,13 +7,14 @@ A tenant's realtime connections, owned by Rust in the tenant's cell (`docs/09-ht
 | Piece | What it is |
 | --- | --- |
 | `Hub` | One per tenant: its connections, its topics, its counters |
-| `Conn` | One accepted connection: a bounded outbound queue (256 messages) and a close signal. Owned by its transport; dropping it disconnects |
-| `ws::serve(stream, conn, inbound)` | The WebSocket transport after the handshake, over any `AsyncRead + AsyncWrite`: data messages go to `inbound` (the cell runs `message`), queued messages go out as text frames |
+| `Conn` | One accepted connection: a bounded outbound queue (256 messages) and a close signal. Owned by its transport; dropping it disconnects. `Conn::delivered()` counts what the transport took from the queue (the meter's delivered messages) |
+| `ws::serve(stream, conn, inbound)` | The WebSocket transport after the handshake, over any `AsyncRead + AsyncWrite`: data messages go to `inbound` (a `ws::inbox`, or an `mpsc::Sender`; the cell runs `message`), queued messages go out as text frames |
+| `queue::bounded(cap)` | The per-connection queue behind `Conn` and `ws::inbox`: a `VecDeque` and the waiting tasks' wakers behind one mutex. No memory until the first item, the smallest buffer at most once drained (#522) |
 | `sse::serve(writer, conn)` | The SSE transport: `retry: 1000`, then `id:` / `event:` / `data:` per message, `: keep-alive` every 15 s |
 
 `Hub::connect(ConnInfo { user, transport, last_event_id })` checks the tenant and user caps. `subscribe(conn, topic, allowed)` takes the caller's authorization decision (the Cedar `realtime.subscribe` check is the cell's, #281) and replays missed events to an SSE reconnect. `publish(topic, payload)` queues the message for every subscriber with `try_send` and returns how many it was queued for. `send(conn, payload)` queues for one connection, and `close(conn, code, reason)` closes one. An unknown or closed connection id is ignored, not an error (`ops.md` section 18).
 
-Pub/sub is a map from topic to subscribers, and each connection has its own `mpsc` queue. `docs/09` names `tokio::sync::broadcast`, but a broadcast channel cannot close the one slow receiver with 1008 while the others continue: a lagging receiver only loses messages. The per-connection queue gives the contract's backpressure rule exactly.
+Pub/sub is a map from topic to subscribers, and each connection has its own bounded queue (`src/queue.rs`; a tokio `mpsc` channel allocates a block of 32 slots at creation, which every idle connection paid for, #522). `docs/09` names `tokio::sync::broadcast`, but a broadcast channel cannot close the one slow receiver with 1008 while the others continue: a lagging receiver only loses messages. The per-connection queue gives the contract's backpressure rule exactly.
 
 ## Limits (`ops.md` 1.5.0 section 18)
 
@@ -48,7 +49,9 @@ Client frames must be masked. Reserved bits, unknown opcodes, a bad control fram
 
 ## B14 on the crate
 
-`tests/scale.rs`: 10,000 idle WebSocket connections, each served over an in-memory duplex stream and subscribed to one topic, add **≈ 47 MB** of RSS (about 4.9 KB per connection, the test's client halves included). The target is ≤ 50 MB. Result: `bench/results/2026-10-29-B14-crate-dev-container.md`. The test is skipped, with a reason, on a host under 2 GB. The end-to-end B14 (gateway, cell, isolate heap unchanged) is #282.
+`tests/scale.rs`: 10,000 idle WebSocket connections, each served over an in-memory duplex stream and subscribed to one topic, add **≈ 38 MB** of RSS (about 4.0 KB per connection, the test's client halves included; 47 MB before #522). The target is ≤ 50 MB. Results: `bench/results/2026-10-29-B14-crate-dev-container.md`, `bench/results/2026-11-09-B14-per-connection-dev-container.md`. The test is skipped, with a reason, on a host under 2 GB.
+
+`per_connection_heap_budget` (same file, #522) counts the heap one idle connection holds (hub state, outbound queue, the `ws::serve` task, the inbox) with a counting allocator: **1,896 bytes**, budget 2,048. It runs on every host, so a fixed per-connection buffer that comes back fails it. The end-to-end B14 (gateway, cell, isolate heap unchanged) is #282 and #522.
 
 ## What the cell must do (#281)
 
