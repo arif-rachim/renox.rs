@@ -9,9 +9,10 @@
 // fields of errors.md section 1 and nothing else (crates/renox-cell/tests/
 // errors.rs and cli/tests/overlay.test.ts check both sides).
 
-import type { ErrorDetails } from "./details.ts";
+import { type ErrorDetails, warningRow } from "./details.ts";
 
 export const ERROR_OVERLAY_PATH = "/__renox/dev/error-overlay.js";
+export const WARNINGS_OVERLAY_PATH = "/__renox/dev/warnings-badge.js";
 export const ERROR_DETAILS_PATH = "/__renox/dev/error";
 
 /**
@@ -112,6 +113,54 @@ export const ERROR_OVERLAY_JS = `(() => {
     .catch(() => {});
 })();
 `;
+
+/**
+ * The warnings badge (#656): a yellow "warnings" button on every dev page
+ * while the list at /__renox/dev/warnings is non-empty; a click lists
+ * file:line and the message. Text is set with textContent, never as HTML.
+ */
+export const WARNINGS_OVERLAY_JS = `(() => {
+  const warningRow = ${warningRow.toString()};
+  fetch("/__renox/dev/warnings", { cache: "no-store" })
+    .then((r) => r.json())
+    .then((list) => {
+      if (!Array.isArray(list) || list.length === 0) return;
+      const host = document.createElement("renox-dev-warnings");
+      const root = host.attachShadow({ mode: "open" });
+      const badge = document.createElement("button");
+      badge.textContent = "warnings (" + list.length + ")";
+      badge.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483645;background:#ffd43b;color:#222;border:0;border-radius:6px;padding:4px 10px;font:600 12px ui-monospace,monospace;cursor:pointer";
+      const box = document.createElement("div");
+      box.hidden = true;
+      box.style.cssText = "position:fixed;right:16px;bottom:52px;max-width:min(640px,calc(100vw - 32px));max-height:50vh;overflow:auto;z-index:2147483645;background:rgba(20,20,20,.95);color:#f5f5f5;font:13px/1.5 ui-monospace,monospace;padding:12px 16px;border-radius:8px;border-left:4px solid #ffd43b";
+      const table = document.createElement("table");
+      for (const w of list) {
+        const [where, what] = warningRow(w);
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.textContent = where;
+        th.style.cssText = "text-align:left;color:#ffd43b;padding:2px 16px 2px 0;vertical-align:top;font-weight:normal;white-space:nowrap";
+        const td = document.createElement("td");
+        td.textContent = what;
+        tr.append(th, td);
+        table.append(tr);
+      }
+      box.append(table);
+      badge.addEventListener("click", () => { box.hidden = !box.hidden; });
+      root.append(box, badge);
+      document.documentElement.append(host);
+    })
+    .catch(() => {});
+})();
+`;
+
+/** Adds the warnings badge's <script> to an HTML page, before </body> (else at the end), with the response's CSP nonce. */
+export function injectWarningsBadge(html: string, csp: string | null): string {
+  const nonce = csp ? /'nonce-([A-Za-z0-9+/=_-]+)'/u.exec(csp)?.[1] : undefined;
+  const tag = `<script src="${WARNINGS_OVERLAY_PATH}"${nonce ? ` nonce="${nonce}"` : ""}></script>`;
+  const i = html.lastIndexOf("</body>");
+  return i >= 0 ? `${html.slice(0, i)}${tag}${html.slice(i)}` : `${html}${tag}`;
+}
 
 /**
  * Adds the overlay's <script> to an HTML error page, before </body> (else at

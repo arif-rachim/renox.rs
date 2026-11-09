@@ -4951,6 +4951,17 @@ components:
         slots: { type: array, maxItems: 64, items: { type: string, maxLength: 64 } }
         hooks: { type: array, maxItems: 64, items: { type: string, maxLength: 128 } }
         roles: { type: array, maxItems: 64, items: { type: string, maxLength: 64 } }
+        csp:
+          type: object
+          description: "manifest.md 1.6 `[permissions] csp`: the CSP sources per directive (`script_src`, `style_src`, `img_src`, `connect_src`, `frame_src`, `font_src`)."
+          additionalProperties: false
+          properties:
+            script_src: { type: array, maxItems: 32, items: { type: string, maxLength: 256 } }
+            style_src: { type: array, maxItems: 32, items: { type: string, maxLength: 256 } }
+            img_src: { type: array, maxItems: 32, items: { type: string, maxLength: 256 } }
+            connect_src: { type: array, maxItems: 32, items: { type: string, maxLength: 256 } }
+            frame_src: { type: array, maxItems: 32, items: { type: string, maxLength: 256 } }
+            font_src: { type: array, maxItems: 32, items: { type: string, maxLength: 256 } }
     RegistryModule:
       type: object
       additionalProperties: false

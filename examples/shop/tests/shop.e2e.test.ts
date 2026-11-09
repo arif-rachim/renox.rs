@@ -11,6 +11,7 @@ import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cspValue } from "../../../cli/src/check/security.ts";
 import { check } from "../../../cli/src/commands/check.ts";
 import { buildArtifact } from "../../../cli/src/lib/build.ts";
 import { hashDir } from "../../../cli/src/lib/hash.ts";
@@ -31,12 +32,19 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   // i18n (#244): first, auth and org depend on it; the shop's catalogs under code/i18n/.
   expect(r.manifest.modules?.map((m) => m.name)).toEqual(["audit", "i18n", "auth", "admin", "billing", "notifications", "org", "email", "storage", "tax_gcc", "reports", "twofa"]);
   expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
+  // #660: billing's approved `permissions.csp` is merged into the artifact's policy (the shop's renox.toml has no [security]),
+  // so the gateway's Content-Security-Policy of every page carries Stripe's sources, from the module.
+  expect(r.manifest.security?.csp).toEqual({ script_src: ["https://js.stripe.com"], frame_src: ["https://hooks.stripe.com", "https://js.stripe.com"] });
+  const csp = cspValue(r.manifest.security ?? {}, "n0nce", true);
+  expect(csp).toContain("script-src 'self' 'nonce-n0nce' https://js.stripe.com;");
+  expect(csp).toContain("frame-src 'self' https://hooks.stripe.com https://js.stripe.com;");
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : x.kind === "page" ? "PAGE" : x.kind.toUpperCase()} ${"path" in x ? x.path : x.name}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
     "GET /auth/oauth/:provider/callback",
     "GET /auth/oauth/:provider/start",
     "GET /auth/oauth/authorize",
+    "JOB checkouts",
     "JOB nightly",
     "JOB prune",
     "PAGE /",

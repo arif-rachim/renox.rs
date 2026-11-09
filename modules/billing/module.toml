@@ -1,6 +1,6 @@
 [module]
 name = "billing"
-version = "1.0.0"
+version = "1.1.0"
 description = "Plans, subscriptions, one-off checkouts, invoices, refunds and usage for an app's own customers; a PSP adapter (Stripe UAE) and verified webhooks"
 
 [dependencies]
@@ -22,6 +22,9 @@ slots = ["admin.sidebar"]
 tables = "billing__*"
 network = ["api.stripe.com"]
 secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"]
+# Stripe.js and the frames of Stripe Checkout and Elements (manifest.md 1.6):
+# https://docs.stripe.com/security/guide#content-security-policy
+csp = { script_src = ["https://js.stripe.com"], frame_src = ["https://js.stripe.com", "https://hooks.stripe.com"] }
 
 [imports]
 services = ["auth.loginUrl", "i18n.detectLocale"]
@@ -75,6 +78,10 @@ description = "Part or all of a paid invoice was refunded (minor units)"
 [exports.events."billing.disputed"]
 payload = { type = "object", required = ["invoice_id", "customer_id", "amount", "reason"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" }, amount = { type = "integer" }, reason = { type = "string" } } }
 description = "A customer disputed a paid invoice or order with their bank (a chargeback; minor units, Stripe's reason)"
+
+[exports.events."billing.checkout_expired"]
+payload = { type = "object", required = ["order_id", "checkout_id"], additionalProperties = false, properties = { order_id = { type = "string" }, checkout_id = { type = "string" } } }
+description = "A card checkout expired unpaid (an abandoned 3DS challenge or a session past 24 h); the order can be retried with a new checkout"
 
 [exports.hooks."billing.fraud_signal"]
 args = { type = "object", required = ["customer_id", "order_id", "amount", "currency", "mode"], properties = { customer_id = { type = "string" }, order_id = { type = "string" }, amount = { type = "integer" }, currency = { type = "string" }, mode = { enum = ["payment", "subscription"] } } }

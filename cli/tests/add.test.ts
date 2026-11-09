@@ -6,9 +6,10 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { addModule } from "../src/commands/add.ts";
+import { approve } from "../src/commands/approve.ts";
 import { removeModule } from "../src/commands/remove.ts";
 import { readLock } from "../src/lib/modules/lock.ts";
-import { schemas } from "../src/lib/modules/manifest.ts";
+import { permissionProblems, schemas } from "../src/lib/modules/manifest.ts";
 import { projectProblems } from "../src/lib/modules/resolve.ts";
 import { validate } from "../src/lib/schema.ts";
 import { AUTH_EXTRA, app } from "./modules-fixture.ts";
@@ -114,4 +115,63 @@ test("a module in renox.toml without a lock entry fails with MF3", () => {
   const dir = app({ auth: '{ version = "^1.0", source = "path:modules/auth" }' }, [{ name: "auth", version: "1.0.0", extra: AUTH_EXTRA }]);
   expect(projectProblems(dir)).toEqual([{ rule: "MF3", file: "renox.lock", message: 'renox.toml module "auth" has no renox.lock entry; run renox add auth' }]);
   rmSync(dir, { recursive: true });
+});
+
+// #660: `[permissions] csp` (manifest.md 1.6, MF17) is approved like any permission.
+const PAY_CSP = 'csp = { script_src = ["https://js.psp.example"], frame_src = ["https://js.psp.example", "https://*.psp.example"] }';
+const pay = () => app({}, [{ name: "pay", version: "1.0.0", extra: `[permissions]\n${PAY_CSP}\n` }]);
+
+test("a module with csp shows the sources in the approval and writes them to the lock", async () => {
+  const dir = pay();
+  const { code, out } = await capture(() => addModule(dir, "pay", { source: "path:modules/pay" }, async () => true));
+  expect(code).toBe(0);
+  expect(out).toContain("  csp      script-src https://js.psp.example; frame-src https://*.psp.example https://js.psp.example");
+  const lockText = readFileSync(join(dir, "renox.lock"), "utf8");
+  expect(validate(schemas.lock, Bun.TOML.parse(lockText) as never)).toEqual([]);
+  expect(lockText).toContain('csp = { script_src = ["https://js.psp.example"], frame_src = ["https://*.psp.example", "https://js.psp.example"] }');
+  expect(readLock(dir).entries?.[0]?.approved.csp).toEqual({ script_src: ["https://js.psp.example"], frame_src: ["https://*.psp.example", "https://js.psp.example"] });
+  expect(projectProblems(dir)).toEqual([]);
+  rmSync(dir, { recursive: true });
+});
+
+test("a changed csp fails MF12 until approved; renox approve shows the sources per directive", async () => {
+  const dir = pay();
+  await capture(() => addModule(dir, "pay", { source: "path:modules/pay", yes: true }));
+  const manifest = join(dir, "modules", "pay", "module.toml");
+  writeFileSync(manifest, readFileSync(manifest, "utf8").replace('script_src = ["https://js.psp.example"]', 'script_src = ["https://js.psp.example", "https://evil.example"]'));
+  const problems = projectProblems(dir);
+  expect(problems.map((p) => p.rule)).toContain("MF12");
+  expect(problems.find((p) => p.message.includes("[permissions] differ"))?.message).toBe("pay: [permissions] differ from the approved permissions in renox.lock; run renox add pay to approve them");
+  const shown: string[] = [];
+  const r = await approve(dir, "pay", async (lines) => {
+    shown.push(...lines);
+    return true;
+  });
+  expect(r.diff.added).toEqual({ "csp.script_src": ["https://evil.example"] });
+  expect(shown).toContain("  + csp.script_src: https://evil.example");
+  expect(projectProblems(dir)).toEqual([]);
+  // Removing a source needs approval too.
+  writeFileSync(manifest, readFileSync(manifest, "utf8").replace(', "https://evil.example"', ""));
+  expect(projectProblems(dir).map((p) => p.rule)).toContain("MF12");
+  const back = await approve(dir, "pay", async () => true);
+  expect(back.diff.removed).toEqual({ "csp.script_src": ["https://evil.example"] });
+  rmSync(dir, { recursive: true });
+});
+
+test("MF17: a module cannot ask for 'unsafe-inline' or a plain http source", async () => {
+  const dir = app({}, [{ name: "pay", version: "1.0.0", extra: `[permissions]\ncsp = { script_src = ["'unsafe-inline'"], frame_src = ["http://js.psp.example"] }\n` }]);
+  await expect(addModule(dir, "pay", { source: "path:modules/pay", yes: true })).rejects.toThrow("MF17");
+  rmSync(dir, { recursive: true });
+});
+
+test("MF17: a module source cannot carry ';' or ',' (a directive of its own), and only the six directives are extendable", () => {
+  const where = "pay.permissions";
+  expect(permissionProblems("pay", { csp: { script_src: ["https://js.psp.example/;report-uri"] } }, where)).toEqual([
+    `MF17: ${where}.csp.script_src "https://js.psp.example/;report-uri" is not an https:// origin (optional *. wildcard and path), data: or blob:`,
+  ]);
+  expect(permissionProblems("pay", { csp: { img_src: ["https://a.example/x,https://b.example"] } }, where).map((m) => m.slice(0, 5))).toEqual(["MF17:"]);
+  expect(permissionProblems("pay", { csp: { default_src: ["https://js.psp.example"] } }, where)).toEqual([
+    `MF17: ${where}.csp.default_src is not a CSP directive a module may extend (script_src, style_src, img_src, connect_src, frame_src, font_src)`,
+  ]);
+  expect(permissionProblems("pay", { csp: { script_src: ["https://js.psp.example/v3/"], frame_src: ["https://*.psp.example", "data:"] } }, where)).toEqual([]);
 });

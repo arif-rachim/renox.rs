@@ -47,7 +47,7 @@ export function readLock(project: string): { entries: LockEntry[] | null; proble
     if (seen.has(name)) problems.push({ rule: "MF3", file: LOCK_FILE, message: `"${name}" has more than one lock entry` });
     for (const dep of strings(e.dependencies)) if (!seen.has(dep)) problems.push({ rule: "MF5", file: LOCK_FILE, message: `${name} is listed before its dependency ${dep} (or ${dep} is not installed)` });
     seen.add(name);
-    for (const m of permissionProblems(name, obj(e.approved), `${name}.approved`)) problems.push({ rule: "MF4", file: LOCK_FILE, message: m.slice("MF4: ".length) });
+    for (const m of permissionProblems(name, obj(e.approved), `${name}.approved`)) problems.push({ rule: m.slice(0, m.indexOf(":")), file: LOCK_FILE, message: m.slice(m.indexOf(": ") + 2) });
     return {
       name,
       version: e.version as string,
@@ -69,7 +69,7 @@ export function readLock(project: string): { entries: LockEntry[] | null; proble
 /** The lock file text, entries in the given (topological) order. */
 export function formatLock(entries: LockEntry[]): string {
   const blocks = entries.map((e) => {
-    const approved: JsonObject = { ...(e.approved.tables !== undefined ? { tables: e.approved.tables } : {}), network: e.approved.network, secrets: e.approved.secrets, slots: e.approved.slots, hooks: e.approved.hooks };
+    const approved: JsonObject = { ...(e.approved.tables !== undefined ? { tables: e.approved.tables } : {}), network: e.approved.network, secrets: e.approved.secrets, slots: e.approved.slots, hooks: e.approved.hooks, ...(e.approved.csp !== undefined ? { csp: e.approved.csp as JsonObject } : {}) };
     const fields: [string, Json][] = [
       ["name", e.name],
       ["version", e.version],

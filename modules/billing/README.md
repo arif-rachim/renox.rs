@@ -30,6 +30,10 @@ In the Stripe dashboard, point a webhook endpoint at `https://<app host>/billing
 - `customer.subscription.deleted`
 - `charge.refunded`
 - `charge.dispute.created`
+- `checkout.session.expired`
+- `payment_intent.canceled`
+
+**Content Security Policy.** From 1.1.0 the module asks for the sources Stripe's browser code needs (`[permissions] csp` in `module.toml`): `script_src` and `frame_src` for `https://js.stripe.com`, and `frame_src` for `https://hooks.stripe.com` (3-D Secure), as Stripe's guide lists them (https://docs.stripe.com/security/guide#content-security-policy). `renox add billing` shows them and approves them (also after a change), and `renox build` merges the approved sources into the page policy, so the app does not repeat them in its own `[security]`. Hosted Checkout (a redirect to `checkout.stripe.com`) needs none of them.
 
 ## Services
 
@@ -53,6 +57,7 @@ Errors are `BillingError` with a code: `INVALID`, `NOT_FOUND`, `NOT_CONFIGURED`,
 | `billing.payment_failed` | event | A payment failed; the subscription is now `past_due`. Dunning emails are the app's handler of this event (through `email.send`) |
 | `billing.invoice_issued` | event | The PSP issued an invoice; tax-gcc numbers its tax invoice from this (#331) |
 | `billing.invoice_paid`, `billing.subscription_changed`, `billing.refunded` | events | Self-explanatory |
+| `billing.checkout_expired` | event | A card checkout expired unpaid (an abandoned 3DS challenge, or a session open for 24 h, swept by `jobs/checkouts.ts`): the checkout is `expired`, a `pending` subscription is `cancelled`, and the same order can create a new checkout |
 | `billing.disputed` | event | A customer disputed a payment with their bank (`charge.dispute.created`): the invoice or one-off order of its payment intent, the amount and Stripe's reason. The invoice row keeps `disputed_at`; the evidence is answered in the Stripe dashboard |
 | `billing.fraud_signal` | hook point | Receives `{ customer_id, order_id, amount, currency, mode }` before a checkout session is created. A halt refuses the checkout; the card-testing limits are #123 |
 
@@ -99,7 +104,7 @@ The default policy (`policies/billing.cedar`):
 
 - A Stripe account, and the live and test keys.
 - The webhook endpoint and its signing secret.
-- 3DS left on, which is Stripe's default.
+- 3DS left on, which is Stripe's default. A customer who abandons the challenge leaves no stuck order: `checkout.session.expired` or `payment_intent.canceled` (reason `abandoned`) expires the checkout and a new one can be created.
 
 ## Tests
 
