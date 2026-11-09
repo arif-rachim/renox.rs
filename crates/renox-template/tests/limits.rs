@@ -44,6 +44,8 @@ fn b13_nested_loops_stop_at_fuel_within_50_ms() {
         panic!("expected Fuel, got {err:?}");
     };
     assert_eq!(stats.fuel_used, RenderLimits::DEFAULT.fuel);
+    assert_eq!(stats.template.as_deref(), Some("pages/index"));
+    assert!(stats.line.is_some_and(|l| l > 0), "{stats:?}");
     assert!(stats.ms > 0.0);
     assert!(
         elapsed < Duration::from_millis(50),
@@ -137,6 +139,8 @@ fn output_size_limit() {
         panic!("expected OutputSize, got {e:?}");
     };
     assert!(stats.fuel_used > 0, "fuel seen at the last loop start");
+    assert_eq!(stats.template.as_deref(), Some("pages/index"));
+    assert!(stats.line.is_some_and(|l| l > 0), "{stats:?}");
     // Fragments are capped too.
     let shop = compile_fixture("shop").unwrap();
     let r = Renderer::new(shop.sources()).unwrap();

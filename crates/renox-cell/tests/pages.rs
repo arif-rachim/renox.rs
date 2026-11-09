@@ -437,6 +437,10 @@ async fn shop_pages_render_through_the_full_path() {
         logs.contains("RENOX_RENDER_LIMIT") && logs.contains(r#""limit":"fuel""#),
         "{logs}"
     );
+    assert!(
+        logs.contains(r#""template":"pages/evil""#) && logs.contains(r#""line":"#),
+        "{logs}"
+    );
 
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&e.root);

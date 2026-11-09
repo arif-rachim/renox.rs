@@ -252,7 +252,7 @@ impl RenderTarget<'_> {
 }
 
 /// Usage of one render, for the meter.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct RenderStats {
     /// Fuel consumed. On a limit other than fuel it is the fuel seen at the
     /// last loop start, a lower bound.
@@ -262,6 +262,11 @@ pub struct RenderStats {
     /// Evaluations of `r-can` with a resource (meter `authz_evals`); cache
     /// hits within the render are not counted.
     pub authz_evals: u64,
+    /// On a limit stop: the innermost template that was running (the
+    /// partial, not the page that included it), when minijinja knows it.
+    pub template: Option<String>,
+    /// On a limit stop: the 1-based line in `template`.
+    pub line: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -303,7 +308,7 @@ impl RenderError {
             | RenderError::OutputSize(s)
             | RenderError::Depth(s)
             | RenderError::Timeout(s)
-            | RenderError::Failed { stats: s, .. } => *s,
+            | RenderError::Failed { stats: s, .. } => s.clone(),
             RenderError::NotFound(_) => RenderStats::default(),
         }
     }
@@ -990,6 +995,8 @@ impl Renderer {
             fuel_used: fuel,
             ms: ms(),
             authz_evals: evals,
+            template: None,
+            line: None,
         };
         match result {
             Ok(levels) => Ok(stats_at(
@@ -998,12 +1005,22 @@ impl Renderer {
             Err((e, block)) => {
                 let stop = *scope.stop.lock().expect("stop lock");
                 let stop = stop.or(writer.stop);
+                // Where a limit stopped the render, for the log and the overlay.
+                let located = |mut stats: RenderStats| {
+                    stats.template = e.name().map(str::to_string);
+                    stats.line = e.line().and_then(|l| u32::try_from(l).ok());
+                    stats
+                };
                 Err(match (e.kind(), stop) {
                     (ErrorKind::OutOfFuel, _) | (_, Some(Stop::Fuel)) => {
-                        RenderError::Fuel(stats_at(limits.fuel))
+                        RenderError::Fuel(located(stats_at(limits.fuel)))
                     }
-                    (_, Some(Stop::Iterations)) => RenderError::Iterations(stats_at(fuel_seen)),
-                    (_, Some(Stop::OutputSize)) => RenderError::OutputSize(stats_at(fuel_seen)),
+                    (_, Some(Stop::Iterations)) => {
+                        RenderError::Iterations(located(stats_at(fuel_seen)))
+                    }
+                    (_, Some(Stop::OutputSize)) => {
+                        RenderError::OutputSize(located(stats_at(fuel_seen)))
+                    }
                     (_, Some(Stop::Timeout)) => RenderError::Timeout(stats_at(fuel_seen)),
                     (ErrorKind::UnknownBlock, _) => {
                         RenderError::NotFound(format!("{template}#{}", block.unwrap_or_default()))

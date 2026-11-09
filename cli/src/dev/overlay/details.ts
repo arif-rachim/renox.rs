@@ -116,7 +116,7 @@ export function errorDetails(requestId: string, lines: Line[], record: Record_ |
     peak_heap_bytes: num(f.peak_heap_bytes) ?? num(record?.peak_heap_bytes),
     wall_ms: num(f.wall_ms) ?? num(record?.wall_ms),
     template: str(f.template) ?? (at ? (at[1] as string) : null),
-    line: at ? Number(at[2]) : null,
+    line: at ? Number(at[2]) : num(f.line),
     cause,
     render_fuel: num(f.render_fuel) ?? num(record?.render_fuel),
     action: str(f.action),
