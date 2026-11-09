@@ -162,8 +162,8 @@ const localId = (id: string): string => id.replace(MODULE_PREFIX, "");
 function moduleNameProblem(name: string): string | null {
   if (name.includes("__")) return 'contains "__"';
   if (name.endsWith("_")) return 'ends with "_"';
-  // MF1: `app` is the tenant's code, `renox` the platform, `authz` the platform's event namespace (`authz.roles_changed`, #272).
-  if (name === "app" || name === "renox" || name === "authz") return "is reserved (MF1)";
+  // MF1: `app` is the tenant's code, `renox` the platform, `authz` and `mcp` the platform's event namespaces (`authz.roles_changed`, #272; `mcp.tool_called`, #658).
+  if (name === "app" || name === "renox" || name === "authz" || name === "mcp") return "is reserved (MF1)";
   return null;
 }
 

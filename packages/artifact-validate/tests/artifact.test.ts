@@ -243,6 +243,13 @@ describe("MF1: reserved module names (#304)", () => {
     const reasons = checkManifest(doc).filter((v) => v.rule === "V17").map((v) => v.reason);
     expect(reasons.some((r) => r.includes("is reserved (MF1)"))).toBe(true);
   });
+
+  test("a module named mcp is refused with the MF1 reason (#658: mcp.tool_called is a platform event)", () => {
+    const doc = JSON.parse(readFileSync(join(artifactDir("artifact/modules-artifact"), "manifest.json"), "utf8")) as JsonObject;
+    ((doc.modules as JsonObject[])[0] as JsonObject).name = "mcp";
+    const reasons = checkManifest(doc).filter((v) => v.rule === "V17").map((v) => v.reason);
+    expect(reasons.some((r) => r.includes("is reserved (MF1)"))).toBe(true);
+  });
 });
 
 describe("artifact 1.8 (#629, #638): the app's hooks entry, app slot fillers, events (V31)", () => {
