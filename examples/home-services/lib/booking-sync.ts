@@ -36,27 +36,40 @@ export type Slot = { start: number; end: number; staff: string };
 /** The booking service id of a catalogue code (booking ids are lower case). */
 export const bookingService = (code: string): string => code.toLowerCase();
 
-const now = (): number => Math.floor(Date.now() / 1000);
-
-async function mark(db: DbStatements, key: string): Promise<boolean> {
-  return (await db.execute("insert into app__booking_sync (key, at) values (?, ?) on conflict do nothing", [key, now()])).changes === 1;
-}
+/** What this request already handed to `booking`, by the request's Db: once per request is enough (a module call costs CPU time, and a page or a tool call has a small budget). */
+const done = new WeakMap<object, Set<string>>();
 
 /**
- * Hands the catalogue to `booking` the first time a branch needs it, and each
- * technician (with the branch's hours) the first time they are seen. Both are
- * recorded in app__booking_sync, because setHours adds a row at every call.
+ * Hands the catalogue and the branch's technicians (with the branch's hours) to
+ * `booking`. Nothing is recorded on this side: addService and addStaff are
+ * upserts and setHours replaces a weekday's row (booking 1.0.1), so every
+ * request may repeat it and the result is the same. A caller hands over what it
+ * is about to use: the `serviceCode` it will search or book (default: the whole
+ * catalogue) and the technicians it passes; each call only adds to what
+ * `booking` holds. Within one request the same part is handed over once.
  */
-export async function ensureSynced(db: DbStatements, branch: Branch, technicians: readonly Technician[]): Promise<void> {
-  const services = await db.query<{ code: string; name_en: string }>("select code, name_en from app__services where active = 1 order by id", []);
-  if (await mark(db, `catalogue:${branch.id}`)) {
-    for (const s of services) await booking.addService({ id: bookingService(s.code), name: s.name_en, minutes: MINUTES[bookingService(s.code)] ?? DEFAULT_MINUTES, deposit_fils: 0 });
+export async function ensureSynced(db: DbStatements, branch: Branch, technicians: readonly Technician[], serviceCode?: string): Promise<void> {
+  const seen = done.get(db) ?? new Set<string>();
+  done.set(db, seen);
+  const all = await db.query<{ code: string; name_en: string }>("select code, name_en from app__services where active = 1 order by id", []);
+  const services = serviceCode === undefined ? all : all.filter((s) => bookingService(s.code) === bookingService(serviceCode));
+  const ids: string[] = [];
+  for (const s of services) {
+    const id = bookingService(s.code);
+    ids.push(id);
+    if (seen.has(`service:${id}`)) continue;
+    seen.add(`service:${id}`);
+    await booking.addService({ id, name: s.name_en, minutes: MINUTES[id] ?? DEFAULT_MINUTES, deposit_fils: 0 });
   }
   const rows = await db.query<{ weekday: number; open_min: number; close_min: number }>("select weekday, open_min, close_min from app__branch_hours where branch_id = ? order by weekday", [branch.id]);
   const hours = rows.length > 0 ? rows : DEFAULT_HOURS;
   for (const t of technicians) {
-    if (!(await mark(db, `staff:${t.id}`))) continue;
-    await booking.addStaff({ id: t.id, name: t.name, user_id: t.id, services: services.map((s) => bookingService(s.code)) });
+    const key = `staff:${t.id}:${ids.join(",")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await booking.addStaff({ id: t.id, name: t.name, user_id: t.id, services: ids });
+    if (seen.has(`hours:${t.id}`)) continue;
+    seen.add(`hours:${t.id}`);
     for (const h of hours) await booking.setHours(t.id, h.weekday, h.open_min, h.close_min);
   }
 }

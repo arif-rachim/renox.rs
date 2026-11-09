@@ -529,8 +529,7 @@
         "footer_en": "Footer (English)",
         "footer_ar": "Footer (Arabic)",
         "sender": "Sender name",
-        "accounts_email": "Accounts email",
-        "sandbox": "WhatsApp sandbox: show the messages here instead of sending them"
+        "accounts_email": "Accounts email"
       },
       "logo_limit": "PNG, JPEG or WebP, up to 512 KB.",
       "logo_none": "No logo yet.",

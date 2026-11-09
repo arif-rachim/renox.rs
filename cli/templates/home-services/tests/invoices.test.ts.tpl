@@ -11,6 +11,7 @@ import { totp } from "@renoxium/sdk";
 import { snapshot, app } from "@renoxium/sdk/test";
 
 import { lineTotal } from "../lib/money";
+import { outboxOf } from "./outbox";
 
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -149,10 +150,10 @@ describe("issuing from a done job, paying, and the statement", () => {
   });
 
   test("the customer's link shows the invoice and the PDF starts with %PDF (Arabic and English)", async () => {
-    const msg = rows("select body from app__outbox_preview where customer_id = 'cu_dxb_03' and template = 'invoice_due'")[0];
-    link = /(\/l\/invoice\/[A-Za-z0-9_-]{43})/u.exec(String(msg?.body))?.[1] ?? "";
+    const msg = outboxOf(rows, "+971551110003").filter((m) => m.template === "invoice_due")[0];
+    link = /(\/l\/invoice\/[A-Za-z0-9_-]{43})/u.exec(String(msg?.text))?.[1] ?? "";
     expect(link).not.toBe("");
-    expect(String(msg?.body)).toContain(number);
+    expect(String(msg?.text)).toContain(number);
     const page = await customer.page(link);
     expect(page.status).toBe(200);
     expect(page.html).toContain(number);

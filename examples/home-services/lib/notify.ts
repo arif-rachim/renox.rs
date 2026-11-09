@@ -4,12 +4,12 @@
 // the app (the notifications module: the badge updates over SSE).
 //
 // The channel, for the kinds that go to the customer (lib/messages.ts):
-//   - the customer has a phone and app__settings.whatsapp_sandbox is not '1':
-//     WhatsApp, the kind's approved template in the customer's language;
-//   - the sandbox is on and the customer has a phone: the message is written to
-//     app__outbox_preview instead (the whatsapp module has no sandbox mode: it
-//     would send); the email below still goes, when there is an address;
-//   - no phone, or the sandbox is on: email, when the customer has an address;
+//   - the customer has a phone: WhatsApp, the kind's approved template in the
+//     customer's language. Whether it really leaves the host is the whatsapp
+//     module's `sandbox` config (renox.toml): with it on, the module records
+//     the message as sent and calls no API, and `whatsapp.outbox()` shows it;
+//   - no phone: email, when the customer has an address (the sender's display
+//     name goes through the email module's `from_name`);
 //   - neither: channel 'none', and the job's timeline says so when the message
 //     is about a job.
 // `quote_approved` and `quote_rejected` are the customer's own answer: only the
@@ -53,9 +53,12 @@ export interface MessageData {
 
 type CustomerRow = { id: string; name: string; phone: string; email: string | null; language: string };
 
+/** What the email module accepts as a display name (its README, "Config"). */
+const SENDER_NAME = /^[^<>\r\n]{1,80}$/u;
+
 const now = (): number => Math.floor(Date.now() / 1000);
 
-export type Channel = "whatsapp" | "email" | "preview" | "none" | "staff";
+export type Channel = "whatsapp" | "email" | "none" | "staff";
 
 /** Records the message for `customer`, sends it by the channel above, and notifies `data.staff_user`. */
 export async function notifyCustomer(ctx: NotifyCtx, customer: { id: string }, kind: CustomerMessageKind, data: MessageData): Promise<Channel> {
@@ -104,22 +107,17 @@ async function deliver(ctx: NotifyCtx, sdb: ReturnType<typeof fencedTo>, c: Cust
   const msg = renderMessage(kind, language, vars);
   const phone = c.phone === "" ? null : await gcc.validatePhone(c.phone);
   const hasPhone = phone !== null && phone.ok;
-  const sandbox = settings.whatsapp_sandbox === "1";
   let channel: Channel = "none";
-  if (hasPhone && !sandbox) {
+  if (hasPhone) {
     await whatsapp.sendTemplate(phone.value, msg.template, msg.params, msg.language);
     return { channel: "whatsapp", template: msg.template };
-  }
-  if (hasPhone) {
-    await sdb.execute("insert into app__outbox_preview (branch_id, customer_id, channel, to_address, template, body, created_at) values (?, ?, 'whatsapp', ?, ?, ?, ?)", [data.branch_id, c.id, phone.value, msg.template, msg.body, now()]);
-    channel = "preview";
   }
   const mail = c.email ?? "";
   const address = mail.trim();
   if (address !== "" && !(await email.isSuppressed(address))) {
-    // The email module has no display name for the sender: the settings' sender name signs the text instead.
+    // The settings' sender name is the mail's display name. The email module refuses a name over 80 characters or with `<`, `>` or a line break, and a refusal would roll the caller back, so such a name is left out.
     const sender = (settings.sender_name ?? "").trim();
-    await email.sendRaw({ to: address, subject: msg.subject, text: sender === "" ? msg.body : `${msg.body}\n\n${sender}` });
+    await email.sendRaw({ to: address, subject: msg.subject, text: msg.body, ...(SENDER_NAME.test(sender) ? { from_name: sender } : {}) });
     channel = "email";
   }
   return { channel, template: msg.template };

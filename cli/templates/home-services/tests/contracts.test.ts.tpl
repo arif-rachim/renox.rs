@@ -12,6 +12,7 @@ import { totp } from "@renoxium/sdk";
 import { app, snapshot } from "@renoxium/sdk/test";
 
 import { addDays, nextVisit, visitDays, yearEnd } from "../lib/contract-dates";
+import { outboxOf } from "./outbox";
 import { runJob } from "./run-job";
 
 setDefaultTimeout(60_000);
@@ -269,11 +270,12 @@ describe("renewals", () => {
     await runJob(t, "amc-renewals");
     expect(reminders()).toHaveLength(1);
     expect(reminders()[0]?.template).toBe("amc_renewal");
-    const mail = rows("select subject from email__messages where to_address = 'ops@marinaheights.example' and subject like '%AMC-000001%'");
-    expect(mail).toHaveLength(1);
-    expect(String(mail[0]?.subject)).toBe(`Your maintenance contract AMC-000001 ends on ${addDays(today(), 30)}`);
-    const preview = rows("select body from app__outbox_preview where customer_id = 'cu_dxb_04' and template = 'amc_renewal'");
-    expect(String(preview[0]?.body)).toContain("AMC-000001");
+    // Marina Heights has a phone: the reminder is the WhatsApp template (the module's outbox), not an email.
+    expect(rows("select 1 from email__messages where to_address = 'ops@marinaheights.example' and subject like '%AMC-000001%'")).toEqual([]);
+    const sent = outboxOf(rows, "+97144110004").filter((m) => m.template === "amc_renewal");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("AMC-000001");
+    expect(sent[0]?.text).toContain(addDays(today(), 30));
     expect(staff()).toEqual([{ category: "contracts", title: `Contract AMC-000001 ends on ${addDays(today(), 30)}`, link: "/contracts/ct_seed_01" }]);
     expect(contractRow("ct_seed_01").renewal_notified_on).toBe(today());
     // The same day again: nothing is repeated.

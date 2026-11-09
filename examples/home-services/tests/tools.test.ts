@@ -9,6 +9,8 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { app } from "@renoxium/sdk/test";
 
+import { outboxOf } from "./outbox";
+
 setDefaultTimeout(60_000);
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -197,7 +199,7 @@ describe("create_job", () => {
     expect(job).toMatchObject({ status: "scheduled", technician_user_id: slot.split("@")[0], branch_id: "br_dubai", created_by: "u_dxb_dispatcher" });
     expect(job.booking_id).not.toBeNull();
     expect(Number(job.scheduled_start) * 1000).toBe(Number(slot.split("@")[1]));
-    expect(rows("select count(*) as n from app__outbox_preview where customer_id = 'cu_dxb_01' and template = 'visit_scheduled'")[0]?.n).toBe(1);
+    expect(outboxOf(rows, "+971501110001").filter((m) => m.template === "visit_scheduled")).toHaveLength(1);
     expect(rows("select count(*) as n from app__job_events where job_id = (select id from app__jobs where number = ?) and to_status = 'scheduled'", [number])[0]?.n).toBe(1);
     // The confirmation is single use.
     expect((await call(dinaToken, "create_job", args(slot), first.out.confirmation?.token)).status).toBe(409);

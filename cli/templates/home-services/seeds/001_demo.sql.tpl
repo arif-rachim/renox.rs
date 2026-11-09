@@ -5,8 +5,7 @@ insert or replace into app__settings (key, value) values
   ('brand_color', '#1f6f5c'),
   ('brand_footer_en', 'FixIt Services LLC, Dubai'),
   ('brand_footer_ar', 'فيكس إت للخدمات ذ.م.م، دبي'),
-  ('accounts_email', 'accounts@fixit.example'),
-  ('whatsapp_sandbox', '1');
+  ('accounts_email', 'accounts@fixit.example');
 
 insert or ignore into org__orgs (id, slug, name, created_by, created_at) values
   ('org_dubai', 'dubai', 'Dubai', 'seed', 1793000000),
@@ -210,14 +209,6 @@ insert or ignore into booking__staff_services (staff_id, service_id) values
 insert into booking__hours (staff_id, weekday, open_min, close_min)
 select s.id, h.weekday, h.open_min, h.close_min from booking__staff s join app__branch_hours h on h.branch_id = case s.id when 'u_dxb_ali' then 'br_dubai' when 'u_dxb_bilal' then 'br_dubai' else 'br_sharjah' end
 where s.id in ('u_dxb_ali', 'u_dxb_bilal', 'u_shj_hamad', 'u_shj_imran') and not exists (select 1 from booking__hours x where x.staff_id = s.id);
-
-insert or ignore into app__booking_sync (key, at) values
-  ('catalogue:br_dubai', 1793000000),
-  ('catalogue:br_sharjah', 1793000000),
-  ('staff:u_dxb_ali', 1793000000),
-  ('staff:u_dxb_bilal', 1793000000),
-  ('staff:u_shj_hamad', 1793000000),
-  ('staff:u_shj_imran', 1793000000);
 
 -- Twenty jobs across the states and both branches. Times are relative to the
 -- day the seed runs (Dubai time), so the board always has today's and

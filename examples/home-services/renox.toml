@@ -17,7 +17,10 @@ twofa = { version = "^1.0.0", mount = "/2fa" }
 audit = { version = "^1.0.0" }
 notifications = { version = "^1.0.0", mount = "/notifications", config = { channels = "whatsapp,email" } }
 email = { version = "^1.0.0" }
-whatsapp = { version = "^1.0.0", mount = "/whatsapp" }
+# sandbox = true: nothing leaves the host (the module records each message as
+# sent, calls no API and needs no WHATSAPP_* secret); `whatsapp.outbox()` shows
+# what would have gone out. Production sets it to false (README, "Sandbox").
+whatsapp = { version = "^1.1.0", mount = "/whatsapp", config = { sandbox = true } }
 # billing is booking's dependency; no PSP is configured (D31: no payments).
 billing = { version = "^1.0.0" }
 booking = { version = "^1.0.0", mount = "/booking", config = { slot_minutes = 30, hold_minutes = 10 } }
@@ -61,8 +64,8 @@ app__quotes = { owner = "branch_id" }
 app__quote_lines = { owner = "branch_id" }
 
 # Jobs and their timeline, the same way. app__job_numbers is the company-wide
-# sequence, and app__branch_hours and app__booking_sync are read by branch id
-# by lib/booking-sync.ts: none of the three is owned.
+# sequence, and app__branch_hours is read by branch id by
+# lib/booking-sync.ts: neither is owned.
 app__jobs = { owner = "branch_id" }
 app__job_events = { owner = "branch_id" }
 
@@ -72,10 +75,8 @@ app__visits = { owner = "branch_id" }
 app__visit_photos = { owner = "branch_id" }
 app__visit_parts = { owner = "branch_id" }
 
-# What the customers are told and what they answer (F7-124): the preview of a
-# sandboxed WhatsApp message and the dispatcher's tasks, the same way.
+# What the customers answer (F7-124): the dispatcher's tasks, the same way.
 # app__inbox_seen is the sweep's own bookkeeping, not owned.
-app__outbox_preview = { owner = "branch_id" }
 app__tasks = { owner = "branch_id" }
 
 # Invoices and their payments, the same way (each payment repeats the invoice's

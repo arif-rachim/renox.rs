@@ -54,7 +54,7 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
   const pickTech = technicians.some((t) => t.id === askedTech) ? askedTech : (job.technician_user_id ?? "");
   let slots: { value: string; label: string }[] = [];
   if (dispatcher && open && service !== null) {
-    await ensureSynced(ctx.db, branch, technicians);
+    await ensureSynced(ctx.db, branch, pickTech === "" ? technicians : technicians.filter((t) => t.id === pickTech), service.code);
     const staff = pickTech === "" ? technicians.map((t) => t.id) : [pickTech];
     const found = await slotsOn(bookingService(service.code), pickDay, staff);
     slots = found.map((s) => ({ value: `${s.staff}@${s.start}`, label: `${clock(Math.floor(s.start / 1000))}–${clock(Math.floor(s.end / 1000))} · ${names.get(s.staff) ?? s.staff}` }));
