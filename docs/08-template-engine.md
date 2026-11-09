@@ -32,7 +32,7 @@ Templates are valid HTML with logic expressed as attributes. At deploy time the 
 | Component | `<x-product-card :product="p" compact>`, `<slot />`, `<slot name="actions" />` | macro, inlined at compile time |
 | Component props | `<r-props product="Product" compact="bool = false" />` | validated at compile time |
 | Layout | `<r-layout use="main">` | `{% extends %}` |
-| Cross-module slot | `<r-slot name="admin.sidebar" />` | include from the slot registry |
+| Cross-module slot | `<r-slot name="admin.sidebar" />` | include from the slot registry; modules fill it, and so can the app with its own partials (`renox.toml [[slots]]`, `07-app-model.md`, "Slots") |
 | Permission | `r-can="action" :resource="x"`, `r-cannot` | `{% if can(...) %}` (see `11-authorization.md`) |
 | Module component | `<billing:plan-badge :user="user" />` | namespaced macro |
 

@@ -13,6 +13,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - `ActionContext.db` is `TxDb` (statements plus `scoped`), as it is at run time; `ops.md` 1.12.1 (#627).
 - `@renoxium/sdk/test`: `t.tool(name, input, { confirmation })` sends `_meta["renox/confirmation"]` as given in one call (a made-up, replayed or other-argument confirmation), and `t.tools({ as?, scope? })` returns the `tools/list` result of that agent token (#627).
+- `renox deploy` of an app that uses `hooks.ts`, `[[slots]]` or `[events]` is no longer rejected at upload: `@renox/artifact-validate`, which the control plane runs on every upload, accepts artifact 1.8 (the app's `hooks` entry, `module: "app"` slot fillers, the `events` map, rule V31) (#638).
 
 ## 0.1.10 (2026-11-09)
 

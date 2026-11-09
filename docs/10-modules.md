@@ -125,6 +125,8 @@ export const hooks = {
 };
 ```
 
+An app does the same: its own `hooks.ts`, at the project root, exports `on` and `hooks` with these shapes, handles any module's events and fills any installed module's hook points without a dependency or an approval, and on a tie runs after the modules. It can also fill slots (`renox.toml [[slots]]`) and declare and emit its own `app.<name>` events (`renox.toml [events]`). See `07-app-model.md`, "Events and hooks", "Slots" and "App events".
+
 ### Public view
 
 ```sql
@@ -167,3 +169,4 @@ The broker uses the tenant's single writer connection for the whole transaction 
 2. A module writes only to tables with its own prefix; other modules' data is reached through services, events, or views.
 3. Event names, service signatures, hook names, slot names, views, and MCP tools are a module's public API, versioned with semver. `renox check` detects missing contracts.
 4. Per-request data goes through `ctx`; module globals are shared across requests and may only hold intentional caches.
+5. A module may handle `app.*` events (the events the app declares in `renox.toml [events]`) without a dependency, as it may handle any module's exported events. It cannot emit them.
