@@ -129,6 +129,11 @@ export function errorDetails(requestId: string, lines: Line[], record: Record_ |
   };
 }
 
+/** One dev warning (warnings.ts) as the overlay's badge list shows it: `file:line` and the message. Self-contained: the browser runs this function's source. */
+export function warningRow(w: { file: string; line: number; name: string }): [string, string] {
+  return [`${w.file}:${w.line}`, `handler writes to global scope (${w.name}); state does not survive an isolate restart (docs/07)`];
+}
+
 /**
  * The details of `requestId` from `.renox/`: waits up to `waitMs` for the
  * meter record (the dev worker flushes meters every second), then answers

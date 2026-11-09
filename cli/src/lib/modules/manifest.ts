@@ -34,27 +34,46 @@ export interface Manifest {
   permissions: Permissions;
 }
 
+/** The CSP directives a module may extend (manifest.md 1.6, `[permissions] csp`). */
+export const CSP_DIRECTIVES = ["script_src", "style_src", "img_src", "connect_src", "frame_src", "font_src"] as const;
+export type CspDirective = (typeof CSP_DIRECTIVES)[number];
+
 export interface Permissions {
   tables?: string;
   network: string[];
   secrets: string[];
   slots: string[];
   hooks: string[];
+  /** 1.6: CSP sources the module needs, per directive; only non-empty directives are present, sources sorted. */
+  csp?: Partial<Record<CspDirective, string[]>>;
+}
+
+/** The non-empty directives of a `csp` table, sources sorted; `undefined` when there are none. */
+export function cspOf(v: Json | undefined): Permissions["csp"] {
+  const o = obj(v);
+  const out: Partial<Record<CspDirective, string[]>> = {};
+  for (const d of CSP_DIRECTIVES) {
+    const list = [...strings(o[d])].sort();
+    if (list.length) out[d] = list;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export function permissionsOf(p: JsonObject): Permissions {
+  const csp = cspOf(p.csp);
   return {
     ...(typeof p.tables === "string" ? { tables: p.tables } : {}),
     network: strings(p.network),
     secrets: strings(p.secrets),
     slots: strings(p.slots),
     hooks: strings(p.hooks),
+    ...(csp !== undefined ? { csp } : {}),
   };
 }
 
 /** Order-insensitive form, for MF12 (approved = requested). */
 export const samePermissions = (a: Permissions, b: Permissions): boolean => {
-  const norm = (p: Permissions) => JSON.stringify([p.tables ?? null, [...p.network].sort(), [...p.secrets].sort(), [...p.slots].sort(), [...p.hooks].sort()]);
+  const norm = (p: Permissions) => JSON.stringify([p.tables ?? null, [...p.network].sort(), [...p.secrets].sort(), [...p.slots].sort(), [...p.hooks].sort(), p.csp ?? null]);
   return norm(a) === norm(b);
 };
 
@@ -68,11 +87,23 @@ export function moduleNameProblem(name: string): string | null {
   return null;
 }
 
-/** MF4 on a [permissions] table or a lock entry's `approved`. */
+/**
+ * MF17: the source grammar of `renox.toml [security]` minus `'unsafe-*'`, which a module never gets,
+ * and without `;` or `,` in the path: they separate directives and policies in the header, so a
+ * module source could otherwise add a directive of its own.
+ */
+export const CSP_SOURCE = /^(https:\/\/(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%!$&()*+=:@\/-]*)?|data:|blob:)$/u;
+
+/** MF4 and MF17 on a [permissions] table or a lock entry's `approved`. */
 export function permissionProblems(name: string, p: JsonObject, where: string): string[] {
   const out: string[] = [];
   if (p.tables !== undefined && p.tables !== `${name}__*`) out.push(`MF4: ${where}.tables "${String(p.tables)}" is not "${name}__*"`);
   for (const s of strings(p.secrets)) if (!s.startsWith(`${name.toUpperCase()}_`)) out.push(`MF4: ${where}.secrets "${s}" does not start with ${name.toUpperCase()}_`);
+  const csp = obj(p.csp);
+  for (const d of Object.keys(csp))
+    if (!(CSP_DIRECTIVES as readonly string[]).includes(d)) out.push(`MF17: ${where}.csp.${d} is not a CSP directive a module may extend (${CSP_DIRECTIVES.join(", ")})`);
+  for (const d of CSP_DIRECTIVES)
+    for (const src of strings(csp[d])) if (!CSP_SOURCE.test(src)) out.push(`MF17: ${where}.csp.${d} "${src}" is not an https:// origin (optional *. wildcard and path), data: or blob:`);
   return out;
 }
 

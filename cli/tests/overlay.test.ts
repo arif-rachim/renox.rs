@@ -6,8 +6,17 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { collectErrorDetails, errorDetails } from "../src/dev/overlay/details.ts";
-import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOverlay, overlayRows } from "../src/dev/overlay/overlay.ts";
+import { collectErrorDetails, errorDetails, warningRow } from "../src/dev/overlay/details.ts";
+import {
+  ERROR_DETAILS_PATH,
+  ERROR_OVERLAY_JS,
+  ERROR_OVERLAY_PATH,
+  injectErrorOverlay,
+  injectWarningsBadge,
+  overlayRows,
+  WARNINGS_OVERLAY_JS,
+  WARNINGS_OVERLAY_PATH,
+} from "../src/dev/overlay/overlay.ts";
 import { buildArtifact } from "../src/lib/build.ts";
 
 const repo = join(import.meta.dir, "../..");
@@ -171,5 +180,23 @@ describe("production never ships the overlay", () => {
       .filter((f) => readFileSync(f, "utf8").includes("dev/overlay/"))
       .map((f) => f.slice(src.length + 1));
     expect(importers).toEqual(["commands/dev.ts"]);
+  });
+});
+
+// #656: the warnings badge for handler writes to global scope.
+describe("warnings badge", () => {
+  test("the list renders as file:line and the message; the script builds text, not HTML", () => {
+    expect(warningRow({ file: "functions/api/hits.ts", line: 4, name: "globalThis.counter" })).toEqual([
+      "functions/api/hits.ts:4",
+      "handler writes to global scope (globalThis.counter); state does not survive an isolate restart (docs/07)",
+    ]);
+    expect(WARNINGS_OVERLAY_JS).toContain("warnings (");
+    expect(WARNINGS_OVERLAY_JS).toContain("textContent");
+    expect(WARNINGS_OVERLAY_JS).not.toContain("innerHTML");
+  });
+
+  test("injectWarningsBadge adds one script with the CSP nonce before </body>", () => {
+    const html = injectWarningsBadge("<html><body>x</body></html>", "script-src 'nonce-abc123'");
+    expect(html).toBe(`<html><body>x<script src="${WARNINGS_OVERLAY_PATH}" nonce="abc123"></script></body></html>`);
   });
 });

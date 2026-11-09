@@ -260,4 +260,4 @@ billing = { version = "^1.2", mount = "/billing", config = { provider = "telr" }
 
 ## State rules
 
-Module contexts are reused across requests, so JavaScript globals are shared between users. Per-request data must go through `ctx`; globals are allowed only for intentionally shared caches. `renox dev` warns when a handler writes to global scope.
+Module contexts are reused across requests, so JavaScript globals are shared between users. Per-request data must go through `ctx`; globals are allowed only for intentionally shared caches. `renox dev` warns when a handler writes to global scope: one `warn:` line per finding after every build, and a "warnings" badge on every page (`cli/tests/first-hour.test.ts`, "renox dev warns about a handler writing globalThis").

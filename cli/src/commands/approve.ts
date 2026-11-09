@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { UserError, ValidationError } from "../errors.ts";
 import { readLock, writeLock } from "../lib/modules/lock.ts";
-import { type Permissions } from "../lib/modules/manifest.ts";
+import { CSP_DIRECTIVES, type Permissions } from "../lib/modules/manifest.ts";
 import { readModulesTable, resolveModules } from "../lib/modules/resolve.ts";
 
 export interface PermissionDiff {
@@ -29,6 +29,15 @@ export function diffPermissions(from: Permissions, to: Permissions): PermissionD
     const r = list(from, k).filter((x) => !list(to, k).includes(x));
     if (a.length) added[k] = a;
     if (r.length) removed[k] = r;
+  }
+  // 1.6: CSP sources, one line per directive (`csp.script_src`).
+  for (const d of CSP_DIRECTIVES) {
+    const was = from.csp?.[d] ?? [];
+    const now = to.csp?.[d] ?? [];
+    const a = now.filter((x) => !was.includes(x));
+    const r = was.filter((x) => !now.includes(x));
+    if (a.length) added[`csp.${d}`] = a;
+    if (r.length) removed[`csp.${d}`] = r;
   }
   if (from.tables !== to.tables) {
     if (to.tables !== undefined) added.tables = [to.tables];

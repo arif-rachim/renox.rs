@@ -46,7 +46,8 @@ import { toPosix } from "../lib/paths.ts";
 import { hasPath } from "../lib/routes.ts";
 import { BROWSER_TAB_PATH, browserTabJs } from "../dev/overlay/browser-tab.ts";
 import { collectErrorDetails } from "../dev/overlay/details.ts";
-import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOverlay } from "../dev/overlay/overlay.ts";
+import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOverlay, injectWarningsBadge, WARNINGS_OVERLAY_JS, WARNINGS_OVERLAY_PATH } from "../dev/overlay/overlay.ts";
+import { type DevWarning, devWarnings, warningLine, WARNINGS_PATH } from "../dev/warnings.ts";
 import { changeEvent, DEV_CLIENT_JS, DEV_CLIENT_PATH, DEV_EVENTS_PATH, injectDevClient, sse } from "../lib/templates-dev.ts";
 import { writeTypes } from "../lib/types/generate.ts";
 import { DOWNLOAD_HINT, workerPath } from "../lib/worker.ts";
@@ -213,6 +214,16 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       }
     }
   };
+  // Handler writes to global scope (#656): refreshed after every build.
+  let warnings: DevWarning[] = [];
+  const refreshWarnings = (): void => {
+    try {
+      warnings = devWarnings(project);
+    } catch {
+      warnings = [];
+    }
+    for (const w of warnings) log(warningLine(w));
+  };
   const host = devHost(first.manifest.app.name);
   const routes = join(state, "routes.json");
   writeRoutes(routes, host, current);
@@ -378,6 +389,10 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         // Error overlay (#93): the script, and the details of one request from .renox/logs and .renox/meters.
         if (u.pathname === ERROR_OVERLAY_PATH)
           return new Response(ERROR_OVERLAY_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+        // Global-state warnings (#656): the badge script and the current list.
+        if (u.pathname === WARNINGS_OVERLAY_PATH)
+          return new Response(WARNINGS_OVERLAY_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+        if (u.pathname === WARNINGS_PATH) return Response.json(warnings, { headers: { "cache-control": "no-store" } });
         if (u.pathname === ERROR_DETAILS_PATH) {
           const id = u.searchParams.get("id") ?? "";
           if (!/^[0-9A-Za-z]{26}$/u.test(id)) return new Response("bad id\n", { status: 400 });
@@ -421,6 +436,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         // Error pages get the error overlay (#93); production pages never do.
         const requestId = res.headers.get("x-renox-request-id");
         if (res.status >= 400 && requestId) html = injectErrorOverlay(html, requestId, res.status, csp);
+        // Only while there are global-state warnings, so a clean app's HTML is unchanged (#656).
+        if (warnings.length > 0) html = injectWarningsBadge(html, csp);
         const out = new Headers(res.headers);
         out.delete("content-length");
         out.delete("content-encoding");
@@ -449,6 +466,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     if (r.kind === "tool" || r.kind === "job") log(`  ${r.kind.toUpperCase().padEnd(7)} ${r.name}`);
     else log(`  ${(r.kind === "function" ? r.method : r.kind === "page" ? "PAGE" : r.kind.toUpperCase()).padEnd(7)} ${r.path}`);
   }
+  refreshWarnings();
 
   // Tenant log lines to the terminal.
   const tenantLog = join(state, "logs", "tenant.ndjson");
@@ -556,6 +574,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         else if (wasFailing) broadcast("ok", {});
         const ms = Math.round(performance.now() - t0);
         log(`rebuilt in ${ms} ms (${r.rebuilt} module${r.rebuilt === 1 ? "" : "s"}, artifact ${current.slice(0, 12)})`);
+        refreshWarnings();
         status.artifact = current;
         status.routes = r.manifest.routes.length;
         status.lastBuild = { ok: true, at: new Date().toISOString(), ms, problems: [] };

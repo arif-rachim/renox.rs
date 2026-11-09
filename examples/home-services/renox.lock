@@ -58,14 +58,14 @@ approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks 
 
 [[module]]
 name = "billing"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "50217d15ce3cbb7af219ad04310f62bca5dd311fff262d5e7daa7287d074feaa"
+hash = "72c2e49aa0ea40d0dff6014e40bfe99b96a09f804034e02d9c68f640e31a20e4"
 isolation = "shared"
 mount = "/billing"
 dependencies = ["auth", "i18n"]
 config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/billing", base_path = "/billing", methods = "card", bank_name = "", bank_beneficiary = "", bank_iban = "" }
-approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = ["admin.sidebar"], hooks = [] }
+approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = ["admin.sidebar"], hooks = [], csp = { script_src = ["https://js.stripe.com"], frame_src = ["https://hooks.stripe.com", "https://js.stripe.com"] } }
 
 [[module]]
 name = "jobs"

@@ -93,7 +93,7 @@ test("MF1: a module named authz is reserved (#304, manifest.md: authz.roles_chan
   expect(manifestRules({ module: { name: "authz" } })).toContain('MF1: [module].name "authz" is reserved');
 });
 
-test("MF1: a module named mcp is reserved (#658, manifest.md 1.5.1: mcp.tool_called is a platform event)", async () => {
+test("MF1: a module named mcp is reserved (#658, manifest.md 1.6.1: mcp.tool_called is a platform event)", async () => {
   const { manifestRules, moduleNameProblem } = await import("../src/lib/modules/manifest.ts");
   expect(moduleNameProblem("mcp")).toBe("is reserved");
   expect(moduleNameProblem("mcp_tools")).toBeNull();

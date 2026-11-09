@@ -10,11 +10,12 @@ import { join } from "node:path";
 
 import { checkArtifactFiles } from "@renox/artifact-validate";
 
-import { check } from "../src/commands/check.ts";
+import { addModule } from "../src/commands/add.ts";
+import { check, securityOutput } from "../src/commands/check.ts";
 import { buildArtifact, buildFiles } from "../src/lib/build.ts";
 import { unifiedDiff } from "../src/lib/modules/build.ts";
 import { dbDts } from "../src/lib/types/generate.ts";
-import { LOGIN_HTML, shopWithAuth } from "./shop-auth-fixture.ts";
+import { LOGIN_HTML, shopWithAuth, write } from "./shop-auth-fixture.ts";
 import { testWorker } from "./worker-env.ts";
 
 const worker = testWorker();
@@ -82,6 +83,60 @@ describe.skipIf(!worker)("renox build with modules", () => {
     const strict = await check(dir, { strict: true });
     expect(strict.findings.filter((f) => f.rule === "override-drift").map((f) => f.severity)).toEqual(["error"]);
   });
+
+  test("approved module csp sources are merged once into security.csp (#660)", async () => {
+    const dir = await shopWithAuth();
+    await installPay(dir);
+    // Without a [security] table the artifact still carries the merged policy.
+    const plain = await buildFiles(dir);
+    expect(plain.manifest.security).toEqual({ csp: { script_src: ["https://js.psp.example"], frame_src: ["https://*.psp.example", "https://js.psp.example"] } });
+    // With the app's own sources: the union, sorted, the shared source once.
+    const toml = join(dir, "renox.toml");
+    writeFileSync(toml, `${readFileSync(toml, "utf8")}\n[security.csp]\nscript_src = ["https://js.psp.example", "https://analytics.example"]\nreport_only = true\n`);
+    const both = await buildFiles(dir);
+    expect(both.manifest.security?.csp?.script_src).toEqual(["https://analytics.example", "https://js.psp.example"]);
+    expect(both.manifest.security?.csp?.frame_src).toEqual(["https://*.psp.example", "https://js.psp.example"]);
+    expect(both.manifest.security?.csp?.report_only).toBe(true);
+    expect(checkArtifactFiles(both.files).violations).toEqual([]);
+    // renox check --security says where each source comes from.
+    const report = securityOutput(dir);
+    expect(report).toContain("script-src https://analytics.example  (app)");
+    expect(report).toContain("script-src https://js.psp.example  (app, pay)");
+    expect(report).toContain("frame-src https://*.psp.example  (pay)");
+    expect(report).toContain("script-src 'self' 'nonce-<per-request>' https://analytics.example https://js.psp.example");
+  });
+
+  test("a module that brings a directive past 32 sources fails the build naming the module (#660)", async () => {
+    const dir = await shopWithAuth();
+    const hosts = (prefix: string) => Array.from({ length: 20 }, (_, i) => `"https://${prefix}${i}.example"`).join(", ");
+    const toml = join(dir, "renox.toml");
+    writeFileSync(toml, `${readFileSync(toml, "utf8")}\n[security.csp]\nimg_src = [${hosts("app")}]\n`);
+    await installPay(dir, `csp = { img_src = [${hosts("pay")}] }`);
+    const e = await buildFiles(dir).catch((x: Error) => x);
+    expect((e as Error).message).toContain("module CSP sources do not merge");
+    expect(JSON.stringify(e)).toContain("module pay: its permissions.csp.img_src brings security.csp.img_src to 40 sources; at most 32");
+  });
+});
+
+/** A `pay` module with `csp` (default: script and frame sources), installed and approved with `renox add --yes`. */
+async function installPay(dir: string, csp = 'csp = { script_src = ["https://js.psp.example"], frame_src = ["https://js.psp.example", "https://*.psp.example"] }'): Promise<void> {
+  write(join(dir, "modules/pay"), { "module.toml": `[module]\nname = "pay"\nversion = "1.0.0"\n\n[permissions]\n${csp}\n` });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await addModule(dir, "pay", { source: "path:modules/pay", yes: true }, async () => true);
+  } finally {
+    console.log = log;
+  }
+}
+
+test("a module csp changed after approval does not build, and its sources stay out of the policy (MF12, #660)", async () => {
+  const dir = await shopWithAuth();
+  await installPay(dir);
+  const toml = join(dir, "modules/pay/module.toml");
+  writeFileSync(toml, readFileSync(toml, "utf8").replace('script_src = ["https://js.psp.example"]', 'script_src = ["https://js.psp.example", "https://evil.example"]'));
+  const e = await buildFiles(dir).catch((x: Error) => x);
+  expect((e as Error).message).toContain("MF12: pay/module.toml: its [permissions] differ from what renox.lock approved");
 });
 
 test("a module whose permissions are not the approved ones does not build (MF12, V22)", async () => {

@@ -3,7 +3,7 @@
 // production node's warnings (fetch_blocked_addresses, platform_key_file,
 // the disk watermark), other worker lines as one short line each.
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -58,6 +58,66 @@ test.skipIf(!worker)(
       for (const w of ["fetch_blocked_addresses", "platform_key_file", "watermark", '"level":"WARN"']) expect([w, text.includes(w)]).toEqual([w, false]);
       // The dev platform key: written once, 0600, kept across restarts.
       expect(statSync(join(dir, ".renox", "platform.key")).mode & 0o777).toBe(0o600);
+    } finally {
+      await dev.stop();
+    }
+  },
+  60_000,
+);
+
+// #656: a handler that writes to global scope is warned about under renox dev.
+test.skipIf(!worker)(
+  "renox dev warns about a handler writing globalThis: terminal line per rebuild, overlay badge, cleared when fixed",
+  async () => {
+    const dir = newApp("warned", "hello", mkdtempSync(join(tmpdir(), "renox-first-")));
+    const file = join(dir, "functions/api/hello.ts");
+    const clean = readFileSync(file, "utf8");
+    const dirty = `${clean}\nexport const POST = ((_ctx: Pick<Ctx, "req">) => {\n  globalThis.counter = 1;\n  return Response.json({ ok: true });\n}) satisfies Handler;\n`;
+    writeFileSync(file, dirty);
+    const at = dirty.split("\n").findIndex((l) => l.includes("globalThis.counter")) + 1;
+    const port = freePort();
+    const lines: string[] = [];
+    const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
+    const home = async (): Promise<string> => (await fetch(`http://localhost:${port}/`, { headers: { accept: "text/html" } })).text();
+    const warns = (): string[] => lines.filter((l) => l.startsWith("warn: "));
+    const line = `warn: functions/api/hello.ts:${at} handler writes to global scope (globalThis.counter); state does not survive an isolate restart (docs/07)`;
+    try {
+      expect(warns()).toEqual([line]);
+      expect(await home()).toContain("/__renox/dev/warnings-badge.js");
+      expect(await (await fetch(`http://localhost:${port}/__renox/dev/warnings`)).json()).toEqual([{ file: "functions/api/hello.ts", line: at, name: "globalThis.counter" }]);
+      expect(await (await fetch(`http://localhost:${port}/__renox/dev/warnings-badge.js`)).text()).toContain("warnings (");
+
+      // Another save: the warning is printed again, once.
+      let reload = dev.nextReload();
+      writeFileSync(file, `${dirty}// touched\n`);
+      await reload;
+      expect(warns()).toEqual([line, line]);
+
+      // Fixed: the list and the badge are gone.
+      reload = dev.nextReload();
+      writeFileSync(file, clean);
+      await reload;
+      expect(warns().length).toBe(2);
+      expect(await (await fetch(`http://localhost:${port}/__renox/dev/warnings`)).json()).toEqual([]);
+      expect(await home()).not.toContain("warnings-badge");
+    } finally {
+      await dev.stop();
+    }
+  },
+  60_000,
+);
+
+test.skipIf(!worker)(
+  "a clean hello app under renox dev has no warn line and no badge",
+  async () => {
+    const dir = newApp("tidy", "hello", mkdtempSync(join(tmpdir(), "renox-first-")));
+    const port = freePort();
+    const lines: string[] = [];
+    const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
+    try {
+      const html = await (await fetch(`http://localhost:${port}/`, { headers: { accept: "text/html" } })).text();
+      expect(html).not.toContain("warnings-badge");
+      expect(lines.filter((l) => l.startsWith("warn: "))).toEqual([]);
     } finally {
       await dev.stop();
     }

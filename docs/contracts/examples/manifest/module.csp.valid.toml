@@ -1,0 +1,10 @@
+# 1.6: a payment module asks for the CSP sources its widget needs; the tenant
+# approves them at install and the build merges them into security.csp.*.
+[module]
+name = "pay"
+version = "1.0.0"
+description = "A card widget on a third-party script and frame"
+
+[permissions]
+network = ["api.psp.example"]
+csp = { script_src = ["https://js.psp.example"], frame_src = ["https://js.psp.example", "https://*.psp.example"], img_src = ["data:"] }
