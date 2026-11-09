@@ -1,5 +1,6 @@
 //! `op_events_emit` and the event delivery ack (`docs/contracts/ops.md`
-//! 1.3.0, section 15.4). A module emits only the events it exports; the
+//! 1.3.0, section 15.4). A module emits only the events it exports, the app
+//! only the `app.*` events its manifest declares (1.12.0); the
 //! payload is checked against the exported schema in Rust
 //! (`RENOX_EVENT_PAYLOAD`); a durable event is a row of `renox__outbox`
 //! written in the emitter's current transaction (ADR D14), so a rolled-back
@@ -240,12 +241,19 @@ mod v8_ops {
     ) -> Result<String, JsErrorBox> {
         let env = state.borrow().borrow::<Rc<DbEnv>>().clone();
         let module = module.unwrap_or_else(|| crate::ops::modules::APP.to_string());
-        let Some(schema) = env
-            .modules
-            .get(&module)
-            .and_then(|m| m.exports.events.get(&name))
-            .cloned()
-        else {
+        // ops.md 1.12.0 section 15.4: the app emits only the `app.*` names
+        // its manifest `events` map declares; a module never emits `app.*`.
+        let schema = if module == crate::ops::modules::APP {
+            env.app_events.get(&name).cloned()
+        } else if name.starts_with("app.") {
+            None
+        } else {
+            env.modules
+                .get(&module)
+                .and_then(|m| m.exports.events.get(&name))
+                .cloned()
+        };
+        let Some(schema) = schema else {
             return Err(undeclared(&module, &name));
         };
         if let Err(p) = check_payload(&schema, &payload_json) {

@@ -4,12 +4,12 @@
 // a worker is tests/deploy.e2e.test.ts.
 
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { extractTar } from "@renox/artifact-validate";
+import { checkArtifactFiles, extractTar, formatViolation } from "@renox/artifact-validate";
 
 import { run as deploy } from "../src/commands/deploy.ts";
 import type { Io } from "../src/commands/login.ts";
@@ -272,6 +272,33 @@ describe("renox deploy", () => {
     expect(e7.exitCode).toBe(EXIT.VALIDATION);
 
     for (const bad of [["--frobnicate"], ["--app", "x"], ["--rollback", "--app", "Bad"]]) expect((await failure(deploy(bad, fake([]), project))).exitCode).toBe(EXIT.USER);
+  });
+});
+
+// #638 (artifact 1.8): a project with hooks.ts and [events] builds, and the
+// uploaded artifact passes the validator the control plane runs on upload
+// (@renox/artifact-validate), so the deploy is not rejected.
+describe("renox deploy of an artifact 1.8 project", () => {
+  test("hooks.ts and [events]: the uploaded artifact passes the shared validator and the deploy goes live", async () => {
+    const dir = hello();
+    writeFileSync(join(dir, "hooks.ts"), "export const on = {};\n");
+    appendFileSync(join(dir, "renox.toml"), `\n[events."app.greeted"]\ndescription = "Someone was greeted."\npayload = { type = "object", required = ["name"], properties = { name = { type = "string" } } }\n`);
+    const seen: { violations: string[] | null } = { violations: null };
+    const validating: Answer = async (c) => {
+      if (c.method !== "POST" || c.path !== "/v1/apps/hello/deployments") return undefined;
+      const files = await extractTar(gunzipSync(c.body as Uint8Array), { gzip: false });
+      const hash = c.headers.get("x-renox-artifact-hash") as string;
+      const result = checkArtifactFiles(files, { expectedHash: hash, app: "hello" });
+      seen.violations = result.violations.map(formatViolation);
+      const m = result.manifest as { code: { entry: Record<string, string> }; events?: Record<string, unknown> };
+      expect(m.code.entry.hooks).toBe("hooks.js");
+      expect(Object.keys(m.events ?? {})).toEqual(["app.greeted"]);
+      return seen.violations.length === 0 ? json(201, deployment(hash, "validated")) : err(422, "RENOX_DEPLOY_REJECTED", "The artifact failed validation.");
+    };
+    const t = fake(controlPlane(null, [validating]));
+    expect(await deploy(["--skip-types"], t, dir)).toBe(EXIT.OK);
+    expect(seen.violations).toEqual([]);
+    expect(t.lines.join("\n")).toContain("(validated)");
   });
 });
 

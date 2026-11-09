@@ -5,9 +5,10 @@
 # ignored), although X was found.
 # Step 10 of single-host-e2e.test.sh flaked this way on `pg_restore --list`.
 # Proves: the hazard is real (a deterministic producer that writes after the
-# match makes `| grep -q` fail and `| grep X >/dev/null` pass), and
-# single-host-e2e.test.sh pipes no command into `grep -q` (here-strings and
-# files are fine: there is no writer to kill). No docker, no network.
+# match makes `| grep -q` fail and `| grep X >/dev/null` pass), and no
+# ops/scripts/*.sh (or ops/*.sh) that sets pipefail pipes a command into
+# `grep -q` (#632; here-strings and files are fine: there is no writer to
+# kill). No docker, no network.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -39,9 +40,20 @@ else fail "the fix passed although the line is missing"; fi
 # A single `|` (not `||`) followed by grep (optionally run through dx) whose
 # options include q or --quiet.
 pattern='(^|[^|])\|[[:space:]]*(dx[[:space:]]+)?grep[[:space:]]+(-[[:alpha:]]*q|--quiet)'
-script=$here/single-host-e2e.test.sh
-if hits=$(grep -nE "$pattern" "$script"); then fail "single-host-e2e.test.sh pipes a command into grep -q: $hits"
-else pass "single-host-e2e.test.sh pipes no command into grep -q"; fi
+# Every ops script that sets pipefail (#632), except this one: its hazard demo
+# above pipes into grep -q on purpose.
+scanned=0
+for script in "$here"/*.sh "$here"/../*.sh; do
+  [[ -f $script ]] || continue
+  [[ $(basename "$script") == pipe-grep-q.test.sh ]] && continue
+  grep -q pipefail "$script" || continue
+  scanned=$((scanned + 1))
+  if hits=$(grep -nE "$pattern" "$script"); then
+    while IFS= read -r hit; do fail "${script#"$here"/} pipes a command into grep -q: $hit"; done <<< "$hits"
+  fi
+done
+if [[ $scanned -lt 2 ]]; then fail "only $scanned ops script(s) with pipefail scanned; the glob is broken"
+else pass "none of the $scanned ops scripts with pipefail pipes a command into grep -q"; fi
 
 # The pattern itself catches the shapes it must catch and spares the rest.
 for line in "x | grep -q y" "x|grep -qi y" "x | dx grep -q y" "x | grep --quiet y"; do

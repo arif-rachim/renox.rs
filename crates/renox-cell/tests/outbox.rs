@@ -163,7 +163,7 @@ fn prepare_db(data: &Path) {
     let dir = data.join(TENANT);
     std::fs::create_dir_all(&dir).unwrap();
     let db = TenantDb::open(dir.join("app.db"), DbOptions::default()).unwrap();
-    for m in ["email", "audit"] {
+    for m in ["email", "audit", "app"] {
         db.execute(
             &format!("create table if not exists {m}__seen (event_id text, attempt integer)"),
             &[],
@@ -509,4 +509,130 @@ async fn an_event_handler_uses_db_scoped_with_the_ownership_fence() {
             "{m}"
         );
     }
+}
+
+// --- The app as a handler (#633; ops.md 1.12.0 section 15.4): the app's
+// `hooks` entry (`hooks.ts`) handles `billing.invoice_paid` as module `app`.
+
+/// The artifact of [`artifact`] with the app's own `hooks` entry in place of
+/// the `audit` module.
+fn app_artifact(store: &Path) -> String {
+    let tmp = scratch("app-artifact");
+    let manifest = serde_json::json!({
+        "artifact": { "version": 1 },
+        "app": { "name": "outbox", "timezone": "Asia/Dubai" },
+        "code": { "format": "esm-dir", "entry": {
+            "functions/f": "functions/f.js",
+            "hooks": "hooks.js",
+            "modules/billing/services": "modules/billing/services.js",
+            "modules/email/hooks": "modules/email/hooks.js",
+        } },
+        "routes": [{ "kind": "function", "method": "GET", "path": "/", "module": "functions/f", "export": "GET" }],
+        "permissions": { "network": [], "secrets": [] },
+        "modules": [
+            module("billing", serde_json::json!({ "services": ["pay"], "events": { "billing.invoice_paid": { "type": "object" } } })),
+            owned_module("email"),
+        ],
+    });
+    let files: Vec<(&str, String)> = vec![
+        (
+            "manifest.json",
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        ),
+        ("code/functions/f.js", APP.into()),
+        ("code/hooks.js", handler("app")),
+        ("code/modules/billing/services.js", BILLING.into()),
+        ("code/modules/email/hooks.js", handler("email")),
+    ];
+    for (p, src) in &files {
+        let path = tmp.join(p);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, src).unwrap();
+    }
+    let hash = renox_cell::artifact::canonical_hash(&tmp).unwrap();
+    std::fs::rename(&tmp, store.join(&hash)).unwrap();
+    hash
+}
+
+fn app_setup() -> (PathBuf, PathBuf, String) {
+    let data = scratch("app-data");
+    let artifacts = scratch("app-artifacts");
+    let hash = app_artifact(&artifacts);
+    prepare_db(&data);
+    (data, artifacts, hash)
+}
+
+/// The fan-out gives the app its own delivery next to the module's: both
+/// run once after the commit, the ack leaves no row, and the app's attempt
+/// is metered `EVENT app billing.invoice_paid`.
+#[tokio::test]
+async fn delivered_after_commit_to_a_module_and_the_app() {
+    let (data, artifacts, hash) = app_setup();
+    let n = node(&data, &artifacts, &hash, fast());
+    let v = n.get("invoice=i1").await;
+    let id = v["id"].as_str().expect("an id").to_string();
+    assert!(
+        eventually(Duration::from_secs(10), || seen(&data, "email").len() == 1
+            && seen(&data, "app").len() == 1)
+        .await,
+        "{:?} {:?}",
+        seen(&data, "email"),
+        seen(&data, "app")
+    );
+    assert_eq!(seen(&data, "email"), vec![(id.clone(), 1)]);
+    assert_eq!(seen(&data, "app"), vec![(id.clone(), 1)]);
+    let stats = n.manager.outbox_stats(TENANT).await.unwrap();
+    assert_eq!((stats.pending, stats.dead), (0, 0));
+    assert!(eventually(Duration::from_secs(5), || n.event_records().len() == 2).await);
+    let mut routes: Vec<String> = n.event_records().iter().map(|r| r.route.clone()).collect();
+    routes.sort();
+    assert_eq!(
+        routes,
+        [
+            "EVENT app billing.invoice_paid",
+            "EVENT email billing.invoice_paid"
+        ]
+    );
+    assert!(
+        n.event_records()
+            .iter()
+            .all(|r| r.status == MeterStatus::Ok && r.http_status == 200)
+    );
+    assert!(
+        n.event_records()
+            .iter()
+            .any(|r| r.request_id == format!("{id}_app_1"))
+    );
+}
+
+/// An app handler that throws on every attempt lands in the dead letter
+/// after 8 attempts, like a module's.
+#[tokio::test]
+async fn an_app_handler_throwing_eight_times_lands_in_dead_letter() {
+    let (data, artifacts, hash) = app_setup();
+    let n = node(&data, &artifacts, &hash, fast());
+    n.get("invoice=throw").await;
+    let dead = || {
+        let db = TenantDb::open(data.join(TENANT).join("app.db"), DbOptions::default()).unwrap();
+        outbox::dead_letters(&db, 10).unwrap()
+    };
+    assert!(
+        eventually(Duration::from_secs(30), || dead().len() == 2).await,
+        "{:?}",
+        dead()
+    );
+    let d = dead();
+    let app: Vec<_> = d.iter().filter(|r| r.target == "app").collect();
+    assert_eq!(app.len(), 1, "{d:?}");
+    assert_eq!(app[0].attempts, 8);
+    assert_eq!(app[0].last_error.as_deref(), Some("threw"));
+    assert!(eventually(Duration::from_secs(5), || n.event_records().len() >= 16).await);
+    assert_eq!(
+        n.event_records()
+            .iter()
+            .filter(|r| r.route == "EVENT app billing.invoice_paid")
+            .count(),
+        8
+    );
+    assert_eq!(n.manager.outbox_stats(TENANT).await.unwrap().dead, 2);
 }

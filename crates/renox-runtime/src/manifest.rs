@@ -469,9 +469,24 @@ pub struct Manifest {
     /// Artifact 1.4: the app's `renox.toml [ai]` (`mode`; ops.md section 23).
     #[serde(default)]
     pub ai: Option<serde_json::Value>,
+    /// Artifact 1.8: the app's declared events, `app.<name>` -> payload
+    /// schema and description (`renox.toml [events]`; ops.md 1.12.0
+    /// section 15.4). Only these names may the app emit.
+    #[serde(default)]
+    pub events: Option<BTreeMap<String, AppEvent>>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,
+}
+
+/// One `events` record (artifact 1.8).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppEvent {
+    /// The payload's JSON Schema (the module `exports.events` subset).
+    pub payload: serde_json::Value,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// One `entries` record (artifact 1.2).
@@ -487,11 +502,12 @@ pub struct EntryInfo {
 
 impl Manifest {
     /// Whether code entry `id` is evaluated at isolate creation (ops.md
-    /// 1.4.0 section 11, step 4). A module's `services` and `hooks` entries
-    /// are always eager.
+    /// 1.4.0 section 11, step 4). A module's `services` and `hooks` entries,
+    /// and the app's `hooks` entry (artifact 1.8, V23), are always eager.
     pub fn is_eager(&self, id: &str) -> bool {
-        let always =
-            id.starts_with("modules/") && (id.ends_with("/services") || id.ends_with("/hooks"));
+        let always = id == "hooks"
+            || (id.starts_with("modules/")
+                && (id.ends_with("/services") || id.ends_with("/hooks")));
         always
             || self
                 .entries
@@ -499,6 +515,15 @@ impl Manifest {
                 .and_then(|e| e.get(id))
                 .and_then(|e| e.eager)
                 .unwrap_or(true)
+    }
+
+    /// The app's declared events: name -> payload schema (artifact 1.8).
+    pub fn app_events(&self) -> BTreeMap<String, serde_json::Value> {
+        self.events
+            .iter()
+            .flatten()
+            .map(|(k, v)| (k.clone(), v.payload.clone()))
+            .collect()
     }
 
     /// The templates of a version 1 manifest (empty otherwise).
@@ -793,11 +818,14 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         }
     }
     // Artifact 1.1 (V7 extended): `modules/<name>/services` and
-    // `modules/<name>/hooks` are used by the broker, not by a route.
+    // `modules/<name>/hooks` are used by the broker, not by a route; so is
+    // the app's `hooks` entry (artifact 1.8).
     let broker_entry = |id: &str| {
-        id.strip_prefix("modules/")
-            .and_then(|r| r.split_once('/'))
-            .is_some_and(|(_, part)| part == "services" || part == "hooks")
+        id == "hooks"
+            || id
+                .strip_prefix("modules/")
+                .and_then(|r| r.split_once('/'))
+                .is_some_and(|(_, part)| part == "services" || part == "hooks")
     };
     for id in manifest.code.entry.keys() {
         if !broker_entry(id)
@@ -812,11 +840,49 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
             ));
         }
     }
+    check_app_events(&manifest)?;
     Ok(Artifact {
         root: root.to_path_buf(),
         hash,
         manifest,
     })
+}
+
+/// Artifact 1.8: the app's `events` keys are `app.<name>` (at most 64), and
+/// each payload is a JSON Schema object.
+fn check_app_events(manifest: &Manifest) -> Result<(), LoadError> {
+    let Some(events) = &manifest.events else {
+        return Ok(());
+    };
+    if events.len() > 64 {
+        return Err(load_err("V3", "events: at most 64 app events"));
+    }
+    for (name, ev) in events {
+        if !is_app_event_name(name) {
+            return Err(load_err(
+                "V3",
+                format!("events: {name:?} is not app.<name>"),
+            ));
+        }
+        if !ev.payload.is_object() {
+            return Err(load_err(
+                "V3",
+                format!("events: {name:?} payload is not a schema object"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `^app\.[a-z][a-z0-9_]{0,63}$`.
+pub fn is_app_event_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("app.") else {
+        return false;
+    };
+    let mut chars = rest.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && rest.len() <= 64
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// V30 (artifact 1.6): an app with no code. With an empty `code.entry`, no

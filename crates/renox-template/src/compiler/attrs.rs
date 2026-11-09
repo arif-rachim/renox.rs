@@ -64,6 +64,36 @@ pub const URL_ATTRS: &[&str] = &[
     "hx-delete",
 ];
 
+/// The `data:` URL prefixes an `<img src>` may carry (`ops.md` 1.13.0
+/// section 24, #582): what `ctx.pdf` embeds. Every other `data:` URL, and a
+/// `data:` URL in any other attribute, stays refused by the `url` filter.
+pub const IMAGE_DATA_PREFIXES: &[&str] = &["data:image/png;base64,", "data:image/jpeg;base64,"];
+
+/// Whether `s` is a base64 PNG or JPEG data URL (prefix case-insensitive,
+/// payload only base64 characters, so nothing after it can be read as
+/// another part of the URL).
+pub fn is_image_data_url(s: &str) -> bool {
+    let s = s.trim();
+    IMAGE_DATA_PREFIXES.iter().any(|p| {
+        s.len() > p.len()
+            && s.is_char_boundary(p.len())
+            && s[..p.len()].eq_ignore_ascii_case(p)
+            && s[p.len()..]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+    })
+}
+
+/// The platform filter of a bound URL attribute: `__img_url` for `src` on
+/// `<img>` (lets [`IMAGE_DATA_PREFIXES`] through), `__url` elsewhere.
+pub fn url_filter(tag: &str, attr: &str) -> &'static str {
+    if tag == "img" && attr == "src" {
+        "__img_url"
+    } else {
+        "__url"
+    }
+}
+
 /// A parsed `r-for`: `p in items` or `(p, i) in items`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ForLoop {
@@ -348,6 +378,26 @@ mod tests {
             vec![Segment::Unclosed],
             "unclosed interpolation"
         );
+    }
+
+    #[test]
+    fn only_png_and_jpeg_base64_data_urls_pass_and_only_on_img_src() {
+        assert!(is_image_data_url("data:image/png;base64,iVBORw0KGgo="));
+        assert!(is_image_data_url("DATA:image/JPEG;base64,/9j/4AAQ+x"));
+        for bad in [
+            "data:image/svg+xml;base64,PHN2Zz4=",
+            "data:text/html;base64,PHNjcmlwdD4=",
+            "data:image/png,rawbytes",
+            "data:image/png;base64,",
+            "data:image/png;base64,abc\"><script>",
+            "data:image/gif;base64,R0lGOD",
+            "javascript:alert(1)",
+        ] {
+            assert!(!is_image_data_url(bad), "{bad}");
+        }
+        assert_eq!(url_filter("img", "src"), "__img_url");
+        assert_eq!(url_filter("script", "src"), "__url");
+        assert_eq!(url_filter("a", "href"), "__url");
     }
 
     #[test]

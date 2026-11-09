@@ -277,7 +277,7 @@ else fail "--single-host warns about missing commands: $(cat "$ctx/err")"; fi
 toml=$(docker exec "$name" cat /etc/renox/worker.toml)
 grep -q '^url = "http://127.0.0.1:8788"$' <<< "$toml" && pass "worker.toml: [control] url is the loopback node listener" || fail "worker.toml control url"
 grep -q '^fetch_blocked_addresses = \["203.0.113.10", "2001:db8::10", "127.0.0.1"\]$' <<< "$toml" && pass "worker.toml: fetch_blocked_addresses lists the public addresses and 127.0.0.1" || fail "worker.toml blocked addresses"
-grep -q '^mode = "controlled"$' <<< "$toml" && grep -A1 '^\[sandbox\]$' <<< "$toml" | grep -q '^enabled = true$' && pass "worker.toml: controlled mode with the sandbox on" || fail "worker.toml mode and sandbox"
+grep -q '^mode = "controlled"$' <<< "$toml" && grep -A1 '^\[sandbox\]$' <<< "$toml" | grep '^enabled = true$' >/dev/null && pass "worker.toml: controlled mode with the sandbox on" || fail "worker.toml mode and sandbox"
 # Tunnel-only (#414, #420): the unix socket, cloudflared's user trusted, no [tls].
 grep -q '^listen = "unix:/run/renox-edge/worker.sock"$' <<< "$toml" && grep -q '^trusted_socket_users = \["renox-tunnel"\]$' <<< "$toml" \
   && grep -q '^socket_group = "renox-edge"$' <<< "$toml" && ! grep -q '^\[tls\]' <<< "$toml" && pass "worker.toml: the unix socket, renox-tunnel trusted, group renox-edge, no [tls]" || fail "worker.toml listen and trusted peer"
@@ -312,7 +312,7 @@ keys=$(docker exec "$name" stat -c '%n %U:%G %a' /etc/renox/node.token /etc/reno
 if grep -q '^/etc/renox/node.token renox:renox 400$' <<< "$keys" && grep -q '^/etc/renox/platform.key renox:renox 400$' <<< "$keys"; then
   pass "node.token and platform.key are renox:renox 0400"
 else fail "node.token and platform.key modes: $keys"; fi
-if docker exec "$name" sh -c 'ls /etc/systemd/system | grep -q "\.example$"'; then fail "no template is installed as a unit"; else pass "no *.example lands in /etc/systemd/system"; fi
+if docker exec "$name" sh -c 'ls /etc/systemd/system | grep "\.example$" >/dev/null'; then fail "no template is installed as a unit"; else pass "no *.example lands in /etc/systemd/system"; fi
 # renox-control.service is verified in 5c, once Bun is in place.
 units="renox-tunnel.service renox-backup-db.service renox-backup-db.timer"
 # shellcheck disable=SC2086
@@ -425,7 +425,7 @@ if docker exec "$name" systemctl start renox-backup-db.service 2>"$ctx/err"; the
   out=$(docker exec "$name" journalctl -u renox-backup-db --no-pager -o cat)
   obj=$(docker exec "$name" sh -c 'ls /src/s3-store | head -n 1' || true)
   if grep -q "backup-control-db: renox -> renoxium-backups/control-db/" <<< "$out" && [[ -n $obj ]] \
-    && docker exec "$name" sh -c "age --decrypt --identity /src/backup-age.key '/src/s3-store/$obj' | grep -q 'PGDMP fake dump of'"; then
+    && docker exec "$name" sh -c "age --decrypt --identity /src/backup-age.key '/src/s3-store/$obj' | grep 'PGDMP fake dump of' >/dev/null"; then
     pass "renox-backup-db.service runs as postgres with the R2 file from LoadCredential (systemd's 0440) and uploads a dump that decrypts"
   else fail "renox-backup-db.service: $out"; fi
   if grep -q test-secret-not-real <<< "$out"; then fail "the R2 secret never reaches the journal"; else pass "the R2 secret never reaches the journal"; fi
@@ -474,7 +474,7 @@ chmod 0600 /etc/renox/control.env'
   if docker exec "$name" su -s /bin/sh renox-control -c 'cat /etc/renox/control.env' >/dev/null 2>&1; then fail "the service user cannot read control.env"; else pass "the service user cannot read control.env (systemd reads it as root)"; fi
   docker exec "$name" sh -c 'sed -i "s/^CONTROL_LISTEN_HOST=.*/CONTROL_LISTEN_HOST=0.0.0.0/" /etc/renox/control.env && systemctl restart renox-control.service' || true
   sleep 5
-  if [[ $(docker exec "$name" systemctl is-active renox-control || true) != active ]] && docker exec "$name" journalctl -u renox-control --no-pager -o cat | grep -q "CONTROL_LISTEN_HOST 0.0.0.0 is not a loopback address" && [[ $(docker exec "$name" systemctl show -p ExecMainStatus --value renox-control) == 78 ]]; then
+  if [[ $(docker exec "$name" systemctl is-active renox-control || true) != active ]] && docker exec "$name" journalctl -u renox-control --no-pager -o cat | grep "CONTROL_LISTEN_HOST 0.0.0.0 is not a loopback address" >/dev/null && [[ $(docker exec "$name" systemctl show -p ExecMainStatus --value renox-control) == 78 ]]; then
     pass "renox-control refuses 0.0.0.0 behind loopback-only proxies"
   else
     fail "renox-control refuses 0.0.0.0 ($(docker exec "$name" systemctl is-active renox-control || true))"

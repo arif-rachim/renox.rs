@@ -1,4 +1,4 @@
-// Artifact rules V1-V22 (versions 0, 1 and 1.1) (docs/contracts/artifact.md section 6) on an artifact
+// Artifact rules V1-V31 (versions 0, 1, and 1.1 to 1.8) (docs/contracts/artifact.md section 6) on an artifact
 // held in memory as path -> bytes. One implementation for `renox check`, the
 // control plane's upload validation (#52), and the contract examples.
 
@@ -227,12 +227,14 @@ function moduleRules(manifest: JsonObject): Violation[] {
   for (const [slot, fills] of Object.entries(isObject(manifest.slots) ? manifest.slots : {})) {
     (fills as JsonObject[]).forEach((f, i) => {
       const field = `slots.${slot}[${i}]`;
+      // Version 1.8: the app (module "app") fills slots with its own partials and needs no permissions.slots (V22 exempts it).
+      const isApp = f.module === "app";
       const m = listed.get(f.module as string);
-      if (m === undefined) return void out.push({ rule: "V18", field, reason: `module "${f.module}" is not in modules` });
+      if (m === undefined && !isApp) return void out.push({ rule: "V18", field, reason: `module "${f.module}" is not in modules` });
       const template = f.template as string;
-      if (ownerOf(template) !== f.module) out.push({ rule: "V18", field, reason: `template "${template}" is not under modules/${f.module}/` });
+      if (ownerOf(template) !== f.module) out.push({ rule: "V18", field, reason: `template "${template}" is not under ${isApp ? "the app's partials/" : `modules/${f.module}/`}` });
       else if (templates[template]?.kind !== "partial") out.push({ rule: "V18", field, reason: `template "${template}" is not a partial of templates` });
-      if (!strings((m.permissions as JsonObject).slots).includes(slot)) out.push({ rule: "V22", field, reason: `${f.module} does not have the slot "${slot}" in its permissions` });
+      if (m !== undefined && !strings((m.permissions as JsonObject).slots).includes(slot)) out.push({ rule: "V22", field, reason: `${f.module} does not have the slot "${slot}" in its permissions` });
     });
   }
   (manifest.routes as JsonObject[]).forEach((route, i) => {
@@ -349,8 +351,8 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
     }
   });
   for (const key of Object.keys(entry)) {
-    // A module's services and hooks entries are loaded by the bootstrap, not by a route.
-    if (!used.has(key) && !/^modules\/[a-z][a-z0-9_]{0,31}\/(services|hooks)$/u.test(key)) out.push({ rule: "V7", field: `code.entry.${key}`, reason: "not used by any route" });
+    // A module's services and hooks entries (and, from 1.8, the app's own `hooks`) are loaded by the bootstrap, not by a route.
+    if (!used.has(key) && key !== "hooks" && !/^modules\/[a-z][a-z0-9_]{0,31}\/(services|hooks)$/u.test(key)) out.push({ rule: "V7", field: `code.entry.${key}`, reason: "not used by any route" });
   }
 
   for (const [id, t] of Object.entries(templates)) {
@@ -404,6 +406,7 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
   out.push(...authzRules(manifest));
   out.push(...webhookStorageRules(manifest));
   out.push(...noCodeRules(manifest));
+  out.push(...appEventsRules(manifest));
 
   if (tier !== undefined && isObject(manifest.limits)) {
     for (const [key, value] of Object.entries(manifest.limits)) {
@@ -438,6 +441,8 @@ function entriesRules(manifest: JsonObject): Violation[] {
     if (id === undefined || !(id in entries)) return;
     for (const name of routeExports(route)) if (!exportsOf(id).includes(name)) out.push({ rule: "V23", field: `routes[${i}]`, reason: `module "${id}" does not export "${name}"` });
   });
+  // Version 1.8: the app's own hooks entry is eager like a module's.
+  if (entries.hooks?.eager === false) out.push({ rule: "V23", field: "entries.hooks", reason: "must be eager (hooks and services are checked at isolate creation)" });
   for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
     for (const part of ["services", "hooks"]) {
       const id = `modules/${m.name}/${part}`;
@@ -533,7 +538,7 @@ export function checkManifest(manifest: Json, tier?: TierLimits): Violation[] {
   return manifestRules(manifest, tier);
 }
 
-/** V1-V12, V14-V30 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
+/** V1-V12, V14-V31 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
 export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, options: CheckOptions = {}): CheckResult {
   const out: Violation[] = [];
   const hash = contentHash(files);
@@ -739,6 +744,29 @@ function policyAndFeedRules(files: ReadonlyMap<string, Uint8Array>, manifest: Js
     const tables = created.get(owner) ?? new Set<string>();
     for (const t of Object.keys(obj(realtime.feeds))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.realtime.feeds`, reason: `"${t}": no migration of ${owner} creates it` });
     for (const t of Object.keys(obj(authz.ownership))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.authz.ownership`, reason: `"${t}": no migration of ${owner} creates it` });
+  }
+  return out;
+}
+
+/** At most this many events in the app's `events` map (V31, artifact 1.8; also the schema's maxProperties). */
+export const MAX_APP_EVENTS = 64;
+
+/**
+ * V31 (artifact 1.8): the app's `events` map. Keys are `app.<name>`, at most
+ * 64 of them, and every payload is a schema (a JSON object) of the keyword subset.
+ * That an `app.*` name an app emits is declared here is a load-time rule of
+ * the worker (ops.md 15.4), not checkable on the manifest alone.
+ */
+function appEventsRules(manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  if (!isObject(manifest.events)) return out;
+  const events = Object.entries(manifest.events);
+  if (events.length > MAX_APP_EVENTS) out.push({ rule: "V31", field: "events", reason: `${events.length} events, at most ${MAX_APP_EVENTS}` });
+  for (const [name, ev] of events) {
+    const field = `events.${name}`;
+    if (!/^app\.[a-z][a-z0-9_]{0,63}$/u.test(name)) out.push({ rule: "V31", field, reason: `"${name}" is not app.<name> (^app\\.[a-z][a-z0-9_]{0,63}$)` });
+    // The schema (V3) already requires `payload` to be a JSON object; V31 adds the keyword subset.
+    for (const p of unsupportedKeywords(obj(ev).payload as Json)) out.push({ rule: "V31", field: `${field}.payload`, reason: p });
   }
   return out;
 }

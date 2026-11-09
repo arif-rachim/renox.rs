@@ -1,4 +1,4 @@
-// TypeScript view of docs/contracts/ops.md, contract version 1.12.1.
+// TypeScript view of docs/contracts/ops.md, contract version 1.13.1.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
