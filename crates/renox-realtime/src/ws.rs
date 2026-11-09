@@ -7,8 +7,9 @@
 //! 1009; more than 100 data messages in one second: 1008 `flood`). The
 //! writer loop drains the connection's queue, sends a ping every 30 s and
 //! closes with 1001 when no pong arrives within 10 s, and sends the close
-//! frame the hub asked for. Data messages go to the cell through a channel
-//! whose capacity bounds what one connection can have in flight.
+//! frame the hub asked for. Data messages go to the cell through an
+//! [`InboundSink`] whose capacity bounds what one connection can have in
+//! flight: an [`inbox`] (no memory while idle, #522) or an mpsc channel.
 
 use std::time::Duration;
 
@@ -16,13 +17,42 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use crate::{Closed, Conn, Outbound, close};
+use crate::{Closed, Conn, Outbound, close, queue};
 
 /// A data message from the client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Inbound {
     Text(String),
     Binary(Vec<u8>),
+}
+
+/// Where [`serve`] puts the client's data messages. `send` waits while the
+/// consumer is full and fails once it is gone (the reader then stops).
+pub trait InboundSink: Send + 'static {
+    fn send(&self, m: Inbound) -> impl std::future::Future<Output = Result<(), ()>> + Send;
+}
+
+impl InboundSink for mpsc::Sender<Inbound> {
+    async fn send(&self, m: Inbound) -> Result<(), ()> {
+        mpsc::Sender::send(self, m).await.map_err(|_| ())
+    }
+}
+
+impl InboundSink for queue::Sender<Inbound> {
+    async fn send(&self, m: Inbound) -> Result<(), ()> {
+        queue::Sender::send(self, m).await.map_err(|_| ())
+    }
+}
+
+/// The sending end of an [`inbox`], given to [`serve`].
+pub type InboxSender = queue::Sender<Inbound>;
+/// The receiving end of an [`inbox`]: `recv` ends once `serve` returned.
+pub type Inbox = queue::Receiver<Inbound>;
+
+/// A queue of at most `capacity` inbound messages for [`serve`]. Unlike an
+/// mpsc channel it holds no memory while the connection is idle (B14).
+pub fn inbox(capacity: usize) -> (InboxSender, Inbox) {
+    queue::bounded(capacity)
 }
 
 const OP_CONT: u8 = 0x0;
@@ -146,11 +176,11 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
 
 /// What the reader hands the writer: control frames to answer, a pong
 /// seen, the end of the read side. One small shared state per connection
-/// instead of a channel (B14: a channel's first block is 32 slots).
+/// instead of a channel (B14: a channel's first block is 32 slots), with
+/// the writer's waker instead of a `Notify` (#522).
 #[derive(Default)]
 struct Ctrl {
     state: std::sync::Mutex<CtrlState>,
-    notify: tokio::sync::Notify,
 }
 
 #[derive(Default)]
@@ -160,24 +190,45 @@ struct CtrlState {
     pong: bool,
     /// The peer's close (`reason` "client"), or a reader-side limit.
     close: Option<(u16, String)>,
+    /// Set by the reader, cleared by the writer's `take`.
+    ready: bool,
+    waker: Option<std::task::Waker>,
 }
 
 impl Ctrl {
-    fn set(&self, f: impl FnOnce(&mut CtrlState)) {
-        f(&mut self
-            .state
+    fn lock(&self) -> std::sync::MutexGuard<'_, CtrlState> {
+        self.state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner));
-        self.notify.notify_one();
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn take(&self) -> CtrlState {
-        std::mem::take(
-            &mut *self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        )
+    fn set(&self, f: impl FnOnce(&mut CtrlState)) {
+        let waker = {
+            let mut st = self.lock();
+            f(&mut st);
+            st.ready = true;
+            st.waker.take()
+        };
+        if let Some(w) = waker {
+            w.wake();
+        }
+    }
+
+    /// Resolves with what the reader set since the last call.
+    fn take(&self) -> impl std::future::Future<Output = CtrlState> + '_ {
+        std::future::poll_fn(move |cx| {
+            let mut st = self.lock();
+            if st.ready {
+                let mut out = std::mem::take(&mut *st);
+                out.ready = false;
+                return std::task::Poll::Ready(out);
+            }
+            match &st.waker {
+                Some(w) if w.will_wake(cx.waker()) => {}
+                _ => st.waker = Some(cx.waker().clone()),
+            }
+            std::task::Poll::Pending
+        })
     }
 
     fn end(&self, code: u16, reason: &str) {
@@ -188,11 +239,11 @@ impl Ctrl {
 }
 
 /// The reader: frames to messages, limits, control frames to the writer.
-async fn reader<R: AsyncRead + Unpin>(
+async fn reader<R: AsyncRead + Unpin, I: InboundSink>(
     mut r: R,
     max: usize,
     per_second: u32,
-    inbound: mpsc::Sender<Inbound>,
+    inbound: I,
     ctrl: std::sync::Arc<Ctrl>,
     hub: std::sync::Arc<crate::Hub>,
 ) {
@@ -268,85 +319,116 @@ async fn reader<R: AsyncRead + Unpin>(
 /// Serves `conn` over `stream` until either side closes; data messages go
 /// to `inbound`. Returns the close (code, reason) for the meter record and
 /// the `close` handler.
-pub async fn serve<S>(stream: S, conn: Conn, inbound: mpsc::Sender<Inbound>) -> Closed
+pub async fn serve<S, I>(stream: S, conn: Conn, inbound: I) -> Closed
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
+    I: InboundSink,
 {
     let mut conn = conn;
-    let limits = conn.hub().limits().clone();
+    // The scalars only: the whole `Limits` would sit in this future for
+    // the connection's life (B14).
+    let (ping_every, pong_timeout, max_inbound, per_second) = {
+        let l = conn.hub().limits();
+        (
+            l.ping_every,
+            l.pong_timeout,
+            l.max_inbound_bytes,
+            l.inbound_per_second,
+        )
+    };
     let (r, mut w) = tokio::io::split(stream);
     let ctrl = std::sync::Arc::new(Ctrl::default());
     // The reader is polled inside this loop, not spawned: one task per
     // connection (B14), and it is never dropped mid-frame while it runs.
     let reader_fut = reader(
         r,
-        limits.max_inbound_bytes,
-        limits.inbound_per_second,
+        max_inbound,
+        per_second,
         inbound,
         ctrl.clone(),
         conn.hub().clone(),
     );
     tokio::pin!(reader_fut);
     let mut reader_done = false;
-    let mut next_ping = Instant::now() + limits.ping_every;
+    let mut next_ping = Instant::now() + ping_every;
     let mut pong_due: Option<Instant> = None;
     let closed_fut = conn.closed();
     tokio::pin!(closed_fut);
+    let timer = tokio::time::sleep_until(next_ping);
+    tokio::pin!(timer);
     let eof = || Closed {
         code: close::GOING_AWAY,
         reason: "eof".into(),
     };
+    // Each turn picks one step; its frames are written after the select,
+    // at one await point, so the future holds one write state (B14).
     let closed = loop {
-        let timer = pong_due.map_or(next_ping, |d| d.min(next_ping));
-        tokio::select! {
+        let deadline = pong_due.map_or(next_ping, |d| d.min(next_ping));
+        if timer.deadline() != deadline {
+            timer.as_mut().reset(deadline);
+        }
+        // `out`: the bytes to write; `end`: the close to return after the
+        // write; `on_error`: what a failed write returns (`None`: `end`).
+        let (out, end, eof_on_error): (Vec<u8>, Option<Closed>, bool) = tokio::select! {
             biased;
             c = &mut closed_fut => {
-                let _ = w.write_all(&encode(OP_CLOSE, &close_payload(c.code, &c.reason))).await;
-                break c;
+                (encode(OP_CLOSE, &close_payload(c.code, &c.reason)), Some(c), false)
             }
             _ = &mut reader_fut, if !reader_done => {
                 // Its end is in `ctrl`; the next turn picks it up.
                 reader_done = true;
+                continue;
             }
-            _ = ctrl.notify.notified() => {
-                let st = ctrl.take();
+            st = ctrl.take() => {
                 if st.pong {
                     pong_due = None;
                 }
-                if let Some(p) = st.ping
-                    && w.write_all(&encode(OP_PONG, &p)).await.is_err()
-                {
-                    break eof();
+                let mut out = Vec::new();
+                let pong = st.ping.is_some();
+                if let Some(p) = st.ping {
+                    out = encode(OP_PONG, &p);
                 }
-                if let Some((code, reason)) = st.close {
-                    // Echo the client's close; send ours for a limit.
-                    let text = if reason == "client" { "" } else { reason.as_str() };
-                    let _ = w.write_all(&encode(OP_CLOSE, &close_payload(code, text))).await;
-                    break Closed { code, reason };
+                match st.close {
+                    Some((code, reason)) => {
+                        // Echo the client's close; send ours for a limit.
+                        let text = if reason == "client" { "" } else { reason.as_str() };
+                        out.extend_from_slice(&encode(OP_CLOSE, &close_payload(code, text)));
+                        // A failed pong ends the connection as `eof`, as
+                        // before the close could be sent.
+                        (out, Some(Closed { code, reason }), pong)
+                    }
+                    None if pong => (out, None, true),
+                    None => continue,
                 }
             }
             msg = conn.rx.recv() => match msg {
-                Some(Outbound::Message(e)) => {
-                    if w.write_all(&encode(OP_TEXT, e.data.as_bytes())).await.is_err() {
-                        break eof();
-                    }
-                }
+                Some(Outbound::Message(e)) => (encode(OP_TEXT, e.data.as_bytes()), None, true),
                 None => break Closed { code: close::GOING_AWAY, reason: "hub".into() },
             },
-            _ = tokio::time::sleep_until(timer) => {
+            _ = &mut timer => {
                 let now = Instant::now();
                 if pong_due.is_some_and(|d| d <= now) {
-                    let _ = w.write_all(&encode(OP_CLOSE, &close_payload(close::GOING_AWAY, "heartbeat"))).await;
-                    break Closed { code: close::GOING_AWAY, reason: "heartbeat".into() };
-                }
-                if next_ping <= now {
-                    next_ping = now + limits.ping_every;
-                    pong_due.get_or_insert(now + limits.pong_timeout);
-                    if w.write_all(&encode(OP_PING, b"")).await.is_err() {
-                        break eof();
-                    }
+                    (
+                        encode(OP_CLOSE, &close_payload(close::GOING_AWAY, "heartbeat")),
+                        Some(Closed { code: close::GOING_AWAY, reason: "heartbeat".into() }),
+                        false,
+                    )
+                } else if next_ping <= now {
+                    next_ping = now + ping_every;
+                    pong_due.get_or_insert(now + pong_timeout);
+                    (encode(OP_PING, b""), None, true)
+                } else {
+                    continue;
                 }
             }
+        };
+        let failed = w.write_all(&out).await.is_err();
+        drop(out);
+        if failed && eof_on_error {
+            break eof();
+        }
+        if let Some(c) = end {
+            break c;
         }
     };
     let _ = w.flush().await;

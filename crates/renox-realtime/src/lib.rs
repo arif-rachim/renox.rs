@@ -19,6 +19,7 @@
 
 mod hub;
 pub mod origin;
+pub mod queue;
 pub mod sse;
 pub mod ws;
 
