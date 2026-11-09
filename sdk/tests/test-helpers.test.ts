@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { agentToken, callTool, type Reply, type RequestInitLite, TOOL_REDIRECT_URI, type ToolClient } from "../src/test.ts";
+import { agentToken, callTool, listTools, type Reply, type RequestInitLite, TOOL_REDIRECT_URI, type ToolClient } from "../src/test.ts";
 
 interface Sent {
   method: string;
@@ -130,5 +130,36 @@ describe("callTool", () => {
     expect(await callTool(failed, "tok", "echo", {})).toEqual({ ok: false, error: { code: "RENOX_TOOL_ERROR", message: "The tool failed." } });
     const limited = fake(() => reply(429, ""));
     expect(await callTool(limited, "tok", "echo", {})).toEqual({ ok: false, error: { code: "HTTP_429", message: "HTTP 429" } });
+  });
+});
+
+describe("callTool with a confirmation", () => {
+  test("`confirmation` is sent as given in one call, with no preview first (a made-up or replayed token)", async () => {
+    const app = fake(() => reply(409, { jsonrpc: "2.0", id: 1, error: { code: -32000, message: "The confirmation is not valid.", data: { code: "RENOX_TOOL_CONFIRM" } } }));
+    expect(await callTool(app, "tok", "echo", { x: 1 }, false, "any-token")).toEqual({ ok: false, error: { code: "RENOX_TOOL_CONFIRM", message: "The confirmation is not valid." } });
+    expect(app.sent).toHaveLength(1);
+    expect((app.sent[0]?.init?.body as { params: unknown }).params).toEqual({ name: "echo", arguments: { x: 1 }, _meta: { "renox/confirmation": "any-token" } });
+  });
+
+  test("`confirmation` wins over `confirm`: the real result of a good token, still one call", async () => {
+    const app = fake(() => reply(200, { result: { isError: false, structuredContent: { done: true } } }));
+    expect(await callTool(app, "tok", "echo", {}, true, "cf_1")).toEqual({ ok: true, result: { done: true } });
+    expect(app.sent).toHaveLength(1);
+  });
+});
+
+describe("listTools", () => {
+  test("sends tools/list with the bearer token and returns the tools", async () => {
+    const tools = [{ name: "echo", annotations: { readOnlyHint: true }, inputSchema: { required: ["x"] } }];
+    const app = fake(() => reply(200, { jsonrpc: "2.0", id: 1, result: { tools } }));
+    expect(await listTools(app, "tok")).toEqual({ status: 200, tools });
+    const s = app.sent[0] as Sent;
+    expect([s.method, s.path, s.init?.headers?.authorization]).toEqual(["POST", "/mcp", "Bearer tok"]);
+    expect(s.init?.body).toMatchObject({ jsonrpc: "2.0", method: "tools/list", params: {} });
+  });
+
+  test("a refused token throws with the status", async () => {
+    const app = fake(() => reply(401, "unauthorized"));
+    await expect(listTools(app, "bad")).rejects.toThrow("tools/list answered 401");
   });
 });

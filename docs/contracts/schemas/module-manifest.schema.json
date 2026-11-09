@@ -28,7 +28,7 @@
         },
         "eager": {
           "type": "boolean",
-          "description": "1.5: true keeps the module's services and hooks entries eager, evaluated at isolate creation (ADR D32; ops.md 1.13.0 section 11). Default false: evaluated on the first call into the module."
+          "description": "1.5: true keeps the module's services and hooks entries eager, evaluated at isolate creation (ADR D32; ops.md 1.14.0 section 11). Default false: evaluated on the first call into the module."
         },
         "description": {
           "type": "string",

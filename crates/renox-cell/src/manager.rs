@@ -815,7 +815,15 @@ impl CellManager {
                 max_isolates: max_isolates(tier_name),
                 storage: Some(renox_runtime::StorageSlot(cell_storage.clone())),
                 ai: self.inner.ai.lock().expect("ai lock").clone(),
-                templates: crate::render::pdf_templates(&artifact_dir, Some(authz_slot.clone())),
+                templates: crate::render::pdf_templates(
+                    &artifact_dir,
+                    Some(authz_slot.clone()),
+                    Some(crate::render::PdfImageSource {
+                        storage: cell_storage.clone(),
+                        db: db.clone(),
+                        tenant_id: key.tenant_id.clone(),
+                    }),
+                ),
                 authz: Some(renox_runtime::SharedAuthz(authz_slot)),
             };
             let prepare_db = async {
@@ -907,19 +915,7 @@ impl CellManager {
         // #305: `[realtime.feeds]` publish committed row changes through the hub.
         crate::cell::attach_feeds(&artifact_dir, &db, &host.hub).await;
         // #321: `/_img` widths from `[storage.images]`, the cell's own store and rate.
-        let widths: Vec<u32> = isolate
-            .manifest()
-            .storage
-            .as_ref()
-            .and_then(|s| s.get("images"))
-            .and_then(|i| i.get("widths"))
-            .and_then(|w| w.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_u64().map(|n| n as u32))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let widths = crate::images::manifest_widths(isolate.manifest().storage.as_ref());
         let files = crate::images::Files {
             storage: Arc::new(crate::storage::CellStorage::new(
                 self.inner.files.lock().expect("files lock").clone(),

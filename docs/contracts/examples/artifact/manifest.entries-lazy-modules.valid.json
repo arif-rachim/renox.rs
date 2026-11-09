@@ -1,5 +1,5 @@
 {
-  "$comment": "valid (1.9): a module's services and hooks entries are lazy; the hooks entry records the hooks it fills and the events it handles (artifact.md section 3, \"Entries\"; ops.md 1.13.0 section 11)",
+  "$comment": "valid (1.9): a module's services and hooks entries are lazy; the hooks entry records the hooks it fills and the events it handles (artifact.md section 3, \"Entries\"; ops.md 1.14.0 section 11)",
   "artifact": {
     "version": 1
   },

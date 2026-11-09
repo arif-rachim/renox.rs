@@ -983,7 +983,7 @@
         },
         "eager": {
           "type": "boolean",
-          "description": "true: evaluated at isolate creation. false: a route module is evaluated on the first request that needs it; (version 1.9) a module's services or hooks entry, or the app's hooks entry, on the first service call, hook run or event that reaches the module (ops.md 1.13.0). A hooks entry may be false only when it records hooks and on (V23). Default true."
+          "description": "true: evaluated at isolate creation. false: a route module is evaluated on the first request that needs it; (version 1.9) a module's services or hooks entry, or the app's hooks entry, on the first service call, hook run or event that reaches the module (ops.md 1.14.0). A hooks entry may be false only when it records hooks and on (V23). Default true."
         },
         "hooks": {
           "type": "array",

@@ -33,10 +33,10 @@
     <x-form action="schedule" class="stack narrow">
       <p r-if="slots"><label><r-t key="jobs.schedule.pick" />
         <select name="slot" id="slots" size="8">
-          <option r-for="s in slots" :value="s.value">{{ s.label }}</option>
+          <option r-for="s in slots" :value="s.value" :selected="values.form == 'schedule' and values.slot == s.value">{{ s.label }}</option>
         </select></label></p>
       <p r-else id="no-slots"><r-t key="jobs.schedule.none" /></p>
-      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note"></label></p>
+      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note if values.form == 'schedule' else ''"></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="jobs.schedule.submit" /></button></p>
     </x-form>
   </section>
@@ -45,7 +45,7 @@
     <h2><r-t key="jobs.assign.title" /></h2>
     <x-form action="assign" class="stack narrow">
       <p><select name="technician" required>
-        <option r-for="t in technicians" :value="t.id" :selected="t.assigned">{{ t.name }}</option>
+        <option r-for="t in technicians" :value="t.id" :selected="(values.form == 'assign' and t.id == values.technician) or (values.form != 'assign' and t.assigned)">{{ t.name }}</option>
       </select></p>
       <p><button type="submit"><r-t key="jobs.assign.submit" /></button></p>
     </x-form>
@@ -64,7 +64,7 @@
   <section id="cancel" r-if="can_cancel">
     <h2><r-t key="jobs.cancel.title" /></h2>
     <x-form action="cancel" class="stack narrow">
-      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note"></label></p>
+      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note if values.form == 'cancel' else ''"></label></p>
       <p><button type="submit"><r-t key="jobs.cancel.submit" /></button></p>
     </x-form>
   </section>

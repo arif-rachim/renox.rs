@@ -822,7 +822,7 @@ function webhookStorageRules(manifest: JsonObject): string[] {
  * function route, `load` and `actions` of a page route); a module's
  * `services` entry exports every service of `exports.services`, and the
  * `services` and `hooks` entries stay eager (ops.md 1.4.0 section 11).
- * Version 1.9 (ops.md 1.13.0, ADR D32): a `services` entry may be lazy, and a
+ * Version 1.9 (ops.md 1.14.0, ADR D32): a `services` entry may be lazy, and a
  * `hooks` entry may be lazy when it records `hooks` and `on`; those lists
  * appear only on `hooks` entries, match `exports`, and a module's filled hooks
  * are approved.

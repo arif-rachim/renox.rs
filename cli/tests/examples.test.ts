@@ -21,7 +21,7 @@ const worker = process.env.RENOX_WORKER_PATH;
 if (!worker) console.log("examples.test.ts: RENOX_WORKER_PATH is not set; the example apps are not built or tested.");
 
 /** An example app: its folder under examples/, the seed `renox test` loads, the passing tests it prints. */
-const EXAMPLES: { name: string; seed: string; passing: number }[] = [{ name: "home-services", seed: "seeds/001_demo.sql", passing: 262 }];
+const EXAMPLES: { name: string; seed: string; passing: number }[] = [{ name: "home-services", seed: "seeds/001_demo.sql", passing: 264 }];
 
 const SKIP = /(^|\/)(node_modules|\.renox)(\/|$)/u;
 

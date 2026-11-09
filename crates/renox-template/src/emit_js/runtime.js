@@ -498,6 +498,12 @@ const F = {
     }
     return s;
   },
+  /** src/filters/mod.rs img_url: a base64 PNG or JPEG data URL, else __url. */
+  __img_url(o, v) {
+    const s = str(v);
+    if (/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/i.test(s.trim())) return s;
+    return F.__url(o, v);
+  },
 };
 
 /** Maps with sorted keys, as minijinja's BTreeMap serializes them. */

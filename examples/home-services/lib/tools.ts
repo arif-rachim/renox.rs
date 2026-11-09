@@ -14,11 +14,11 @@ import { addDays } from "./contract-dates";
 import { bookingService, clock, ensureSynced, slotsOn } from "./booking-sync";
 import { listCustomers } from "./customers";
 import { day as dayOf } from "./quotes";
-import { type Branch, branchDb } from "./scope";
+import { type Branch, branchDb, type Scopable } from "./scope";
 import { techniciansOf } from "./technicians";
 
 export interface ToolCtx {
-  readonly db: DbStatements;
+  readonly db: Scopable;
   readonly principal: Principal | null;
   readonly authz: ActionContext["authz"];
   readonly realtime: Pick<Realtime, "publish">;
@@ -117,4 +117,4 @@ export async function customerByPhone(sdb: DbStatements, phone: string): Promise
 }
 
 /** `db` fenced to the branch (the tools' reads of owned tables). */
-export const fenced = (db: DbStatements, branch: Branch): DbStatements => branchDb(db, branch.id);
+export const fenced = (db: Scopable, branch: Branch): DbStatements => branchDb(db, branch.id);

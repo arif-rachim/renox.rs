@@ -20,7 +20,7 @@ The package accepts artifact 1.8, as `docs/contracts/validate.ts` does: the app'
 
 ## Artifact 1.9 (#640)
 
-The package follows the 1.9 V23 of `docs/contracts/validate.ts` (ADR D32, `ops.md` 1.13.0). A module's `services` entry may be `eager: false`. A `hooks` entry (`modules/<name>/hooks`, or the app's `hooks`) may be `eager: false` only when it records the `hooks` it fills and the events it handles in `on`; without them it stays eager, as in 1.8. Those lists appear only on `hooks` entries, and a non-empty list needs the matching export. A module's filled hooks must be in its `approved.hooks`.
+The package follows the 1.9 V23 of `docs/contracts/validate.ts` (ADR D32, `ops.md` 1.14.0). A module's `services` entry may be `eager: false`. A `hooks` entry (`modules/<name>/hooks`, or the app's `hooks`) may be `eager: false` only when it records the `hooks` it fills and the events it handles in `on`; without them it stays eager, as in 1.8. Those lists appear only on `hooks` entries, and a non-empty list needs the matching export. A module's filled hooks must be in its `approved.hooks`.
 
 ## Safe extraction (T1–T8)
 

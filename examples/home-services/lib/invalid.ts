@@ -27,8 +27,12 @@ function label(lang: "en" | "ar", field: string): string {
   return `${base} (${lookup(lang, "problem.line") ?? "line"} ${Number(m[2]) + 1})`;
 }
 
-/** The action result of an invalid form: 422, the typed values and, per field, what is wrong. */
-export function invalid(locale: string, form: FormData, errors: Record<string, string>) {
+/**
+ * The action result of an invalid form: 422, the typed values and, per field, what is wrong.
+ * `which` names the form (`values.form`) when several forms of a page share field names: each reads
+ * its values only when `values.form` is its own, so one failed form never fills another.
+ */
+export function invalid(locale: string, form: FormData, errors: Record<string, string>, which?: string) {
   const lang = locale === "ar" ? "ar" : "en";
   const messages: Record<string, string> = {};
   const problems = Object.entries(errors).map(([field, key]) => {
@@ -36,5 +40,5 @@ export function invalid(locale: string, form: FormData, errors: Record<string, s
     messages[field] = message;
     return { field, label: label(lang, field), message };
   });
-  return { status: 422 as const, values: valuesOf(form), errors: messages, problems };
+  return { status: 422 as const, values: which === undefined ? valuesOf(form) : { ...valuesOf(form), form: which }, errors: messages, problems };
 }

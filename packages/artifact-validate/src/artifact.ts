@@ -424,7 +424,7 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
  * V23 (version 1.2): `entries` names exactly the `code.entry` ids; each route's
  * handler is among its module's recorded exports; a module's `services` entry
  * exports every service of `exports.services`, and the `services` and `hooks`
- * entries stay eager (ops.md 1.4.0 section 11). Version 1.9 (ops.md 1.13.0,
+ * entries stay eager (ops.md 1.4.0 section 11). Version 1.9 (ops.md 1.14.0,
  * ADR D32): a `services` entry may be lazy, and a `hooks` entry (a module's or
  * the app's) may be lazy when it records `hooks` and `on`; those lists appear
  * only on `hooks` entries, match `exports`, and a module's filled hooks are
