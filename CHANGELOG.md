@@ -7,6 +7,8 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **Worker**
 
 - Pins `renox-worker` 0.6.1.
+- **macOS is back.** `renox-worker` 0.6.1 is built for macOS again (x86_64 and arm64, default and pdf), next to Linux and Windows, and the CLI pins it on every target; `install.sh` installs the worker on a Mac as before 0.1.9 (#625). Worker 0.6.1 has the same code as 0.6.0.
+- `cli-v0.1.9` was tagged but never published as a CLI release: its Windows smoke test could not download the worker (GitHub answered HTTP 504). Only `@renoxium/sdk` 0.1.9 reached npm. Its notes below are part of 0.1.10.
 
 ## 0.1.9 (2026-11-09)
 
