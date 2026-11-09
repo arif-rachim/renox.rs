@@ -23,7 +23,7 @@ From an empty folder to an app at `https://<app>.renoxium.app` in about ten minu
 One line installs `renox`, and the `renox-worker` it runs your app on locally, into `~/.renox/bin`. It installs a file only when its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.8/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.9/install.sh | sh
 ```
 
 If the installer says `~/.renox/bin` is not on your `PATH`, add it (and add the same line to `~/.bashrc` or `~/.zshrc`):
@@ -39,7 +39,7 @@ renox --version
 ```
 
 ```
-renox 0.1.8 (renox-worker 0.6.0)
+renox 0.1.9 (renox-worker 0.6.0)
 ```
 
 **Windows (x64), in PowerShell:** `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` installs `renox.exe` and `renox-worker.exe`; `renox dev` and `renox test` run without WSL 2.
@@ -271,13 +271,13 @@ Source: docs/tutorial/01-install.md (https://github.com/arif-rachim/renox.rs/blo
 One line installs `renox`, and the `renox-worker` it runs your app on, into `~/.renox/bin`. Each file is installed only if its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.8/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.9/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"   # also add this line to ~/.bashrc or ~/.zshrc
 renox --version
 ```
 
 ```
-renox 0.1.8 (renox-worker 0.6.0)
+renox 0.1.9 (renox-worker 0.6.0)
 ```
 
 On Windows (x64), in PowerShell: `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
@@ -2619,9 +2619,9 @@ Exit code 0 when every test passed, 2 when one failed.
 On Linux or macOS (x64 or arm64):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.8/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.9/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.8 (renox-worker 0.6.0)
+renox --version                          # renox 0.1.9 (renox-worker 0.6.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -3096,8 +3096,8 @@ One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, 
 Linux and macOS, x64 and arm64 (Windows: a PowerShell installer, and WSL 2 for `dev`, `test` and `migrate`; see `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.8/install.sh | sh
-renox --version        # renox 0.1.8 (renox-worker 0.6.0)
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.9/install.sh | sh
+renox --version        # renox 0.1.9 (renox-worker 0.6.0)
 ```
 
 With Bun 1.4 or later instead: `bun add -g @renoxium/cli` (or `bunx @renoxium/cli new myapp`, `bun create renox myapp`); the worker is downloaded into `~/.renox/bin` on first use (`docs/12-developer-experience.md`, "Installing the CLI").

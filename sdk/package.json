@@ -1,6 +1,6 @@
 {
   "name": "@renoxium/sdk",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Types and helpers for Renox tenant code: ctx (db, fetch, secrets, log, deadline), handlers, pages, modules, errors, test fakes",
   "license": "Apache-2.0",
   "homepage": "https://github.com/arif-rachim/renox.rs/tree/main/sdk",
