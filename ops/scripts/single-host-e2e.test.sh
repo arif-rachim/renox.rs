@@ -115,6 +115,10 @@ fail() { echo "FAIL $1" >&2; failures=$((failures + 1)); }
 dx() { docker exec "$name" "$@"; }
 sh_in() { docker exec "$name" sh -c "$1"; }
 journal() { dx journalctl -u "$1" --no-pager -o cat -n "${2:-30}" 2>/dev/null || true; }
+# A command's output piped into a match goes to `grep PATTERN >/dev/null`, never `grep -q` (#569):
+# grep -q exits on the first match, a producer still writing gets SIGPIPE (141), and under pipefail
+# the pipeline fails although the line was found. Here-strings and files may use grep -q.
+# ops/scripts/pipe-grep-q.test.sh checks this file for it.
 
 # 3. Source and Bun. The deploy checkout of the runbook is the same tree here.
 dx install -d -m 0755 /opt/renox/src /opt/renox/bin
@@ -160,7 +164,7 @@ if dx /opt/renox/src/ops/scripts/bootstrap-node.sh --single-host --no-enable --w
   --blocked-addresses 203.0.113.10,127.0.0.1 --node-token-file /root/node.token.placeholder >"$ctx/boot" 2>&1; then
   pass "step 5: bootstrap-node.sh --single-host --no-enable"
 else fail "step 5: bootstrap: $(tail -n 10 "$ctx/boot")"; fi
-if grep -A2 '^\[sandbox\]$' <<< "$(dx cat /etc/renox/worker.toml)" | grep -q '^mode = "enforce"$'; then pass "step 5: worker.toml runs the sandbox in enforce mode"
+if grep -A2 '^\[sandbox\]$' <<< "$(dx cat /etc/renox/worker.toml)" | grep '^mode = "enforce"$' >/dev/null; then pass "step 5: worker.toml runs the sandbox in enforce mode"
 else fail "step 5: worker.toml sandbox mode"; fi
 
 # 6. Control plane on Postgres. The mail goes to a file outbox in the unit's
@@ -192,7 +196,7 @@ for _ in $(seq 60); do
 done
 if [[ $up == 1 ]]; then pass "step 6: renox-control.service on Postgres answers /v1/healthz on both listeners"
 else fail "step 6: renox-control: $(journal renox-control 20)"; fi
-if dx su postgres -c "psql -tA renox -c 'select count(*) from schema_migrations'" 2>/dev/null | grep -Eq '^[1-9][0-9]*$'; then pass "step 6: the control API migrated the renox database"
+if dx su postgres -c "psql -tA renox -c 'select count(*) from schema_migrations'" 2>/dev/null | grep -E '^[1-9][0-9]*$' >/dev/null; then pass "step 6: the control API migrated the renox database"
 else echo "note: no schema_migrations table to count (migration bookkeeping table has another name)"; fi
 listening=$(dx ss -Htln)
 if grep -Eq '127\.0\.0\.1:8787 ' <<< "$listening" && grep -Eq '127\.0\.0\.1:8788 ' <<< "$listening" && ! grep -Eq '(0\.0\.0\.0|\*|\[::\]):878[78] ' <<< "$listening"; then
@@ -318,7 +322,7 @@ printf "[Service]\nEnvironment=RENOX_BACKUP_ALLOW_HTTP=1\n" > /etc/systemd/syste
 systemctl daemon-reload'
 if dx systemctl start renox-backup-db.service >/dev/null 2>&1; then
   obj=$(sh_in 'ls /root/s3-store | head -n 1' || true)
-  if [[ -n $obj ]] && sh_in "age --decrypt --identity /root/backup-age.key '/root/s3-store/$obj' > /root/restore.dump" && dx pg_restore --list /root/restore.dump 2>/dev/null | grep -q 'TABLE public tenants'; then
+  if [[ -n $obj ]] && sh_in "age --decrypt --identity /root/backup-age.key '/root/s3-store/$obj' > /root/restore.dump" && dx pg_restore --list /root/restore.dump 2>/dev/null | grep 'TABLE public tenants' >/dev/null; then
     pass "step 10: renox-backup-db.service dumps the control database; the object decrypts and pg_restore lists its tenants table"
   else fail "step 10: the backup object: $(journal renox-backup-db 10)"; fi
 else fail "step 10: renox-backup-db.service: $(journal renox-backup-db 20)"; fi
@@ -344,7 +348,7 @@ srv.serve_forever()
 PY
 docker exec -d "$name" python3 /root/hook.py /root/alerts.log
 # #545: before alert.env exists the alert unit still succeeds and logs.
-if dx systemctl start renox-alert@e2e-none.service >/dev/null 2>&1 && journal 'renox-alert@e2e-none' 10 | grep -q 'renox-alert: no alert.env; e2e-none failed on node-small'; then
+if dx systemctl start renox-alert@e2e-none.service >/dev/null 2>&1 && journal 'renox-alert@e2e-none' 10 | grep 'renox-alert: no alert.env; e2e-none failed on node-small' >/dev/null; then
   pass "step 11: without alert.env, renox-alert@ exits 0 and logs 'no alert.env; <unit> failed on <node>'"
 else fail "step 11: renox-alert@ without alert.env: $(dx systemctl show -p Result --value renox-alert@e2e-none.service 2>/dev/null) $(journal 'renox-alert@e2e-none' 5)"; fi
 sh_in 'printf "ALERT_WEBHOOK_URL=https://127.0.0.1:9598/hook\n" > /etc/renox/secrets/alert.env && chmod 0600 /etc/renox/secrets/alert.env'
@@ -358,7 +362,7 @@ if [[ $alerted == 1 ]]; then pass "step 11: renox-alert@ posts the failed unit's
 else fail "step 11: no alert at the webhook: $(journal 'renox-alert@e2e-test' 5)"; fi
 
 # 12. Billing rollup: one pass on the same database.
-if dx systemctl start renox-billing.service >/dev/null 2>&1 && ! journal renox-billing 50 | grep -q 'billing run failed'; then
+if dx systemctl start renox-billing.service >/dev/null 2>&1 && ! journal renox-billing 50 | grep 'billing run failed' >/dev/null; then
   pass "step 12: renox-billing.service runs one pass on the control database"
 else fail "step 12: renox-billing.service: $(journal renox-billing 20)"; fi
 

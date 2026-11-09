@@ -21,9 +21,11 @@ on:
   pull_request:
 
 # A push run on main is never cancelled: it is the one that builds and uploads renox-worker-ci-packaged
-# for the ts job of later pull requests (#520). Pull request runs still cancel their older run.
+# for the ts job of later pull requests (#520). Its group is per commit, so a queued main run is not
+# replaced by the next push either (#619: GitHub keeps one pending run per group); several main runs
+# can run at once. Pull request runs still cancel their older run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -174,6 +176,8 @@ jobs:
           # bootstrap-node.sh --worker-variant pdf (#525): fetch_worker against a file:// release.
           ops/scripts/bootstrap-worker-variant.test.sh
           ops/scripts/firewall-single-host.test.sh
+          # No command piped into grep -q in the single-host e2e test (#569): SIGPIPE under pipefail.
+          ops/scripts/pipe-grep-q.test.sh
       # ops/observability (#296): promtool from the Prometheus release pinned
       # in ops/observability/prometheus.lock, its SHA-256 checked before the
       # one file is extracted, then `promtool check rules`.
