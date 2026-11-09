@@ -1,7 +1,7 @@
 //! One tenant's connections and topics (`ops.md` 1.5.0 section 18).
 //!
-//! A connection is a bounded outbound queue (256 messages) plus a close
-//! signal. `publish` fans a message out with `try_send` only: a consumer
+//! A connection is a bounded outbound queue (256 messages, [`queue`]: no
+//! memory until a message is queued) plus a close signal. `publish` fans a message out with `try_send` only: a consumer
 //! whose queue is full is closed with 1008 and counted, and the publisher
 //! never waits. The transports (`ws.rs`, `sse.rs`) drain the queue to the
 //! socket; the isolate is never involved in fan-out.
@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use tokio::sync::{Notify, mpsc};
 use tokio::time::Instant;
 
+use crate::queue::{self, TrySendError};
 use crate::{Limits, Payload};
 
 /// `docs/04-isolation-security.md`: the free tier's cap.
@@ -134,7 +134,7 @@ pub struct Closed {
 pub struct Conn {
     pub id: String,
     pub transport: Transport,
-    pub rx: mpsc::Receiver<Outbound>,
+    pub rx: queue::Receiver<Outbound>,
     signal: Arc<CloseSignal>,
     hub: Arc<Hub>,
     opened: Instant,
@@ -142,8 +142,25 @@ pub struct Conn {
 
 #[derive(Default)]
 struct CloseSignal {
-    closed: Mutex<Option<Closed>>,
-    notify: Notify,
+    closed: Mutex<CloseState>,
+}
+
+/// The close, and the tasks waiting for it (a waker each, not a `Notify`:
+/// the `closed()` future of an idle connection stays small, B14).
+#[derive(Default)]
+struct CloseState {
+    close: Option<Closed>,
+    waiters: Vec<std::task::Waker>,
+}
+
+impl CloseState {
+    fn is_some(&self) -> bool {
+        self.close.is_some()
+    }
+
+    fn is_none(&self) -> bool {
+        self.close.is_none()
+    }
 }
 
 impl Conn {
@@ -151,15 +168,19 @@ impl Conn {
     /// a limit); the code and reason to send.
     pub fn closed(&self) -> impl std::future::Future<Output = Closed> + Send + 'static {
         let signal = self.signal.clone();
-        async move {
-            loop {
-                let notified = signal.notify.notified();
-                if let Some(c) = lock(&signal.closed).clone() {
-                    return c;
-                }
-                notified.await;
+        std::future::poll_fn(move |cx| {
+            let mut st = lock(&signal.closed);
+            if let Some(c) = &st.close {
+                return std::task::Poll::Ready(c.clone());
             }
-        }
+            if !st.waiters.iter().any(|w| w.will_wake(cx.waker())) {
+                // Usually the one transport waits: room for one, not the
+                // default four.
+                st.waiters.reserve_exact(1);
+                st.waiters.push(cx.waker().clone());
+            }
+            std::task::Poll::Pending
+        })
     }
 
     /// Whether the hub closed the connection.
@@ -177,6 +198,13 @@ impl Conn {
         self.hub.set_closed(&self.id, code, reason);
     }
 
+    /// The count of messages the transport took from the queue (the
+    /// meter's delivered messages), readable after `serve` consumed the
+    /// connection.
+    pub fn delivered(&self) -> queue::Taken<Outbound> {
+        self.rx.taken()
+    }
+
     /// Seconds since the connection was accepted.
     pub fn lifetime(&self) -> Duration {
         Instant::now().saturating_duration_since(self.opened)
@@ -191,7 +219,7 @@ impl Drop for Conn {
 
 struct ConnState {
     user: String,
-    tx: mpsc::Sender<Outbound>,
+    tx: queue::Sender<Outbound>,
     topics: HashSet<Arc<str>>,
     signal: Arc<CloseSignal>,
     last_event_id: Option<u64>,
@@ -282,7 +310,7 @@ impl Hub {
             return Err(self.refuse(LimitReason::User));
         }
         let id = format!("c{}", self.next_conn.fetch_add(1, Ordering::Relaxed));
-        let (tx, rx) = mpsc::channel(self.limits.queue);
+        let (tx, rx) = queue::bounded(self.limits.queue);
         let signal = Arc::new(CloseSignal::default());
         *st.per_user.entry(info.user.clone()).or_default() += 1;
         st.conns.insert(
@@ -439,7 +467,7 @@ impl Hub {
         {
             t.replay.pop_front();
         }
-        let targets: Vec<(String, mpsc::Sender<Outbound>, Arc<CloseSignal>)> = t
+        let targets: Vec<(String, queue::Sender<Outbound>, Arc<CloseSignal>)> = t
             .subscribers
             .iter()
             .filter_map(|id| {
@@ -456,10 +484,10 @@ impl Hub {
             }
             match tx.try_send(Outbound::Message(event.clone())) {
                 Ok(()) => queued += 1,
-                Err(mpsc::error::TrySendError::Full(_)) => {
+                Err(TrySendError::Full(_)) => {
                     self.close_signal(&id, &signal, close::POLICY, "backpressure")
                 }
-                Err(mpsc::error::TrySendError::Closed(_)) => {}
+                Err(TrySendError::Closed(_)) => {}
             }
         }
         lock(&self.counters).messages_out += queued as u64;
@@ -478,10 +506,10 @@ impl Hub {
         drop(st);
         match tx.try_send(Outbound::Message(event)) {
             Ok(()) => lock(&self.counters).messages_out += 1,
-            Err(mpsc::error::TrySendError::Full(_)) => {
+            Err(TrySendError::Full(_)) => {
                 self.close_signal(conn, &signal, close::POLICY, "backpressure")
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => {}
+            Err(TrySendError::Closed(_)) => {}
         }
         Ok(())
     }
@@ -497,12 +525,13 @@ impl Hub {
     fn close_signal(&self, conn: &str, signal: &CloseSignal, code: u16, reason: &str) {
         let mut c = lock(&signal.closed);
         if c.is_none() {
-            *c = Some(Closed {
+            c.close = Some(Closed {
                 code,
                 reason: reason.to_string(),
             });
+            let waiters = std::mem::take(&mut c.waiters);
             drop(c);
-            signal.notify.notify_waiters();
+            waiters.into_iter().for_each(std::task::Waker::wake);
             *lock(&self.counters)
                 .closes
                 .entry(close_reason(code, reason))

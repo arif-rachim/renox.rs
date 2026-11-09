@@ -1,0 +1,25 @@
+{
+  "connections": 10000,
+  "opened": 10000,
+  "failed": 0,
+  "alive_at_end": 10000,
+  "open_ms": 7385,
+  "rss_before_mb": 108.1,
+  "rss_after_mb": 225.6,
+  "rss_delta_mb": 117.4,
+  "rss_samples_mb": [
+    246.4,
+    246.4,
+    225.6,
+    225.6,
+    225.6,
+    225.6,
+    225.6,
+    225.6,
+    225.6,
+    225.6
+  ],
+  "heap_before_bytes": 4682648,
+  "heap_after_bytes": 10124488,
+  "heap_delta_mb": 5.19
+}

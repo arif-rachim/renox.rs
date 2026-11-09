@@ -706,3 +706,35 @@ async fn ctx_render_uses_the_requests_locale() {
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&e.root);
 }
+
+/// #641: one deployment compiles its templates once. The page renderer is
+/// the same `Arc` for the pages, the realtime hub and the isolate's
+/// template slot of `ctx.render`/`ctx.pdf` (three holders), not a second
+/// renderer built for documents; both paths still render.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pages_and_ctx_render_share_one_renderer() {
+    let e = env();
+    let hash = write_artifact(&e.config.artifacts_dir);
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "shop.test", "tenant_id": "t_shop", "deployment_hash": hash, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&e.config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(e.config.clone()).await.unwrap();
+    let addr = worker.addr;
+
+    let r = http(addr, "GET", "/note", &[HTML]).await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(v["before"], r#"<b dir="auto">n=3</b>"#, "{v}");
+    let r = http(addr, "GET", "/about", &[HTML]).await;
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let key = renox_cell::CellKey {
+        tenant_id: "t_shop".into(),
+        deployment_hash: hash.clone(),
+    };
+    assert_eq!(worker.manager.page_renderer_holders(&key), Some(3));
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&e.root);
+}
