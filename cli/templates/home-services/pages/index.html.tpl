@@ -1,0 +1,16 @@
+<r-layout use="main">
+  <h1>{{ brand.name }}</h1>
+  <p><r-t key="app.home.lede" /></p>
+  <p><a class="btn-brand" href="/auth/login"><r-t key="app.home.signin" /></a></p>
+  <nav class="work-links" r-if="auth_user">
+    <a href="/jobs" r-can="job.read"><r-t key="app.nav.jobs" /></a>
+    <a href="/dispatch" r-can="job.dispatch"><r-t key="app.nav.board" /></a>
+    <a href="/invoices" r-can="invoice.read"><r-t key="invoices.title" /></a>
+    <a href="/contracts" r-can="contract.read"><r-t key="contracts.title" /></a>
+    <a href="/admin" r-can="settings.read"><r-t key="backoffice.nav.menu" /></a>
+    <a href="/reports" r-can="reports.view"><r-t key="appreports.nav.sales" /></a>
+    <a href="/reports/technicians" r-can="reports.view"><r-t key="appreports.nav.technicians" /></a>
+    <a href="/reports/amc" r-can="reports.view"><r-t key="appreports.nav.amc" /></a>
+    <a href="/reports/outstanding" r-can="reports.view"><r-t key="appreports.nav.outstanding" /></a>
+  </nav>
+</r-layout>

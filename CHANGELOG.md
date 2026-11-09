@@ -20,6 +20,8 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **CLI**
 
+- `renox new <name> --template home-services` writes the reference app `examples/home-services` (#566): a bilingual app for a UAE home-services company built from 16 official modules, with its own `renox.toml`, `renox.lock`, demo seed (`renox db seed`) and tests (`renox test --seed seeds/001_demo.sql`). The template is generated from the example by `examples/home-services/sync-template.ts`, and images and fonts are written byte for byte. The guide is the new docs page "Reference app" (`docs/reference-app.md`).
+- The `storage` module has the service `uploadUrl(owner, name, { contentType, maxBytes, public })`: a signed URL for one browser `PUT` of up to `maxBytes` (capped at `max_upload_bytes`; SVG refused; the owner's quota checked at signing), for files past the 1 MiB action limit, and the browser helper `upload.js` (#581).
 - `renox check` (#595): the MF7 module-call scan matches imported `renox:modules` bindings in code only (comments, strings and `ctx.<name>.x` no longer count), and `missing-guard` skips `functions/tools/**`, whose `action` the cell already checks.
 - `renox test`: the test worker looks for outbox rows written from another connection every 50 ms (`[jobs] poll_ms`), the harness writes a job tick as `renox jobs run` does (`runJob`), and its own SQLite connections wait on the worker's lock (`busy_timeout = 5000`) (#593).
 

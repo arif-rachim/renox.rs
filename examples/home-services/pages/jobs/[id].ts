@@ -9,6 +9,7 @@
 // summary) `job.write`; a refusal of the rules answers
 // 409 (a taken slot names the next free one) or 422 with the reason.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
+import { storage } from "renox:modules";
 
 import { bookingService, clock, ensureSynced, slotsOn } from "../../lib/booking-sync";
 import { findCustomer } from "../../lib/customers";
@@ -65,7 +66,7 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
     const photos = await photosOf(scoped, visitRow.id);
     const thumbs = async (phase: string) => {
       const out = [];
-      for (const p of photos.filter((x) => x.phase === phase)) out.push({ id: p.id, caption: p.caption, image: p.width !== null && p.height !== null ? await imageOf(ctx.storage, p) : null });
+      for (const p of photos.filter((x) => x.phase === phase)) out.push({ id: p.id, caption: p.caption, image: p.width !== null && p.height !== null ? await imageOf(ctx.storage, p, 3600, storage) : null });
       return out;
     };
     const parts = await partsOf(scoped, visitRow.id);

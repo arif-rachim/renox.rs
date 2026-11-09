@@ -126,7 +126,7 @@ approved = { tables = "booking__*", network = [], secrets = [], slots = [], hook
 name = "storage"
 version = "1.0.0"
 source = "official"
-hash = "6276df7e14a8b49082f795df1d32a4cb520c8db9754a66cdf1562ea3af2e9281"
+hash = "edbfd7df6c760766674c79623d8aa24af970d3d84987fb0756429aec92d0a9dc"
 isolation = "shared"
 mount = "/files"
 dependencies = ["auth", "i18n"]

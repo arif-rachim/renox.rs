@@ -3,12 +3,10 @@
 // partials/pdf/visit-report.<lang>.html and kept in the platform store at
 // `app/visits/<visit id>/report-<lang>.pdf`.
 //
-// Photos in the PDF: the renderer of the worker (ops.md section 24) fetches
-// nothing, so a signed URL, valid for seven days or not, cannot work; the
-// template names each photo by its `/_img/<key>?w=480` path, which section 24
-// says it reads from the store, and every photo is also listed by its phase
-// and caption so the report is complete without the pictures. The signature is
-// small, so it is embedded as a data URI. See the README, "Visit report".
+// No images in the PDF: `ctx.pdf` renders none (ops.md section 24: an `<img>`
+// is dropped; a template that needs a picture prints its caption or key). Each
+// photo is therefore listed by its phase, caption and file key, and the
+// signature by the signer's name and the time. See the README, "Visit report".
 import type { DbStatements, Pdf, Storage } from "@renoxium/sdk";
 
 import { aed } from "./money";
@@ -19,7 +17,7 @@ import { photosOf, partsOf, partTotal, visitById } from "./visit-data";
 
 interface ReportCtx {
   readonly db: DbStatements;
-  readonly storage: Pick<Storage, "put" | "read" | "delete">;
+  readonly storage: Pick<Storage, "put">;
   readonly pdf: Pick<Pdf, "render">;
 }
 
@@ -28,12 +26,6 @@ export type ReportLang = "en" | "ar";
 const stamp = (seconds: number): string => {
   const d = new Date((seconds + 4 * 3600) * 1000).toISOString();
   return `${d.slice(0, 10)} ${d.slice(11, 16)}`;
-};
-
-const base64 = (bytes: Uint8Array): string => {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
 };
 
 /**
@@ -67,9 +59,7 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
   const language: ReportLang = lang ?? own;
   const settings = await getSettings(sdb);
   const parts = (await partsOf(sdb, visit.id)).map((p) => ({ description: p.description, qty: p.qty, unit_price: p.unit_price_fils / 100, total: partTotal(p) / 100 }));
-  const photos = (await photosOf(sdb, visit.id)).map((p) => ({ phase: p.phase, caption: p.caption, src: `/_img/${p.file_key}?w=480` }));
-  let signature: string | null = null;
-  if (visit.signature_key !== null) signature = `data:image/png;base64,${base64(await ctx.storage.read(visit.signature_key))}`;
+  const photos = (await photosOf(sdb, visit.id)).map((p) => ({ phase: p.phase, caption: p.caption, file_key: p.file_key }));
   const data = {
     job_number: job.number,
     service: (language === "ar" ? service?.name_ar : service?.name_en) ?? "",
@@ -88,8 +78,9 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
     before: photos.filter((p) => p.phase === "before"),
     after: photos.filter((p) => p.phase === "after"),
     no_photos: photos.length === 0,
-    signature,
     signed_by: visit.signed_by_name,
+    // The visit keeps no separate signing time: the signature is taken at check-out.
+    signed_at: stamp(visit.checkout_at ?? visit.checkin_at),
     brand: pdfBrand(settings, language),
   };
   return { visit, data, language, own };

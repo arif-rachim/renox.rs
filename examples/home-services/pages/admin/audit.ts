@@ -26,7 +26,7 @@ export async function load(ctx: LoaderContext) {
     events: result.events.map((e) => ({
       at: new Date(e.at).toISOString().slice(0, 19).replace("T", " "),
       action: e.action,
-      actor: e.actor_id ?? e.actor ?? "",
+      actor: e.actor_id ?? "",
       result: e.result,
       source: e.kind ?? "module",
       resource: e.resource_id ?? "",

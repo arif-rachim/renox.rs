@@ -70,9 +70,20 @@ export async function partsOf(sdb: DbStatements, visitId: string): Promise<PartR
 /** A part's price for its quantity, in fils. */
 export const partTotal = (p: Pick<PartRow, "qty" | "unit_price_fils">): number => Math.round(p.qty * p.unit_price_fils);
 
-/** What `<x-image>` takes for a private photo: the key and size, and the signature of a short-lived link (the image pipeline checks it). */
-export async function imageOf(storage: Pick<Storage, "sign">, p: Pick<PhotoRow, "file_key" | "width" | "height">, ttlSeconds = 3600) {
-  const signed = await storage.sign(p.file_key, ttlSeconds);
+/** The part of the storage module's services a visit uses (`import { storage } from "renox:modules"`; tests give it the module's own functions over a fake store). */
+export interface StorageModule {
+  uploadUrl(owner: string, name: string, options: { contentType: string; maxBytes: number; public?: boolean }): Promise<{ url: string; expires_at: number; max_bytes: number }>;
+  list(owner: string, options?: { limit?: number; cursor?: string | null }): Promise<{ items: readonly { key: string; bytes: number; content_type: string; width: number | null; height: number | null }[]; next_cursor: string | null }>;
+  link(owner: string, name: string, ttlSeconds: number): Promise<{ url: string; expires_at: number }>;
+}
+
+/**
+ * What `<x-image>` takes for a private photo: the key and size, and the signature of a short-lived link (the image pipeline checks it).
+ * A key under `storage/<owner>/` belongs to the storage module (the ops confine `ctx.storage` to `app/`), so its link comes from the module.
+ */
+export async function imageOf(store: Pick<Storage, "sign">, p: Pick<PhotoRow, "file_key" | "width" | "height">, ttlSeconds = 3600, files?: Pick<StorageModule, "link">) {
+  const owned = /^storage\/([^/]+)\/([^/]+)$/u.exec(p.file_key);
+  const signed = owned !== null && files !== undefined ? await files.link(owned[1] as string, owned[2] as string, ttlSeconds) : await store.sign(p.file_key, ttlSeconds);
   const q = new URL(signed.url, "https://app.invalid").searchParams;
   return { key: p.file_key, width: p.width, height: p.height, exp: q.get("exp"), sig: q.get("sig") };
 }

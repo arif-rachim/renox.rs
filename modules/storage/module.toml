@@ -27,6 +27,7 @@ upload = "Store a file for an owner within its quota: (owner, name, bytes, conte
 quota = "What an owner stores against quota_mb: (owner) -> { used_bytes, limit_bytes, files }"
 list = "An owner's files: (owner, { limit?, cursor? }) -> StoragePage"
 remove = "Delete one of an owner's files: (owner, name) -> boolean"
+uploadUrl = "A signed URL for one browser PUT into an owner's folder: (owner, name, { contentType, maxBytes, public? }) -> { url, expires_at, max_bytes, key }; never SVG"
 link = "A signed link to one of an owner's files: (owner, name, ttl_seconds) -> { url, expires_at }"
 sanitizeSvg = "The SVG with scripts, event handlers, foreign objects and external references removed, or null when it is not an SVG"
 

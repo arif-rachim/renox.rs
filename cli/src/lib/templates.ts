@@ -1,12 +1,15 @@
 // The `renox new` templates (cli/templates/<name>/; a `.tpl` file is written
 // without the suffix), embedded so the compiled binary carries them. `hello`
 // mirrors examples/hello; `tutorial` is examples/tutorial/step-01, the start
-// of the tutorial (#430), written by examples/tutorial/sync-template.ts.
+// of the tutorial (#430), written by examples/tutorial/sync-template.ts;
+// `home-services` is examples/home-services, the reference app (#566), written
+// with its index `files.ts` by examples/home-services/sync-template.ts.
 // `COMMON` is written into every new app whatever the template: the agent
 // files (#377; docs/12-developer-experience.md,
 // "Build with an AI agent").
 
 import agents from "../../templates/AGENTS.md.tpl" with { type: "text" };
+import { HOME_SERVICES, HOME_SERVICES_BINARY } from "../../templates/home-services/files.ts";
 import blankHealth from "../../templates/blank/functions/api/health.ts.tpl" with { type: "text" };
 import claude from "../../templates/CLAUDE.md.tpl" with { type: "text" };
 import helloHello from "../../templates/hello/functions/api/hello.ts.tpl" with { type: "text" };
@@ -38,9 +41,13 @@ export const TEMPLATES = {
     "pages/index.html": tutorialIndex,
     "tests/app.test.ts": tutorialTest,
   },
+  "home-services": HOME_SERVICES,
 } as const satisfies Record<string, Record<string, string>>;
 
 export type TemplateName = keyof typeof TEMPLATES;
+
+/** The files of a template that hold base64 (images, fonts): `renox new` writes their bytes. */
+export const BINARY_FILES: Readonly<Partial<Record<TemplateName, readonly string[]>>> = { "home-services": HOME_SERVICES_BINARY };
 
 export const TSCONFIG = tsconfig as string;
 
