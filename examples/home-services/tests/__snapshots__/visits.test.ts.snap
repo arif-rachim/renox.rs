@@ -9,6 +9,11 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -59,6 +64,7 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
 
   
 
+  <script src="/upload.<hash>.js" defer nonce="<nonce>"></script>
   <script nonce="<nonce>">
     (() => {
       // The browser's position at check-in, when it is shared: two hidden fields, optional.
@@ -69,27 +75,6 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
           lat.value = String(p.coords.latitude);
           lng.value = String(p.coords.longitude);
         }, () => {}, { timeout: 8000, maximumAge: 60000 });
-      }
-      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
-      // scaled down (longest side 1600 px, JPEG) before it is posted.
-      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
-        input.addEventListener("change", async () => {
-          const file = input.files && input.files[0];
-          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
-          try {
-            const bmp = await createImageBitmap(file);
-            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-            const c = document.createElement("canvas");
-            c.width = Math.round(bmp.width * k);
-            c.height = Math.round(bmp.height * k);
-            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
-            if (!blob) return;
-            const dt = new DataTransfer();
-            dt.items.add(new File([blob], file.name.replace(/\\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
-            input.files = dt.files;
-          } catch (e) { /* the original goes up as it is */ }
-        });
       }
       // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
       const canvas = document.getElementById("sig-canvas");
@@ -151,6 +136,11 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -261,6 +251,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     </section>
   </section>
 
+  <script src="/upload.<hash>.js" defer nonce="<nonce>"></script>
   <script nonce="<nonce>">
     (() => {
       // The browser's position at check-in, when it is shared: two hidden fields, optional.
@@ -271,27 +262,6 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
           lat.value = String(p.coords.latitude);
           lng.value = String(p.coords.longitude);
         }, () => {}, { timeout: 8000, maximumAge: 60000 });
-      }
-      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
-      // scaled down (longest side 1600 px, JPEG) before it is posted.
-      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
-        input.addEventListener("change", async () => {
-          const file = input.files && input.files[0];
-          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
-          try {
-            const bmp = await createImageBitmap(file);
-            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-            const c = document.createElement("canvas");
-            c.width = Math.round(bmp.width * k);
-            c.height = Math.round(bmp.height * k);
-            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
-            if (!blob) return;
-            const dt = new DataTransfer();
-            dt.items.add(new File([blob], file.name.replace(/\\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
-            input.files = dt.files;
-          } catch (e) { /* the original goes up as it is */ }
-        });
       }
       // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
       const canvas = document.getElementById("sig-canvas");
@@ -353,6 +323,11 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -463,6 +438,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     </section>
   </section>
 
+  <script src="/upload.<hash>.js" defer nonce="<nonce>"></script>
   <script nonce="<nonce>">
     (() => {
       // The browser's position at check-in, when it is shared: two hidden fields, optional.
@@ -473,27 +449,6 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
           lat.value = String(p.coords.latitude);
           lng.value = String(p.coords.longitude);
         }, () => {}, { timeout: 8000, maximumAge: 60000 });
-      }
-      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
-      // scaled down (longest side 1600 px, JPEG) before it is posted.
-      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
-        input.addEventListener("change", async () => {
-          const file = input.files && input.files[0];
-          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
-          try {
-            const bmp = await createImageBitmap(file);
-            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-            const c = document.createElement("canvas");
-            c.width = Math.round(bmp.width * k);
-            c.height = Math.round(bmp.height * k);
-            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
-            if (!blob) return;
-            const dt = new DataTransfer();
-            dt.items.add(new File([blob], file.name.replace(/\\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
-            input.files = dt.files;
-          } catch (e) { /* the original goes up as it is */ }
-        });
       }
       // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
       const canvas = document.getElementById("sig-canvas");

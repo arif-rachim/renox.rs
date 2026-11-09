@@ -6,9 +6,10 @@
 // that is theirs (policies/app/base.cedar forbids it on any other); every
 // function here that changes a visit starts with that check.
 //
-// Photos and the signature are files of the platform store (`ctx.storage`)
-// under `app/visits/<visit id>/` (the app's keys live under `app/`); the rows keep the keys. Photos stay private: the
-// page shows them through short-lived signed URLs.
+// The signature is a file of the platform store (`ctx.storage`) under `app/visits/<visit id>/` (the app's
+// keys live under `app/`). A photo is too big for a page action: the browser sends it with a signed PUT into
+// the visit's folder of the storage module (`storage/<visit id>/`, `storage.uploadUrl`) and the form then posts
+// its key. The rows keep the keys. Photos stay private: the page shows them through short-lived signed URLs.
 import type { Ai, Db, Storage } from "@renoxium/sdk";
 import { type JobCtx, type JobRow, findJob, jobResource, transition } from "./jobs";
 import { issueLink } from "./links";
@@ -17,7 +18,7 @@ import { buildReport } from "./report";
 import { branchOf, scopedDb, type Branch } from "./scope";
 import { draftSummary } from "./summary";
 import { memberName } from "./technicians";
-import { type PartRow, type PhotoRow, type VisitRow, bytesOfDataUrl, partsOf, photoLimitMessage, visitOfJob } from "./visit-data";
+import { type PartRow, type PhotoRow, type StorageModule, type VisitRow, MAX_PHOTO_BYTES, bytesOfDataUrl, partsOf, photoLimitMessage, visitOfJob } from "./visit-data";
 import type { PartInput, Phase } from "./visit-forms";
 
 export const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -101,43 +102,90 @@ export async function checkIn(ctx: VisitCtx, rawJobId: unknown, position: { lat:
   return { ok: true, value: (await visitOfJob(p.sdb, p.job.id)) as VisitRow };
 }
 
-export interface PhotoUpload {
-  type: string;
-  bytes: Uint8Array;
+/** What a photo needs of the page: the key the browser's upload was stored under, and the caption. */
+export interface PhotoInput {
+  key: unknown;
   caption: string;
 }
 
+/** The storage module's folder of a visit: the visit's id (`vs_<hex>`, a valid owner segment). */
+export const visitOwner = (visit: Pick<VisitRow, "id">): string => visit.id;
+
+const stem = (name: string): string =>
+  name
+    .replace(/\.[^.]*$/u, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 40);
+
 /**
- * Stores a photo of the phase under `app/visits/<visit id>/<phase>/`. Over
- * MAX_PHOTO_BYTES is a 413 naming the limit; a type that is not JPEG, PNG or
- * WebP is a 415.
+ * Step one of a photo: a signed URL for the browser's PUT into the visit's folder of the storage module
+ * (`storage/<visit id>/<name>`), at most MAX_PHOTO_BYTES of a JPEG, PNG or WebP. A type outside those is a
+ * 422 naming it; a `size` over the limit is a 413 naming the limit (the browser says the size it will send,
+ * and the signed URL enforces the limit).
  */
-export async function addPhoto(ctx: VisitCtx, rawJobId: unknown, phase: Phase, upload: PhotoUpload): Promise<Result<PhotoRow>> {
+export async function photoUploadUrl(files: Pick<StorageModule, "uploadUrl">, ctx: VisitCtx, rawJobId: unknown, input: { name: string; type: string; size: number | null }): Promise<Result<{ url: string; max_bytes: number }>> {
   const got = await performerOf(ctx, rawJobId);
   if (!got.ok) return got;
   const visit = open(got.value);
   if (!visit.ok) return visit;
-  const tooLarge = photoLimitMessage(upload.bytes.length);
-  if (tooLarge !== null) return fail(413, tooLarge);
-  if (upload.bytes.length === 0) return fail(422, "The photo is empty.");
-  const ext = EXTENSION[upload.type];
-  if (ext === undefined) return fail(415, "A photo is a JPEG, PNG or WebP image.");
-  const path = `app/visits/${visit.value.id}/${phase}/${Date.now().toString(36)}-${token().slice(0, 6)}.${ext}`;
-  let stored;
+  const ext = EXTENSION[input.type];
+  if (ext === undefined) return fail(422, `A photo is a JPEG, PNG or WebP image; ${input.type === "" ? "this file has no type" : `${input.type} is not accepted`}.`);
+  if (input.size !== null) {
+    if (input.size < 1) return fail(422, "The photo is empty.");
+    const tooLarge = photoLimitMessage(input.size);
+    if (tooLarge !== null) return fail(413, tooLarge);
+  }
+  const s = stem(input.name);
+  const name = `${Date.now().toString(36)}-${token().slice(0, 6)}${s === "" ? "" : `-${s}`}.${ext}`;
   try {
-    stored = await ctx.storage.put(path, upload.bytes, { contentType: upload.type });
+    const signed = await files.uploadUrl(visitOwner(visit.value), name, { contentType: input.type, maxBytes: MAX_PHOTO_BYTES });
+    return { ok: true, value: { url: signed.url, max_bytes: signed.max_bytes } };
   } catch (e) {
     const code = (e as { code?: string }).code;
-    if (code === "RENOX_STORAGE_TOO_LARGE") return fail(413, "The storage refused the photo: it is too large.");
-    if (code === "RENOX_STORAGE_TYPE") return fail(415, "The storage refused the photo: it is not an image it can read.");
+    if (code === "QUOTA" || code === "INVALID" || code === "SVG" || code === "TOO_LARGE" || code === "RENOX_MODULE_SERVICE") return fail(422, (e as Error).message);
     throw e;
   }
+}
+
+type Listed = Awaited<ReturnType<StorageModule["list"]>>;
+
+/**
+ * Step two: the visit's photo row for a key the browser's upload stored. The key must be in the visit's own
+ * folder (`storage/<visit id>/<name>`; another visit's or technician's is a 422) and the file must exist (the
+ * module lists the folder: the app's `ctx.storage` is confined to `app/`); its dimensions come from the
+ * stored file. The same key twice is the same row.
+ */
+export async function addPhoto(files: Pick<StorageModule, "list">, ctx: VisitCtx, rawJobId: unknown, phase: Phase, input: PhotoInput): Promise<Result<PhotoRow>> {
+  const got = await performerOf(ctx, rawJobId);
+  if (!got.ok) return got;
+  const visit = open(got.value);
+  if (!visit.ok) return visit;
+  const owner = visitOwner(visit.value);
+  const key = typeof input.key === "string" ? input.key.trim() : "";
+  if (key === "") return fail(422, "Choose a photo to add.");
+  if (!key.startsWith(`storage/${owner}/`) || !/^storage\/[a-z0-9_.-]+\/[a-z0-9][a-z0-9_.-]*$/u.test(key) || key.includes("..")) return fail(422, "That photo was not uploaded for this visit.");
+  let stored: Listed["items"][number] | undefined;
+  let cursor: string | null = null;
+  for (let i = 0; i < 20 && stored === undefined; i++) {
+    const page: Listed = await files.list(owner, { limit: 1000, cursor });
+    stored = page.items.find((f) => f.key === key);
+    if (page.next_cursor === null) break;
+    cursor = page.next_cursor;
+  }
+  if (stored === undefined) return fail(422, "That photo is not stored: upload it again.");
+  if (!PHOTO_TYPES.includes(stored.content_type as (typeof PHOTO_TYPES)[number])) return fail(415, "A photo is a JPEG, PNG or WebP image.");
+  const tooLarge = photoLimitMessage(stored.bytes);
+  if (tooLarge !== null) return fail(413, tooLarge);
+  const known = await got.value.sdb.queryOne<PhotoRow>("select id, visit_id, phase, file_key, caption, width, height from app__visit_photos where visit_id = ? and file_key = ?", [visit.value.id, key]);
+  if (known !== null) return { ok: true, value: known };
   const n = await got.value.sdb.execute("insert into app__visit_photos (branch_id, visit_id, phase, file_key, caption, width, height, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)", [
     got.value.branch.id,
     visit.value.id,
     phase,
-    stored.key,
-    upload.caption,
+    key,
+    input.caption,
     stored.width,
     stored.height,
     now(),

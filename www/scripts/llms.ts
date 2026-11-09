@@ -53,6 +53,7 @@ export const DEV_DOCS: readonly [path: string, line: string][] = [
   ["docs/11-authorization.md", "Cedar policies, guard exports, r-can in templates, db.scoped(), roles and 2FA step-up"],
   ["docs/12-developer-experience.md", "installing the CLI and the SDK, renox new/dev/check/test/deploy, building with an AI agent, debugging, limits"],
   ["docs/20-ai-agents-mcp.md", "renox mcp (local) and mcp.renoxium.com (remote) for coding agents, App MCP tools per app, ctx.ai, agent security rules"],
+  ["docs/reference-app.md", "the home-services reference app (renox new --template home-services): roles, the flow from quotation to paid invoice, which module does what, adapting it for a client, the owner steps"],
 ];
 
 /** The tutorial (#430): the index and the ten chapters, in reading order, each built on its checkpoint in examples/tutorial/. */

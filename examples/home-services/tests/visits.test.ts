@@ -4,6 +4,7 @@
 // below). The AI is off on the worker (no provider), so the summary fields stay
 // empty there; the draft itself is tested with a fake `ai`.
 import { Database } from "bun:sqlite";
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { fakeAi } from "@renoxium/sdk/fakes";
 import { snapshot, app } from "@renoxium/sdk/test";
@@ -38,17 +39,35 @@ const located = (res: { headers: Headers }) => res.headers.get("location") ?? ""
 /** A time of day is not part of what the snapshots pin: the seed is relative to the day they run. */
 const steady = (html: string) => html.replace(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/gu, "<when>");
 
+/**
+ * The browser's PUT of binary bytes. The harness sends strings, so a binary body is a latin-1 string with the
+ * header `x-test-binary`, turned back into bytes on the way out (the same fetch the harness uses).
+ */
+/** A data URL, as the signature pad posts it. */
 const PNG = (rgb: [number, number, number], size = 16) => `data:image/png;base64,${base64Of(solidPng(rgb, size).bytes)}`;
 
-/** A multipart page action with the page's own CSRF token (the file's bytes are text: the harness sends strings). */
-async function multipart(u: typeof ali, path: string, action: string, fields: Record<string, string>, file: { name: string; type: string; content: string }) {
-  await u.page(path);
-  const csrf = u.cookie("__Host-renox_csrf") as string;
-  const b = "----renoxvisit";
-  let body = "";
-  for (const [k, v] of Object.entries(fields)) body += `--${b}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`;
-  body += `--${b}\r\nContent-Disposition: form-data; name="photo"; filename="${file.name}"\r\nContent-Type: ${file.type}\r\n\r\n${file.content}\r\n--${b}--\r\n`;
-  return u.request("POST", `${path}?/${action}`, { body, headers: { "content-type": `multipart/form-data; boundary=${b}`, "x-renox-csrf": csrf } });
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  const headers = init?.headers as Record<string, string> | undefined;
+  if (headers?.["x-test-binary"] !== undefined && typeof init?.body === "string") {
+    const { "x-test-binary": _binary, ...rest } = headers;
+    return realFetch(input, { ...init, headers: rest, body: Uint8Array.from(init.body, (c) => c.charCodeAt(0)) });
+  }
+  return realFetch(input, init);
+}) as typeof fetch;
+const latin1 = (bytes: Uint8Array): string => Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+
+/** Step one and the PUT of a photo, as `public/upload.js` does them: the action signs, the browser PUTs; answers the stored key. */
+async function uploadPhoto(u: typeof ali, jobId: string, name: string, rgb: [number, number, number]): Promise<string> {
+  const png = solidPng(rgb, 16).bytes;
+  const signed = await u.action(`/me/visits/${jobId}`, "photo_url", { name, type: "image/png", size: String(png.length) });
+  expect(signed.status).toBe(200);
+  const target = signed.json<{ url: string; max_bytes: number }>();
+  expect(target.max_bytes).toBe(MAX_PHOTO_BYTES);
+  expect(target.url).toStartWith("/_files/storage/vs_");
+  const put = await u.request("PUT", target.url, { body: latin1(png), headers: { "content-type": "image/png", "x-test-binary": "1" } });
+  expect(put.status).toBe(201);
+  return put.json<{ key: string }>().key;
 }
 
 const FLOW = "jb_seed_06"; // Ali's scheduled job in Dubai
@@ -100,7 +119,8 @@ describe("the technician's flow from scheduled to done", () => {
   });
 
   test("a photo, a part or a check-out before the check-in is a 409", async () => {
-    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "before", photo_data: PNG([1, 2, 3]) })).status).toBe(409);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "before", key: "storage/vs_0000000000000000/a.png" })).status).toBe(409);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo_url", { name: "a.png", type: "image/png", size: "10" })).status).toBe(409);
     expect((await ali.action(`/me/visits/${FLOW}`, "part", { description: "Hose", qty: "1", price: "10" })).status).toBe(409);
     expect((await ali.action(`/me/visits/${FLOW}`, "checkout", {})).status).toBe(409);
     expect(jobOf(FLOW).status).toBe("scheduled");
@@ -133,29 +153,43 @@ describe("the technician's flow from scheduled to done", () => {
     expect(visitOf(NOPHOTOS)).toBeUndefined();
   });
 
-  test("two photos, before and after, are stored under visits/<visit>/<phase>/ and shown through <x-image>", async () => {
-    const before = await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "before", caption: "The leaking pipe", photo_data: PNG([0x8a, 0x5c, 0x3c]) });
+  test("two photos, before and after: a signed upload, the PUT, then the key; stored under storage/<visit>/ and shown through <x-image>", async () => {
+    const keyBefore = await uploadPhoto(ali, FLOW, "Pipe leak.png", [0x8a, 0x5c, 0x3c]);
+    expect(keyBefore).toMatch(new RegExp(`^storage/${visitId}/[a-z0-9]+-[a-z0-9]{6}-pipe-leak\\.png$`, "u"));
+    // Until the form posts the key, the file is in the store and no photo is recorded.
+    expect(rows("select count(*) as n from app__visit_photos where visit_id = ?", [visitId])[0]?.n).toBe(0);
+    const before = await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "before", caption: "The leaking pipe", key: keyBefore });
     expect(before.status).toBe(303);
-    const after = await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", caption: "The new joint", photo_data: PNG([0x1f, 0x6f, 0x5c]) });
+    const keyAfter = await uploadPhoto(ali, FLOW, "joint.png", [0x1f, 0x6f, 0x5c]);
+    const after = await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", caption: "The new joint", key: keyAfter });
     expect(after.status).toBe(303);
     const photos = rows("select phase, file_key, caption, width, height from app__visit_photos where visit_id = ? order by id", [visitId]);
     expect(photos.map((p) => p.phase)).toEqual(["before", "after"]);
-    expect(String(photos[0]?.file_key)).toMatch(new RegExp(`^app/visits/${visitId}/before/[a-z0-9-]+\\.png$`, "u"));
-    expect(String(photos[1]?.file_key)).toMatch(new RegExp(`^app/visits/${visitId}/after/[a-z0-9-]+\\.png$`, "u"));
+    expect(photos.map((p) => p.file_key)).toEqual([keyBefore, keyAfter]);
+    // The dimensions are the stored file's (the platform reads them from the image).
     expect(photos[0]).toMatchObject({ caption: "The leaking pipe", width: 16, height: 16 });
     const page = await ali.page(`/me/visits/${FLOW}`);
-    expect(page.html).toMatch(/<img src="\/_img\/app\/visits\/vs_[0-9a-f]{16}\/before\/[^"]*\?w=160&amp;exp=\d+&amp;sig=[0-9a-f]+"[^>]* srcset="/u);
+    expect(page.html).toMatch(/<img src="\/_img\/storage\/vs_[0-9a-f]{16}\/[^"]*\?w=160&amp;exp=\d+&amp;sig=[0-9a-f]+"[^>]* srcset="/u);
     expect(page.html).toContain("The new joint");
-    // The stored file is the one that was sent.
-    expect(rows("select count(*) as n from renox__files where key = ?", [photos[0]?.file_key as string])[0]?.n).toBe(1);
+    // The dispatcher sees the same photos on the job page.
+    expect((await dina.page(`/jobs/${FLOW}`)).html).toMatch(/<img src="\/_img\/storage\/vs_[0-9a-f]{16}\//u);
+    // The stored file is the one that was sent, and the same key twice is the same photo.
+    expect(rows("select count(*) as n from renox__files where key = ?", [keyBefore])[0]?.n).toBe(1);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "before", caption: "Again", key: keyBefore })).status).toBe(303);
+    expect(rows("select count(*) as n from app__visit_photos where visit_id = ?", [visitId])[0]?.n).toBe(2);
   });
 
-  test("error case: a photo over 10 MiB is a 413 and is not stored", async () => {
-    // The gateway refuses a page action's body over 1 MiB before the action runs (ops.md section 6), so the
-    // refusal is the gateway's page, which does not name the limit; the action's own message is tested below.
-    const big = "x".repeat(10 * 1024 * 1024 + 1);
-    const res = await multipart(ali, `/me/visits/${FLOW}`, "photo", { phase: "before" }, { name: "big.png", type: "image/png", content: big });
-    expect(res.status).toBe(413);
+  test("error case: a size over 10 MiB is refused at signing naming the limit, and a PUT past the signed limit is a 413; neither is recorded", async () => {
+    const big = await ali.action(`/me/visits/${FLOW}`, "photo_url", { name: "big.png", type: "image/png", size: String(MAX_PHOTO_BYTES + 1) });
+    expect(big.status).toBe(413);
+    const message = big.json<{ message: string }>().message;
+    expect(message).toContain("10 MiB");
+    expect(message).toContain(String(MAX_PHOTO_BYTES));
+    // The browser's own size is only a hint: the URL signs 10 MiB, and the cell stops a larger body.
+    const small = await ali.action(`/me/visits/${FLOW}`, "photo_url", { name: "big.png", type: "image/png", size: "10" });
+    expect(small.status).toBe(200);
+    const put = await ali.request("PUT", small.json<{ url: string }>().url, { body: "x".repeat(MAX_PHOTO_BYTES + 1), headers: { "content-type": "image/png" } });
+    expect(put.status).toBe(413);
     expect(rows("select count(*) as n from app__visit_photos where visit_id = ?", [visitId])[0]?.n).toBe(2);
   });
 
@@ -167,11 +201,28 @@ describe("the technician's flow from scheduled to done", () => {
     expect(message).toContain("10485761");
   });
 
-  test("a file that is not an image is a 415; another technician's upload is a 403", async () => {
-    const text = await multipart(ali, `/me/visits/${FLOW}`, "photo", { phase: "after" }, { name: "notes.txt", type: "text/plain", content: "hello" });
-    expect(text.status).toBe(415);
-    const other = await multipart(bilal, `/me/visits/${FLOW}`, "photo", { phase: "after" }, { name: "a.png", type: "image/png", content: "x" });
-    expect(other.status).toBe(403);
+  test("a type that is not JPEG, PNG or WebP is a 422 naming it; another technician's request is a 403", async () => {
+    for (const type of ["text/plain", "image/svg+xml", "image/gif", ""]) {
+      const res = await ali.action(`/me/visits/${FLOW}`, "photo_url", { name: "notes.txt", type, size: "5" });
+      expect(res.status).toBe(422);
+      expect(res.json<{ message: string }>().message).toContain(type === "" ? "no type" : type);
+    }
+    expect((await bilal.action(`/me/visits/${FLOW}`, "photo_url", { name: "a.png", type: "image/png", size: "5" })).status).toBe(403);
+    expect((await bilal.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: `storage/${visitId}/a.png` })).status).toBe(403);
+    expect(rows("select count(*) as n from app__visit_photos where visit_id = ?", [visitId])[0]?.n).toBe(2);
+  });
+
+  test("a key of another owner, outside the folder, or of no stored file is a 422 and nothing is recorded", async () => {
+    // A real upload by Ali into another visit's folder cannot be done (the folder is the visit's), so the keys are made up.
+    const stranger = await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: "storage/vs_0123456789abcdef/x.png" });
+    expect(stranger.status).toBe(422);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: "storage/u_dxb_ali/x.png" })).status).toBe(422);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: "app/visits/x/after/y.png" })).status).toBe(422);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: `storage/${visitId}/../u_dxb_bilal/x.png` })).status).toBe(422);
+    const missing = await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: `storage/${visitId}/never-uploaded.png` });
+    expect(missing.status).toBe(422);
+    expect(missing.html).toContain("not stored");
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after" })).status).toBe(422);
     expect(rows("select count(*) as n from app__visit_photos where visit_id = ?", [visitId])[0]?.n).toBe(2);
   });
 
@@ -216,7 +267,8 @@ describe("the technician's flow from scheduled to done", () => {
     const events = rows("select to_status, note from app__job_events where job_id = ? order by id desc limit 2", [FLOW]);
     expect(events[0]).toMatchObject({ to_status: "done", note: "checked out" });
     // A closed visit takes no more photos, parts or check-outs.
-    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", photo_data: PNG([1, 1, 1]) })).status).toBe(409);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo", { phase: "after", key: `storage/${visitId}/late.png` })).status).toBe(409);
+    expect((await ali.action(`/me/visits/${FLOW}`, "photo_url", { name: "late.png", type: "image/png", size: "10" })).status).toBe(409);
     expect((await ali.action(`/me/visits/${FLOW}`, "checkout", {})).status).toBe(409);
     expect((await ali.page(`/me/visits/${FLOW}`)).html).toContain('id="visit-closed"');
   });
@@ -231,11 +283,30 @@ describe("the technician's flow from scheduled to done", () => {
     expect((await dina.page(`/visits/${visitId}/report`)).html.startsWith("%PDF")).toBe(true);
     expect((await accountant.page(`/visits/${visitId}/report`)).status).toBe(200);
     const data = (await dina.page(`/visits/${visitId}/report?format=json&lang=ar`)).json<Record<string, unknown>>();
-    expect(data).toMatchObject({ job_number: "J-000006", no_photos: false, has_parts: true, signed_by: "Layla Hassan", signature: true, parts_total: "25.00" });
+    expect(data).toMatchObject({ job_number: "J-000006", no_photos: false, has_parts: true, signed_by: "Layla Hassan", parts_total: "25.00" });
     expect((data.before as unknown[]).length).toBe(1);
     expect((data.after as unknown[]).length).toBe(1);
-    expect(String(((data.before as { src: string }[])[0] as { src: string }).src)).toMatch(/^\/_img\/app\/visits\/vs_[0-9a-f]{16}\/before\//u);
+    // No pictures reach the PDF: each photo is printed by phase, caption and file key; the signature by the signer and the time.
+    const before = data.before as { phase: string; caption: string; file_key: string }[];
+    const after = data.after as { phase: string; caption: string; file_key: string }[];
+    expect(before[0]).toMatchObject({ phase: "before", caption: "The leaking pipe" });
+    expect(after[0]).toMatchObject({ phase: "after", caption: "The new joint" });
+    expect(before[0]?.file_key).toMatch(new RegExp(`^storage/${visitId}/[a-z0-9-]+\\.png$`, "u"));
+    expect(data.signed_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/u);
+    expect(data).not.toHaveProperty("signature");
     expect(String(data.technician)).toContain("Ali");
+  });
+
+  test("the report templates print the caption list, the file key and the signer, and carry no <img>", () => {
+    for (const lang of ["en", "ar"]) {
+      const html = readFileSync(new URL(`../partials/pdf/visit-report.${lang}.html`, import.meta.url), "utf8");
+      expect(html).not.toContain("<img");
+      expect(html).toContain("{{ p.caption }}");
+      expect(html).toContain("{{ p.file_key }}");
+      expect(html).toContain("{{ signed_by }}");
+      expect(html).toContain("{{ signed_at }}");
+    }
+    expect(readFileSync(new URL("../partials/pdf/visit-report.en.html", import.meta.url), "utf8")).toContain("Signed by {{ signed_by }} at {{ signed_at }}");
   });
 
   test("error case: the report is not for another technician (403) nor another branch (404), and not before check-out (409)", async () => {
@@ -264,7 +335,7 @@ describe("a visit without photos", () => {
     expect(jobOf(NOPHOTOS).status).toBe("done");
     const visit = visitOf(NOPHOTOS);
     const data = (await ali.page(`/visits/${visit?.id}/report?format=json&lang=en`)).json<Record<string, unknown>>();
-    expect(data).toMatchObject({ no_photos: true, has_parts: false, signature: false, signed_by: "" });
+    expect(data).toMatchObject({ no_photos: true, has_parts: false, signed_by: "" });
     expect((await ali.page(`/visits/${visit?.id}/report`)).html.startsWith("%PDF")).toBe(true);
     expect(visit?.report_key).toBe(`app/visits/${visit?.id}/report-${ownLang(NOPHOTOS)}.pdf`);
   });
@@ -328,8 +399,14 @@ describe("the visit page on a phone", () => {
     const res = await ali.page("/me/visits/jb_seed_10");
     expect(res.html).toContain('id="sig-canvas"');
     expect(res.html).toMatch(/<script nonce="[^"]+">\s*\(\(\) => \{/u);
-    expect(res.html).toContain('name="photo"');
+    // The photo form: the file goes to a signed URL (public/upload.js, from the page's own origin), the form posts its key.
+    expect(res.html).toMatch(/<script src="\/upload\.[0-9a-f]{16}\.js" defer nonce="[^"]+"><\/script>/u);
+    expect(res.html).toContain('data-upload-action="/me/visits/jb_seed_10?/photo_url"');
+    expect(res.html).toContain('data-key-field="key"');
+    expect(res.html).toContain("data-upload-status");
     expect(res.html).toContain('capture="environment"');
+    expect(res.html).not.toContain('name="photo"');
+    expect(res.html).not.toContain("createImageBitmap");
   });
 });
 

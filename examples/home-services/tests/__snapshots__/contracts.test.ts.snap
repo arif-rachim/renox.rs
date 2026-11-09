@@ -1,5 +1,75 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
+exports[`the seed a Dubai dispatcher sees the Dubai contract and not the Sharjah one: role: contracts, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Maintenance contracts · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/contracts">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/contracts?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Maintenance contracts</h1>
+  <p><a class="btn-brand" href="/contracts/new" id="new-contract">New contract</a></p>
+  <form class="search" action="/contracts" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">—</option>
+        <option value="draft" dir="auto">Draft</option><option value="active" dir="auto">Active</option><option value="expired" dir="auto">Expired</option><option value="cancelled" dir="auto">Cancelled</option>
+      </select></label>
+    <button type="submit">Filter</button>
+  </form>
+  <table id="contract-list">
+    <thead>
+      <tr><th>Contract</th><th>Customer</th><th>Status</th><th>Term</th><th>Price (AED)</th><th>Items</th></tr>
+    </thead>
+    <tbody>
+      <tr id="contract-AMC-000001">
+        <td dir="ltr"><a href="/contracts/ct_seed_01" dir="auto">AMC-000001</a></td>
+        <td><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></td>
+        <td><span class="status status-active" dir="auto">Active</span></td>
+        <td dir="ltr"><day> → <day></td>
+        <td dir="ltr">AED 4,800.00</td>
+        <td dir="ltr">2</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
 exports[`the seed the contract page: items, price with VAT, no visits yet: role: contract, dispatcher, en 1`] = `
 "<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
   <meta charset="utf-8">
@@ -9,6 +79,11 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -111,6 +186,11 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -199,71 +279,6 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
 
   </main>
   <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
-
-
-</body></html>"
-`;
-
-exports[`the seed a Dubai dispatcher sees the Dubai contract and not the Sharjah one: role: contracts, dispatcher, en 1`] = `
-"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
-  <title>Maintenance contracts · FixIt Services</title>
-  <link rel="stylesheet" href="/renox-ui.<hash>.css">
-  <link rel="stylesheet" href="/app.<hash>.css">
-  <link rel="stylesheet" href="/theme">
-</head>
-<body>
-  <header class="site-header">
-    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
-    <span class="spacer"></span>
-    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
-  <form method="post" action="/org?/switch">
-    <input type="hidden" name="_csrf" value="<csrf>">
-    <input type="hidden" name="next" value="/contracts">
-    <select name="org" aria-label="Organisation">
-      <option value="org_dubai" selected dir="auto">Dubai · member</option>
-    </select>
-    <button type="submit">Switch</button>
-    
-  </form>
-</span>
-    <nav class="i18n-language" aria-label="Language">
-      <strong lang="en">English</strong><a href="/contracts?lang=ar" lang="ar">العربية</a>
-    </nav>
-  </header>
-  <main>
-    
-  
-  <h1>Maintenance contracts</h1>
-  <p><a class="btn-brand" href="/contracts/new" id="new-contract">New contract</a></p>
-  <form class="search" action="/contracts" method="get">
-    <label>Status
-      <select name="status">
-        <option value="">—</option>
-        <option value="draft" dir="auto">Draft</option><option value="active" dir="auto">Active</option><option value="expired" dir="auto">Expired</option><option value="cancelled" dir="auto">Cancelled</option>
-      </select></label>
-    <button type="submit">Filter</button>
-  </form>
-  <table id="contract-list">
-    <thead>
-      <tr><th>Contract</th><th>Customer</th><th>Status</th><th>Term</th><th>Price (AED)</th><th>Items</th></tr>
-    </thead>
-    <tbody>
-      <tr id="contract-AMC-000001">
-        <td dir="ltr"><a href="/contracts/ct_seed_01" dir="auto">AMC-000001</a></td>
-        <td><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></td>
-        <td><span class="status status-active" dir="auto">Active</span></td>
-        <td dir="ltr"><day> → <day></td>
-        <td dir="ltr">AED 4,800.00</td>
-        <td dir="ltr">2</td>
-      </tr>
-    </tbody>
-  </table>
-
-  </main>
-  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
 
 
 </body></html>"

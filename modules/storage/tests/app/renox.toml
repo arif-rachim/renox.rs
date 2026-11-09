@@ -7,4 +7,4 @@ timezone = "Asia/Dubai"
 i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
 auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
 org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
-storage = { version = "^1.0", source = "path:../..", mount = "/files", config = { quota_mb = 1 } }
+storage = { version = "^1.0", source = "path:../..", mount = "/files", config = { quota_mb = 3 } }

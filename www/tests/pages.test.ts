@@ -52,7 +52,7 @@ describe("documentation", () => {
     }
     for (const slug of INTERNAL) expect(doc(slug), slug).toBeNull();
     // What the issue lists as published is published, under a clean slug.
-    expect(PUBLISHED.map((p) => p.slug)).toEqual(["getting-started", "tutorial", "tutorial-install", "tutorial-dev-loop", "tutorial-pages", "tutorial-data", "tutorial-actions", "tutorial-teams", "tutorial-authorization", "tutorial-realtime", "tutorial-tests", "tutorial-deploy", "developer-experience", "app-model", "data", "templates", "realtime", "modules", "authorization", "ai-agents-mcp", "cli", "sdk", "ctx", "errors", "manifest", "limits", "overview", "tenant-lifecycle", "glossary"]);
+    expect(PUBLISHED.map((p) => p.slug)).toEqual(["getting-started", "tutorial", "tutorial-install", "tutorial-dev-loop", "tutorial-pages", "tutorial-data", "tutorial-actions", "tutorial-teams", "tutorial-authorization", "tutorial-realtime", "tutorial-tests", "tutorial-deploy", "developer-experience", "app-model", "data", "templates", "realtime", "modules", "authorization", "ai-agents-mcp", "reference-app", "cli", "sdk", "ctx", "errors", "manifest", "limits", "overview", "tenant-lifecycle", "glossary"]);
     // Nothing bundled is internal: the imports of lib/docs.ts are the allowlist.
     const imports = [...readFileSync(join(import.meta.dir, "../lib/docs.ts"), "utf8").matchAll(/from "\.\.\/\.\.\/([^"]+)" with \{ type: "text" \}/gu)].map((m) => m[1] as string);
     expect(imports.sort()).toEqual([...new Set(PUBLISHED.map((p) => p.path))].sort());
@@ -63,7 +63,7 @@ describe("documentation", () => {
     expect(nav("data").map((g) => g.group)).toEqual(["Get started", "Guides", "Reference", "Concepts"]);
     const guides = nav("data").find((g) => g.group === "Guides") as { items: { label: string; current: boolean; href: string }[] };
     expect(guides.items.filter((i) => i.current).map((i) => i.label)).toEqual(["Data"]);
-    expect(guides.items.map((i) => i.label)).toEqual(["App model", "Data", "Templates", "Fragments and realtime", "Modules", "Authorization", "Custom domains", "AI agents and MCP"]);
+    expect(guides.items.map((i) => i.label)).toEqual(["App model", "Data", "Templates", "Fragments and realtime", "Modules", "Authorization", "Custom domains", "AI agents and MCP", "Reference app"]);
     expect(guides.items.find((i) => i.label === "Custom domains")?.href).toBe("/docs/tenant-lifecycle#custom-domains-and-dns");
     const d = doc("data") as NonNullable<ReturnType<typeof doc>>;
     expect(d.title).toBe("Data");

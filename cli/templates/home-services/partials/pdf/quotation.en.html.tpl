@@ -1,0 +1,39 @@
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <title>{{ number }}</title>
+  <style>
+    body { font-family: "Noto Sans", sans-serif; font-size: 11pt; color: #1b1b1b; }
+    h1 { font-size: 20pt; margin: 0 0 4pt; }
+    .brand { font-weight: bold; font-size: 14pt; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12pt; }
+    th { text-align: left; padding: 4pt; }
+    td { padding: 4pt; border-bottom: 0.5pt solid #ccc; }
+    .num { text-align: right; }
+    .totals td { border: 0; }
+    .muted { color: #666; font-size: 9pt; }
+  </style>
+</head>
+<body>
+  <p class="brand" :style="brand.text_style">{{ brand.name }}</p>
+  <h1>Quotation {{ number }}</h1>
+  <p>Date: {{ created_at }} · Valid until: {{ valid_until }}</p>
+  <p><strong>{{ customer.name }}</strong><br>
+    <span r-if="customer.trn">TRN: {{ customer.trn }}<br></span>
+    {{ customer.phone }}<br>
+    <span r-if="site">{{ site.label }}, {{ site.area }}, {{ site.address }}</span></p>
+  <table id="lines">
+    <thead><tr :style="brand.rule_style"><th>Description</th><th class="num">Qty</th><th class="num">Unit price (AED)</th><th class="num">Net (AED)</th><th class="num">VAT (AED)</th><th class="num">Total (AED)</th></tr></thead>
+    <tbody>
+      <tr r-for="l in lines"><td>{{ l.description }}</td><td class="num">{{ l.qty }}</td><td class="num">{{ l.unit_price | number(2) }}</td><td class="num">{{ l.net | number(2) }}</td><td class="num">{{ l.vat | number(2) }} ({{ l.vat_rate }}%)</td><td class="num">{{ l.total | number(2) }}</td></tr>
+    </tbody>
+  </table>
+  <table class="totals">
+    <tr><td></td><td class="num">Subtotal</td><td class="num">{{ totals.subtotal | number(2) }}</td></tr>
+    <tr><td></td><td class="num">VAT</td><td class="num">{{ totals.vat | number(2) }}</td></tr>
+    <tr><td></td><td class="num"><strong>Total (AED)</strong></td><td class="num"><strong>{{ totals.total | number(2) }}</strong></td></tr>
+  </table>
+  <p r-if="notes">{{ notes }}</p>
+  <p class="muted">{{ brand.footer }}</p>
+</body>
+</html>

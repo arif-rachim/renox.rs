@@ -1,0 +1,609 @@
+{
+  "app": {
+    "lang": {
+      "en": "English",
+      "ar": "العربية"
+    },
+    "home": {
+      "lede": "Book a visit, follow your technician and get your report.",
+      "signin": "Sign in"
+    },
+    "nav": {
+      "jobs": "Jobs",
+      "board": "Dispatch board"
+    }
+  },
+  "customers": {
+    "title": "Customers",
+    "branch": "Branch: {branch}",
+    "search": "Search by name or phone",
+    "search_submit": "Search",
+    "new": "New customer",
+    "none": "No customers found.",
+    "sites": "Sites",
+    "no_sites": "No sites yet.",
+    "details": "Customer",
+    "first_site": "First site",
+    "add_site": "Add a site",
+    "add_site_submit": "Add site",
+    "create": "Create customer",
+    "cancel": "Cancel",
+    "back": "All customers",
+    "kind": {
+      "company": "Property manager or company",
+      "household": "Household"
+    },
+    "f": {
+      "name": "Name",
+      "kind": "Type",
+      "phone": "Phone",
+      "trn": "TRN",
+      "email": "Email",
+      "language": "Language",
+      "site_label": "Site name",
+      "emirate": "Emirate",
+      "area": "Area",
+      "address": "Address",
+      "makani": "Makani number",
+      "lat": "Latitude",
+      "lng": "Longitude",
+      "notes": "Access notes"
+    }
+  },
+  "catalogue": {
+    "title": "Service catalogue",
+    "none": "No services.",
+    "saved": "Saved {code}.",
+    "edit": "Edit prices",
+    "save": "Save",
+    "on": "Active",
+    "off": "Off",
+    "f": {
+      "code": "Code",
+      "name": "Service",
+      "unit": "Per",
+      "price": "Price",
+      "vat": "VAT",
+      "active": "Active"
+    },
+    "unit": {
+      "visit": "visit",
+      "hour": "hour",
+      "unit": "unit"
+    }
+  },
+  "quotes": {
+    "title": "Quotations",
+    "new": "New quotation",
+    "none": "No quotations found.",
+    "back": "All quotations",
+    "filter": "Filter",
+    "create": "Create quotation",
+    "lines": "Lines",
+    "send": "Send to the customer",
+    "new_link": "Issue a new approval link",
+    "link_note": "Send this link to the customer. It is shown only now and expires with the quotation.",
+    "pdf": "PDF",
+    "status": {
+      "draft": "Draft",
+      "sent": "Sent",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "expired": "Expired"
+    },
+    "f": {
+      "number": "Number",
+      "customer": "Customer",
+      "site": "Site",
+      "status": "Status",
+      "valid_until": "Valid until",
+      "valid_days": "Valid for (days)",
+      "answered_at": "Answered on",
+      "service": "Service",
+      "desc": "Description",
+      "desc_ar": "Description in Arabic",
+      "qty": "Qty",
+      "price": "Price (AED)",
+      "price_default": "catalogue price",
+      "unit_price": "Unit price",
+      "net": "Net",
+      "vat": "VAT",
+      "subtotal": "Subtotal",
+      "total": "Total",
+      "notes": "Notes"
+    },
+    "ai": {
+      "title": "AI draft",
+      "request": "What did the customer ask for?",
+      "draft": "Draft the lines",
+      "off": "AI is off. Add the lines by hand.",
+      "quota": "The AI allowance is used up. Add the lines by hand.",
+      "none": "The AI found nothing in the catalogue for this request.",
+      "done": "Suggested lines were added. Check them before you save."
+    }
+  },
+  "approve": {
+    "title": "Quotation {number}",
+    "for": "For: {name}",
+    "approve": "Approve",
+    "reject": "Reject",
+    "state": {
+      "approved": "This quotation is already approved. Thank you.",
+      "rejected": "This quotation is already rejected.",
+      "expired": "This quotation has expired."
+    }
+  },
+  "jobs": {
+    "title": "Jobs",
+    "mine": "My jobs",
+    "new": "New job",
+    "none": "No jobs found.",
+    "back": "All jobs",
+    "filter": "Filter",
+    "create": "Create job",
+    "from_quote": "From the approved quotation {number}",
+    "blank": "Without a quotation",
+    "board": "Dispatch board",
+    "unscheduled": "Not scheduled",
+    "any_technician": "Any technician",
+    "any_day": "Any day",
+    "status": {
+      "new": "New",
+      "scheduled": "Scheduled",
+      "en_route": "En route",
+      "in_progress": "In progress",
+      "done": "Done",
+      "invoiced": "Invoiced",
+      "cancelled": "Cancelled"
+    },
+    "priority": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "f": {
+      "number": "Number",
+      "customer": "Customer",
+      "site": "Site",
+      "service": "Service",
+      "status": "Status",
+      "priority": "Priority",
+      "technician": "Technician",
+      "when": "Scheduled",
+      "day": "Day",
+      "description": "Description",
+      "quote": "Quotation",
+      "note": "Note",
+      "created": "Created"
+    },
+    "timeline": "Timeline",
+    "created_event": "Created",
+    "changed": "{from} to {to}",
+    "schedule": {
+      "title": "Schedule the visit",
+      "day": "Day",
+      "technician": "Technician",
+      "show": "Show free slots",
+      "pick": "Free slots",
+      "submit": "Schedule",
+      "none": "No free slot on this day.",
+      "current": "Booked: {when} with {technician}"
+    },
+    "assign": {
+      "title": "Assign a technician",
+      "submit": "Assign"
+    },
+    "move": {
+      "title": "Move the job on",
+      "submit": "Move"
+    },
+    "cancel": {
+      "title": "Cancel the job",
+      "submit": "Cancel the job"
+    }
+  },
+  "dispatch": {
+    "title": "Dispatch board",
+    "live": "Live: the board updates when a job changes.",
+    "offline": "Not connected. Reload the page.",
+    "unassigned": "No technician yet",
+    "empty": "Nothing here."
+  },
+  "visits": {
+    "title": "My visits",
+    "today": "Today",
+    "none": "No visits for you today.",
+    "open": "Open",
+    "back": "My visits",
+    "f": {
+      "customer": "Customer",
+      "site": "Site",
+      "service": "Service",
+      "when": "Scheduled",
+      "technician": "Technician",
+      "checkin": "Checked in",
+      "checkout": "Checked out",
+      "phone": "Phone"
+    },
+    "checkin": {
+      "title": "Check in",
+      "hint": "Check in when you arrive. Your position is saved if the browser shares it.",
+      "submit": "Check in",
+      "done": "Checked in at {when}"
+    },
+    "photos": {
+      "title": "Photos",
+      "before": "Before",
+      "after": "After",
+      "none": "No photos yet.",
+      "file": "Photo",
+      "caption": "Caption",
+      "add": "Add a photo",
+      "limit": "A photo is at most 10 MB (JPEG, PNG or WebP).",
+      "not_stored": "Photo not stored"
+    },
+    "parts": {
+      "title": "Parts used",
+      "description": "Part",
+      "qty": "Quantity",
+      "price": "Unit price (AED)",
+      "add": "Add part",
+      "none": "No parts yet.",
+      "remove": "Remove",
+      "total": "Total (AED)"
+    },
+    "notes": {
+      "title": "Notes",
+      "save": "Save notes"
+    },
+    "signature": {
+      "title": "Customer's signature",
+      "name": "Name of the person signing",
+      "draw": "Sign in the box",
+      "clear": "Clear",
+      "save": "Save signature",
+      "saved": "Signed by {name}",
+      "none": "Not signed yet."
+    },
+    "checkout": {
+      "title": "Check out",
+      "hint": "Check out when the work is finished. Photos and a signature are not required.",
+      "submit": "Check out",
+      "done": "Checked out at {when}"
+    },
+    "summary": {
+      "title": "Summary for the report",
+      "hint": "Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.",
+      "en": "Summary (English)",
+      "ar": "Summary (Arabic)",
+      "save": "Save summary",
+      "ai_off": "The AI draft is off: write the summary yourself."
+    },
+    "report": {
+      "title": "Visit report",
+      "en": "Report (English)",
+      "ar": "Report (Arabic)"
+    },
+    "closed": "This visit is closed.",
+    "visit": "Visit",
+    "open_visit": "Open the visit",
+    "err": {
+      "position": "The position is not valid.",
+      "part": "Name the part (up to 200 characters).",
+      "qty": "Enter a quantity above 0 with at most two decimals.",
+      "price": "Enter the price in AED, for example 120 or 120.50.",
+      "notes": "Notes are at most 2000 characters.",
+      "summary": "A summary is at most 400 characters.",
+      "signature": "Draw the signature first.",
+      "signed_by": "Enter the name of the person signing.",
+      "phase": "Choose before or after."
+    }
+  },
+  "report_page": {
+    "title": "Visit report {job}",
+    "service": "Service",
+    "technician": "Technician",
+    "visit": "Visit",
+    "summary": "Summary",
+    "parts": "Parts used",
+    "pdf": "Download the PDF"
+  },
+  "invoices": {
+    "title": "Invoices",
+    "back": "All invoices",
+    "none": "No invoices found.",
+    "filter": "Filter",
+    "payments": "Payments",
+    "no_payments": "No payments yet.",
+    "pdf_en": "Invoice (English PDF)",
+    "pdf_ar": "Invoice (Arabic PDF)",
+    "statement": "Customer statement (PDF)",
+    "issue": "Issue the tax invoice",
+    "issue_hint": "Needs a recent second factor. The customer gets a link to the invoice.",
+    "view": "Invoice {number}",
+    "status": {
+      "issued": "Issued",
+      "part-paid": "Part paid",
+      "paid": "Paid",
+      "credited": "Credited",
+      "overdue": "Overdue",
+      "open": "Open"
+    },
+    "method": {
+      "cash": "Cash",
+      "transfer": "Bank transfer",
+      "cheque": "Cheque"
+    },
+    "f": {
+      "number": "Invoice",
+      "customer": "Customer",
+      "status": "Status",
+      "total": "Total",
+      "paid": "Paid",
+      "balance": "Balance",
+      "due": "Due",
+      "issued": "Issued",
+      "job": "Job",
+      "credit_note": "Credit note",
+      "method": "Method",
+      "amount": "Amount (AED)",
+      "date": "Date received",
+      "reference": "Reference",
+      "cheque_number": "Cheque number",
+      "cheque_date": "Cheque date",
+      "reason": "Reason",
+      "contract": "Contract"
+    },
+    "pay": {
+      "title": "Record a payment",
+      "submit": "Record payment",
+      "hint": "A cheque needs its number and date. More than the balance is refused."
+    },
+    "credit": {
+      "title": "Credit note",
+      "hint": "Credits the whole invoice and cancels the job. Payments already received are not refunded here.",
+      "submit": "Issue the credit note"
+    },
+    "link": {
+      "title": "Link for the customer",
+      "submit": "Make a new link"
+    },
+    "err": {
+      "method": "Choose cash, bank transfer or cheque.",
+      "amount": "Enter the amount in AED, for example 120 or 120.50.",
+      "date": "Enter a date as YYYY-MM-DD.",
+      "reference": "A reference is at most 120 characters.",
+      "cheque_number": "A cheque needs its number.",
+      "reason": "Give a reason of 3 to 200 characters.",
+      "overpay": "The payment is more than the balance of the invoice."
+    }
+  },
+  "contracts": {
+    "title": "Maintenance contracts",
+    "back": "All contracts",
+    "new": "New contract",
+    "create": "Create the draft",
+    "none": "No contracts found.",
+    "filter": "Filter",
+    "cancel": "Cancel the contract",
+    "items": "Services and sites",
+    "add_item": "Add a service at a site",
+    "remove": "Remove",
+    "no_items": "No items yet.",
+    "visits": "Visits made",
+    "no_visits": "No visits yet. The daily job makes each visit as a job 14 days before it falls due.",
+    "pdf_en": "Contract (English PDF)",
+    "pdf_ar": "Contract (Arabic PDF)",
+    "price_hint": "The yearly price before VAT. The tax invoice adds 5 % VAT; a contract with no price issues no invoice.",
+    "status": {
+      "draft": "Draft",
+      "active": "Active",
+      "expired": "Expired",
+      "cancelled": "Cancelled"
+    },
+    "f": {
+      "number": "Contract",
+      "customer": "Customer",
+      "status": "Status",
+      "term": "Term",
+      "price": "Price (AED)",
+      "price_year": "Yearly price before VAT (AED)",
+      "vat": "VAT",
+      "total": "Total with VAT",
+      "items": "Items",
+      "item": "Item",
+      "site": "Site",
+      "service": "Service",
+      "visits": "Visits a year",
+      "next_visit": "Next visit due",
+      "due": "Due",
+      "job": "Job",
+      "starts": "Starts on",
+      "ends": "Ends on (blank: one year)",
+      "notes": "Notes",
+      "invoice": "Upfront invoice",
+      "renewed_from": "Renews",
+      "renewal": "Renewed by"
+    },
+    "activate": {
+      "title": "Activate",
+      "hint": "Activating issues the upfront tax invoice for the yearly price (needs a recent second factor and the right to issue invoices) and starts the visits.",
+      "submit": "Activate the contract"
+    },
+    "renew": {
+      "title": "Renew",
+      "hint": "Makes a draft for the next year with the same items and price.",
+      "submit": "Renew for the next year"
+    },
+    "err": {
+      "customer": "Choose a customer of this branch.",
+      "date": "Enter a date as YYYY-MM-DD.",
+      "term": "The contract cannot end before it starts.",
+      "price": "Enter the yearly price in AED, for example 2400 or 2400.50.",
+      "notes": "Notes are at most 1000 characters.",
+      "site": "Choose a site of this customer.",
+      "service": "Choose a service.",
+      "visits": "Enter 1 to 52 visits a year.",
+      "item": "Unknown item.",
+      "no_items": "Add at least one service and site before activating."
+    }
+  },
+  "appreports": {
+    "nav": {
+      "sales": "Sales (VAT)",
+      "technicians": "Jobs per technician",
+      "amc": "Contract renewals",
+      "outstanding": "Outstanding invoices"
+    },
+    "from": "From",
+    "to": "To",
+    "show": "Show",
+    "none": "No data for this period.",
+    "export": "Export",
+    "format": "Format",
+    "download": "Download",
+    "technicians": {
+      "title": "Jobs per technician"
+    },
+    "amc": {
+      "title": "Contract renewals",
+      "hint": "Maintenance contracts that end in the period (the next 90 days unless you choose another)."
+    },
+    "outstanding": {
+      "title": "Outstanding invoices",
+      "hint": "Open invoices by age since issue, in AED, as of"
+    },
+    "col": {
+      "technician": "Technician",
+      "jobs_done": "Jobs done",
+      "hours": "Hours on site",
+      "parts": "Parts (AED)",
+      "contract": "Contract",
+      "customer": "Customer",
+      "ends_on": "Ends on",
+      "price": "Yearly price (AED)",
+      "renewal": "Renewal",
+      "days_0_30": "0-30 days",
+      "days_31_60": "31-60 days",
+      "days_over_60": "Over 60 days",
+      "balance": "Balance",
+      "total": "Total"
+    },
+    "renewal": {
+      "renewed": "Renewed",
+      "expired": "Expired",
+      "reminded": "Customer reminded",
+      "due": "Due"
+    }
+  },
+  "invoice_page": {
+    "title": "Tax invoice {number}"
+  },
+  "backoffice": {
+    "title": "Back office",
+    "open_work": "Work list",
+    "nav": {
+      "dashboard": "Dashboard",
+      "settings": "Branding",
+      "branches": "Branches",
+      "users": "People",
+      "audit": "Audit trail",
+      "menu": "Back office"
+    },
+    "tiles": {
+      "jobs_today": "Jobs today",
+      "open_invoices": "Open invoices",
+      "amc_renewals": "Contracts ending this month",
+      "branch": "Branch: {branch}"
+    },
+    "settings": {
+      "title": "Branding and settings",
+      "saved": "Saved.",
+      "logo_changed": "Logo replaced.",
+      "f": {
+        "brand_name": "Company name (English)",
+        "brand_name_ar": "Company name (Arabic)",
+        "logo": "Logo",
+        "color": "Brand colour",
+        "footer_en": "Footer (English)",
+        "footer_ar": "Footer (Arabic)",
+        "sender": "Sender name",
+        "accounts_email": "Accounts email",
+        "sandbox": "WhatsApp sandbox: show the messages here instead of sending them"
+      },
+      "logo_limit": "PNG, JPEG or WebP, up to 512 KB.",
+      "logo_none": "No logo yet.",
+      "sender_hint": "Signs the emails to customers.",
+      "accounts_hint": "The nightly report module reads its own address from renox.toml; this one is the invoices' contact.",
+      "save": "Save settings"
+    },
+    "branches": {
+      "title": "Branches",
+      "none": "No branches.",
+      "create": "Add a branch",
+      "create_submit": "Create branch",
+      "edit": "Edit",
+      "save": "Save",
+      "created": "Branch created.",
+      "updated": "Branch saved.",
+      "slug": "Address name",
+      "members": "Members",
+      "f": {
+        "name_en": "Name (English)",
+        "name_ar": "Name (Arabic)",
+        "phone": "Phone",
+        "emirate": "Emirate",
+        "area": "Area",
+        "address": "Address"
+      },
+      "note": "A branch is an organisation of the org module: its name there does not change here."
+    },
+    "users": {
+      "title": "People of the branch",
+      "branch": "Branch: {branch}",
+      "none": "No members.",
+      "invite": "Invite someone",
+      "invite_submit": "Send invitation",
+      "email": "Email",
+      "name": "Name",
+      "roles": "Roles",
+      "twofa": "Second factor",
+      "twofa_on": "On",
+      "twofa_off": "Off",
+      "twofa_needed": "Needs a second factor before sensitive actions.",
+      "setup": "Set up second factor (account page)",
+      "role": "Role",
+      "set_role": "Change role",
+      "remove": "Remove from branch",
+      "you": "You",
+      "pending": "Waiting for an answer",
+      "pending_none": "No pending invitations.",
+      "invited": "Invitation sent.",
+      "role_set": "Role changed.",
+      "removed": "Removed from the branch.",
+      "claimed": "Roles applied to people who joined.",
+      "no_role": "No role",
+      "role_names": {
+        "owner": "Owner",
+        "branch_manager": "Branch manager",
+        "dispatcher": "Dispatcher",
+        "technician": "Technician",
+        "accountant": "Accountant"
+      }
+    },
+    "audit": {
+      "title": "Audit trail",
+      "action": "Action",
+      "actor": "Actor",
+      "all": "All actions",
+      "filter": "Filter",
+      "when": "When",
+      "result": "Result",
+      "source": "Source",
+      "none": "No events match.",
+      "hint": "Sensitive decisions come from the platform's own record; the rest are written by the app.",
+      "denied": "The trail needs the audit.read action."
+    }
+  }
+}

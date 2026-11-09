@@ -1,0 +1,703 @@
+/*
+ * renox-ui v2 "dot matrix": the Renoxium design system (packages/ui/README.md;
+ * ADR D24, amended by D27).
+ *
+ * One stylesheet, no build, no JavaScript. Nothing is fetched from another
+ * origin: the only file this sheet loads is the display face, served from the
+ * app's own public/ folder (/doto-black.woff2, SIL Open Font License, the
+ * licence in /doto-OFL.txt beside it), so the CSP stays `default-src 'self'`.
+ * Every direction is a logical property, so a page with <html dir="rtl">
+ * mirrors without an override. Light is the designed reference; dark is its
+ * counterpart, not its inversion, and follows the reader's system setting.
+ *
+ * Apps copy this file, the font and the licence into their public/ folder
+ * unchanged; a test in each app checks the copies equal the sources. The
+ * app's own styles go in a second stylesheet loaded after this one
+ * (control/dashboard/public/app.css, www/public/site.css).
+ *
+ * Visual language: a warm light ground; a dot-matrix display face for
+ * headlines and big numbers (the brand's voice: a node is a matrix of cells,
+ * and a lit cell is a dot); a light modern sans for text; small monospace
+ * pills for metadata; thin-line diagrams around the raised tile of the mark;
+ * black pill buttons with a small coral icon square; large rounded cards split
+ * by hairlines; decorative dot fields.
+ *
+ * Sections: 1 tokens · 2 font · 3 base · 4 type · 5 layout · 6 components ·
+ * 7 utilities · 8 dark · 9 small screens · 10 motion and print.
+ */
+
+/* 1. Tokens ---------------------------------------------------------------- */
+
+:root {
+  color-scheme: light dark;
+
+  /* Ground: warm paper, a lighter surface for cards, a sunken tone for code,
+     fields and the boxed icon. */
+  --rx-paper: #efeeea;
+  --rx-surface: #f7f7f5;
+  --rx-sunken: #e6e5e0;
+
+  /* Ink. Headlines mix ink and muted inside one sentence. Every pair of text
+     and ground below meets WCAG 2.2 AA (packages/ui/lint.ts checks them). */
+  --rx-ink: #141414;
+  --rx-ink-2: #3d3d3a;
+  --rx-muted: #66655f;
+
+  /* Hairlines: rules, table lines, diagram lines; the stronger one for fields
+     and the lines of a diagram. */
+  --rx-rule: #d9d8d2;
+  --rx-rule-strong: #c2c1ba;
+  --rx-field: #c2c1ba;
+
+  /* The accent is coral, used sparingly: the icon square of the primary
+     button, a live dot, one highlight per view. It is never body text. */
+  --rx-accent: #e8634a;
+  --rx-accent-ink: #ffffff;
+  /* The primary button: a black pill with white text; in dark mode a paper
+     pill with ink text. */
+  --rx-pill: #141414;
+  --rx-pill-ink: #ffffff;
+  /* An idle cell of the mark and the dot fields. */
+  --rx-idle: #cfcec8;
+
+  /* State: always with a word or a glyph, never colour alone. */
+  --rx-ok: #1b7349;
+  --rx-ok-bg: #e1efe6;
+  --rx-warn: #8a5a00;
+  --rx-warn-bg: #f6ecd6;
+  --rx-bad: #b42f2a;
+  --rx-bad-bg: #f8e4e1;
+  --rx-info-bg: #e6e5e0;
+
+  /* Type. The display face is the one web font (D27): Doto Black, subset to
+     capitals, digits and punctuation, same origin. Text is the system sans at
+     weight 400; monospace is for small pill labels and code. */
+  --rx-font-dot: "Doto", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --rx-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans Arabic", "Geeza Pro", Tahoma, sans-serif;
+  --rx-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
+
+  /* Spacing: a 4 px step. */
+  --rx-1: .25rem;
+  --rx-2: .5rem;
+  --rx-3: .75rem;
+  --rx-4: 1rem;
+  --rx-5: 1.5rem;
+  --rx-6: 2rem;
+  --rx-7: 3rem;
+  --rx-8: 4.5rem;
+
+  /* Radius by rank: pills fully round, cards 16 to 20 px, controls 10 px,
+     the inner icon square 6 to 8 px, a cell 2 px. */
+  --rx-r-pill: 999px;
+  --rx-r-card: 18px;
+  --rx-r-control: 10px;
+  --rx-r-icon: 7px;
+  --rx-r-cell: 2px;
+  --rx-r-panel: var(--rx-r-card);
+  --rx-radius: var(--rx-r-control);
+  --rx-measure: 42rem;
+
+  /* The faint grid behind a hero, and the shadow that raises a tile. */
+  --rx-grid: rgb(20 20 20 / .06);
+  --rx-shadow: 0 1px 2px rgb(20 20 20 / .06), 0 12px 32px -16px rgb(20 20 20 / .25);
+}
+
+/* 2. Font ------------------------------------------------------------------ */
+
+/* The dot-matrix display face (D27): Doto Black, SIL Open Font License 1.1,
+   subset to A–Z, 0–9 and basic punctuation, served from this origin. */
+@font-face {
+  font-family: "Doto";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url(/doto-black.woff2) format("woff2");
+  unicode-range: U+0020-003F, U+0041-005F, U+00B7, U+2013-2014;
+}
+
+/* 3. Base ------------------------------------------------------------------ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--rx-paper);
+  color: var(--rx-ink);
+  font: 400 .9375rem/1.6 var(--rx-font-sans);
+  font-kerning: normal;
+}
+
+img, svg { max-inline-size: 100%; }
+
+a { color: var(--rx-ink); text-decoration: underline; text-decoration-color: var(--rx-rule-strong); text-decoration-thickness: 1px; text-underline-offset: .2em; }
+a:hover { text-decoration-color: currentColor; }
+
+:focus-visible { outline: 2px solid var(--rx-ink); outline-offset: 2px; }
+
+hr { border: 0; border-block-start: 1px solid var(--rx-rule); margin-block: var(--rx-6); }
+
+::selection { background: color-mix(in srgb, var(--rx-accent) 28%, transparent); }
+
+/* 4. Type ------------------------------------------------------------------ */
+
+/* A light modern sans: weight 400 for headings too; hierarchy from size, and
+   tight tracking on the large sizes. Headlines mix ink and muted words. */
+h1, h2, h3, h4 { line-height: 1.15; margin-block: 0 var(--rx-3); text-wrap: balance; color: var(--rx-ink); font-weight: 400; }
+h1 { font-size: 2.125rem; letter-spacing: -.03em; margin-block-end: var(--rx-4); }
+h2 { font-size: 1.375rem; letter-spacing: -.02em; margin-block-start: var(--rx-7); }
+h3 { font-size: 1.0625rem; font-weight: 500; letter-spacing: -.01em; }
+h1 + h2, h2:first-child, h1 + h3 { margin-block-start: 0; }
+h1 .muted, h2 .muted, h3 .muted { color: var(--rx-muted); }
+p, ul, ol, dl, table, pre, figure, fieldset { margin-block: 0 var(--rx-4); }
+small, .small { font-size: .8125rem; }
+.lede { font-size: 1.1875rem; line-height: 1.5; color: var(--rx-ink-2); max-inline-size: 36rem; }
+
+/* The display face: uppercase dot-matrix headlines and big numbers. Real,
+   selectable text; the dot face is only its clothing. */
+.dot {
+  font-family: var(--rx-font-dot);
+  font-weight: 900;
+  font-size: clamp(3rem, 7.5vw, 6rem);
+  line-height: .95;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  text-align: center;
+  text-wrap: balance;
+  color: var(--rx-ink);
+  margin-block: 0 var(--rx-4);
+}
+.dot .muted { color: var(--rx-muted); }
+.dot-small { font-size: clamp(1.75rem, 4vw, 3rem); }
+/* Arabic never uses the dot face: the system Arabic face, heavier. */
+:lang(ar) .dot, .dot:lang(ar) { font-family: var(--rx-font-sans); font-weight: 800; text-transform: none; letter-spacing: 0; line-height: 1.15; }
+
+/* Monospace is for code and pill labels. */
+code, kbd, samp, pre { font-family: var(--rx-font-mono); font-size: .8125rem; }
+code { padding: .1em .4em; background: var(--rx-sunken); border-radius: calc(var(--rx-r-icon) - 2px); }
+/* A code block is a sunken panel; a language pill names what it is. */
+pre {
+  position: relative;
+  padding: var(--rx-4) var(--rx-5);
+  background: var(--rx-sunken);
+  border: 1px solid var(--rx-rule);
+  border-radius: var(--rx-r-control);
+  line-height: 1.65;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+pre code { padding: 0; background: none; }
+/* Room at the end of every line for the language pill, so it never covers the code. */
+pre[data-lang] { padding-inline-end: 3.75rem; }
+pre[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  inset-block-start: var(--rx-2);
+  inset-inline-end: var(--rx-3);
+  padding: 0 .5em;
+  font: 500 .6875rem/1.5 var(--rx-font-mono);
+  color: var(--rx-muted);
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: var(--rx-r-pill);
+  text-transform: lowercase;
+}
+/* Code reads left to right on an Arabic page too. */
+code, pre, kbd, samp { direction: ltr; unicode-bidi: isolate; }
+pre { text-align: start; }
+
+.num, .n, time { font-variant-numeric: tabular-nums; }
+.n { text-align: end; }
+
+/* 5. Layout ---------------------------------------------------------------- */
+
+/* The top bar floats: a rounded surface with the mark, centred links and the
+   account actions at the end. */
+.top {
+  position: sticky;
+  inset-block-start: var(--rx-3);
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rx-2) var(--rx-5);
+  max-inline-size: 84rem;
+  margin: var(--rx-3) auto 0;
+  padding: var(--rx-2) var(--rx-3) var(--rx-2) var(--rx-5);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule);
+  border-radius: var(--rx-r-pill);
+  box-shadow: var(--rx-shadow);
+}
+.top a, .top .link { color: var(--rx-ink-2); text-decoration: none; }
+.top a:hover, .top .link:hover { color: var(--rx-ink); }
+.top .muted, .top .muted a { color: var(--rx-muted); }
+.top .lang { display: flex; gap: var(--rx-3); font-size: .8125rem; }
+/* Centred links; a dropdown chevron is text, not a script. */
+.top-links { display: flex; flex-wrap: wrap; gap: var(--rx-1) var(--rx-5); margin-inline: auto; font-size: .9375rem; }
+.top-links .chev::after { content: " ⌄"; color: var(--rx-muted); }
+
+/* The mark: a soft tile, two nested rounded squares, the inner one holding a
+   2 × 2 matrix of cells with one lit. */
+.brand { display: inline-flex; align-items: center; gap: .6em; font-weight: 500; letter-spacing: -.01em; color: var(--rx-ink); }
+.top a.brand { color: var(--rx-ink); }
+.brand::before {
+  content: "";
+  flex: none;
+  inline-size: 1.5em;
+  block-size: 1.5em;
+  border-radius: var(--rx-r-icon);
+  background:
+    radial-gradient(circle, var(--rx-accent) 0 .13em, transparent .15em) .36em .36em / .42em .42em no-repeat,
+    radial-gradient(circle, var(--rx-surface) 0 .13em, transparent .15em) .78em .36em / .42em .42em no-repeat,
+    radial-gradient(circle, var(--rx-surface) 0 .13em, transparent .15em) .36em .78em / .42em .42em no-repeat,
+    radial-gradient(circle, var(--rx-surface) 0 .13em, transparent .15em) .78em .78em / .42em .42em no-repeat,
+    linear-gradient(var(--rx-ink) 0 0) center / .9em .9em no-repeat,
+    color-mix(in srgb, var(--rx-accent) 16%, var(--rx-sunken));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rx-accent) 25%, transparent);
+}
+
+.spacer { flex: 1; }
+
+.frame { display: flex; align-items: flex-start; gap: var(--rx-5); max-inline-size: 84rem; margin-inline: auto; }
+main { flex: 1; min-inline-size: 0; padding: var(--rx-6) var(--rx-6) var(--rx-8); }
+
+/* A calm side navigation; the current item carries a small accent dot. */
+.side {
+  position: sticky;
+  inset-block-start: calc(var(--rx-3) + 3.75rem);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 13rem;
+  padding-block: var(--rx-6);
+  padding-inline: var(--rx-4) 0;
+}
+.side-title { margin: 0 0 var(--rx-3); padding-inline-start: var(--rx-3); font-weight: 500; }
+.side-title a { color: var(--rx-ink); text-decoration: none; }
+.side-group { margin: var(--rx-4) 0 var(--rx-1); padding-inline-start: var(--rx-3); font: 500 .6875rem/1.5 var(--rx-font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--rx-muted); }
+.side-group:first-child { margin-block-start: 0; }
+.side > a { display: flex; align-items: center; gap: var(--rx-2); padding: .4rem var(--rx-3); border-radius: var(--rx-r-control); color: var(--rx-ink-2); text-decoration: none; }
+.side > a::before { content: ""; flex: none; inline-size: .4rem; block-size: .4rem; border-radius: 50%; background: transparent; }
+.side > a:hover { background: var(--rx-sunken); color: var(--rx-ink); }
+.side > a.current { color: var(--rx-ink); font-weight: 500; }
+.side > a.current::before { background: var(--rx-accent); }
+
+.narrow { max-inline-size: var(--rx-measure); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: var(--rx-5) var(--rx-6); }
+.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rx-2) var(--rx-4); margin-block-end: var(--rx-3); }
+.title-row h1 { margin-block-end: 0; }
+.row, .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--rx-3); margin-block: var(--rx-2) var(--rx-4); }
+.inline { display: inline; }
+.stack > * + * { margin-block-start: var(--rx-3); }
+
+/* A soft card: a raised surface with a large radius. */
+.panel, .card, .detail, .review, .chart, .checklist, .stats, .cards {
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule);
+  border-radius: var(--rx-r-card);
+}
+.panel { padding: var(--rx-5); }
+.panel > :last-child { margin-block-end: 0; }
+.panel > h2:first-child { margin-block-start: 0; }
+
+/* A hero: centred display text on a faint grid that fades at the edges. */
+.hero {
+  position: relative;
+  padding: var(--rx-8) var(--rx-5) var(--rx-7);
+  text-align: center;
+  background-image: linear-gradient(var(--rx-grid) 1px, transparent 1px), linear-gradient(90deg, var(--rx-grid) 1px, transparent 1px);
+  background-size: 2rem 2rem;
+  background-position: center top;
+  mask-image: radial-gradient(ellipse 70% 90% at 50% 40%, #000 55%, transparent 100%);
+}
+.hero > * { position: relative; }
+.hero .lede { margin-inline: auto; }
+.hero .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--rx-3); margin-block-start: var(--rx-5); }
+
+/* 6. Components ------------------------------------------------------------ */
+
+/* Buttons are pills. The primary one is black with white text and a leading
+   coral square holding a dot grid; a `.go` button is the white pill with a
+   small dark icon square; plain buttons are quiet white pills. */
+button, .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .6rem;
+  min-block-size: 2.375rem;
+  padding: .45rem 1.1rem;
+  font: 500 .875rem/1.2 var(--rx-font-sans);
+  letter-spacing: -.005em;
+  color: var(--rx-ink);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: var(--rx-r-pill);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+button:hover, .button:hover { border-color: var(--rx-ink-2); color: var(--rx-ink); }
+button:active, .button:active { transform: translateY(1px); }
+/* The icon square: a 2 × 2 dot grid inside a small rounded square. */
+.primary::before, .go::before {
+  content: "";
+  flex: none;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  border-radius: var(--rx-r-icon);
+  background:
+    radial-gradient(circle, var(--rx-pill-ink) 0 .09em, transparent .11em) .3em .3em / .3em .3em no-repeat,
+    radial-gradient(circle, var(--rx-pill-ink) 0 .09em, transparent .11em) .6em .3em / .3em .3em no-repeat,
+    radial-gradient(circle, var(--rx-pill-ink) 0 .09em, transparent .11em) .3em .6em / .3em .3em no-repeat,
+    radial-gradient(circle, var(--rx-pill-ink) 0 .09em, transparent .11em) .6em .6em / .3em .3em no-repeat,
+    var(--rx-accent);
+}
+.go::before { background-color: var(--rx-ink); }
+/* The icon square keeps the same 10px from the pill's edge on the start side as above and below it
+   (a 38px pill, a 1px border, an 18px square: 9px of padding plus the border). */
+button.primary, .button.primary { background: var(--rx-pill); border-color: var(--rx-pill); color: var(--rx-pill-ink); padding-inline-start: .5625rem; }
+button.primary:hover, .button.primary:hover { background: color-mix(in srgb, var(--rx-pill) 85%, var(--rx-paper)); border-color: transparent; color: var(--rx-pill-ink); }
+button.go, .button.go { padding-inline-start: .5625rem; }
+button.danger, .button.danger { color: var(--rx-bad); border-color: var(--rx-bad); background: transparent; }
+button.danger:hover, .button.danger:hover { background: var(--rx-bad-bg); border-color: var(--rx-bad); }
+button.link { min-block-size: 0; padding: 0; border: 0; background: none; font-weight: 400; color: inherit; }
+button.link:hover { color: var(--rx-ink); text-decoration: underline; }
+button:disabled, .button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+td button, td .button { min-block-size: 1.875rem; padding: .2rem .75rem; font-size: .8125rem; }
+
+/* Fields. A label wraps its field: text above, field below. */
+label { display: inline-flex; flex-direction: column; gap: var(--rx-1); font-size: .8125rem; font-weight: 500; color: var(--rx-ink-2); }
+input, select, textarea {
+  min-block-size: 2.375rem;
+  padding: .45rem .8rem;
+  font: 400 .9375rem/1.3 var(--rx-font-sans);
+  color: var(--rx-ink);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-field);
+  border-radius: var(--rx-r-control);
+}
+input:hover, select:hover, textarea:hover { border-color: var(--rx-ink-2); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--rx-ink); outline-offset: 1px; }
+input[type="checkbox"], input[type="radio"] { min-block-size: 0; inline-size: 1rem; block-size: 1rem; margin: 0; accent-color: var(--rx-ink); }
+input[type="file"] { padding: .3rem; }
+textarea { min-block-size: 6rem; resize: vertical; }
+input:user-invalid { border-color: var(--rx-bad); }
+label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { flex-direction: row; align-items: center; gap: var(--rx-2); font-size: .9375rem; font-weight: 400; color: var(--rx-ink); }
+
+fieldset { padding: 0; border: 0; }
+legend { padding: 0 0 var(--rx-2); font-size: .8125rem; font-weight: 500; color: var(--rx-ink-2); }
+/* Choices in a fieldset: one soft card each, the description under the name. */
+fieldset > label:has(> input[type="radio"]), fieldset > label:has(> input[type="checkbox"]) {
+  display: grid;
+  grid-template-columns: 1rem 1fr;
+  align-items: baseline;
+  gap: .15rem var(--rx-3);
+  padding: var(--rx-3) var(--rx-4);
+  margin-block-end: var(--rx-2);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule);
+  border-radius: var(--rx-r-control);
+  cursor: pointer;
+}
+fieldset > label:has(> input:checked) { border-color: var(--rx-ink); }
+fieldset > label > input { grid-row: span 2; align-self: start; margin-block-start: .2rem; }
+fieldset > label > .muted { grid-column: 2; font-size: .875rem; }
+form > label, form > fieldset, form > p, x-form > label { margin-block-end: var(--rx-4); }
+form > label > input, form > label > select, form > label > textarea { inline-size: 100%; max-inline-size: 28rem; }
+.row > label > input, .filters > label > input, .filters > label > select { inline-size: auto; }
+/* In a row the fields and the button share one bottom edge: no field margin there. */
+.row > label, .filters > label, .row > fieldset { margin-block-end: 0; }
+
+/* Tables: hairlines between rows; a quiet header in sentence case. */
+.list { inline-size: 100%; border-collapse: collapse; margin-block: var(--rx-2) var(--rx-5); font-size: .875rem; }
+.list th, .list td { padding: .6rem var(--rx-3); text-align: start; vertical-align: top; border-block-end: 1px solid var(--rx-rule); }
+.list th:first-child, .list td:first-child { padding-inline-start: 0; }
+.list th:last-child, .list td:last-child { padding-inline-end: 0; }
+.list thead th { padding-block: .45rem; font: 500 .8125rem/1.5 var(--rx-font-sans); color: var(--rx-muted); white-space: nowrap; }
+.list th.n, .list td.n { text-align: end; }
+.list tbody th { font-weight: 500; color: var(--rx-ink-2); }
+.list td { font-variant-numeric: tabular-nums; }
+.list .n { text-align: end; }
+/* The template engine marks a cell that shows user text dir="auto", so Latin
+   text keeps its order on an Arabic page. Such a cell resolves to ltr there,
+   which would flip its own start, end and inline padding: put them back to the
+   row's sides. A number cell keeps its value in a span (the cell stays rtl). */
+[dir="rtl"] .list td[dir="auto"]:dir(ltr),
+[dir="rtl"] :is(h1, h2, h3, p, li, dd, .value)[dir="auto"]:dir(ltr) { text-align: end; }
+[dir="rtl"] .list td[dir="auto"]:dir(ltr):first-child { padding-inline: var(--rx-3) 0; }
+[dir="rtl"] .list td[dir="auto"]:dir(ltr):last-child { padding-inline: 0 var(--rx-3); }
+[dir="rtl"] .list td[dir="auto"]:dir(ltr):first-child:last-child { padding-inline: 0; }
+.list tbody tr:last-child td { border-block-end: 0; }
+.list code { padding: 0; background: none; }
+.list tr.bad td { color: var(--rx-bad); }
+
+/* Messages: a soft card with a start-edge rule in the state's colour. */
+.notice, .problem, .warning {
+  margin-block: 0 var(--rx-4);
+  padding: var(--rx-3) var(--rx-4);
+  border-radius: var(--rx-r-control);
+  border: 1px solid var(--rx-rule);
+  border-inline-start: 3px solid;
+  background: var(--rx-surface);
+}
+.notice { border-inline-start-color: var(--rx-ok); background: var(--rx-ok-bg); }
+.problem { border-inline-start-color: var(--rx-bad); background: var(--rx-bad-bg); }
+.warning { border-inline-start-color: var(--rx-warn); background: var(--rx-warn-bg); }
+.notice > :last-child, .problem > :last-child, .warning > :last-child { margin-block-end: 0; }
+.problem p, .problem ul { margin-block: 0 var(--rx-1); }
+.problem-inline { color: var(--rx-bad); }
+
+.banner { margin: 0; padding: var(--rx-2) var(--rx-5); font-weight: 500; border: 0; border-radius: 0; }
+.banner.impersonation { background: var(--rx-bad); color: #fff; }
+.banner.impersonation code { color: inherit; background: rgb(255 255 255 / .18); }
+
+/* Status. The glyph in the text (● ○ ✗) carries the shape; this, the colour. */
+.ok { color: var(--rx-ok); }
+.bad { color: var(--rx-bad); }
+.warn { color: var(--rx-warn); }
+
+/* A pill tag: a small monospace label in a rounded hairline capsule, for
+   metadata (request, isolate, sqlite), hashes and states. `.tag` is the same
+   thing under its older name. A state pill carries a glyph before its word. */
+.pill, .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .4em;
+  padding: .1rem .6rem;
+  font: 500 .75rem/1.6 var(--rx-font-mono);
+  letter-spacing: 0;
+  color: var(--rx-ink-2);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: var(--rx-r-pill);
+  white-space: nowrap;
+  text-decoration: none;
+  vertical-align: middle;
+}
+.pill code, .tag code { padding: 0; background: none; font-size: inherit; color: inherit; }
+.pill.ok { color: var(--rx-ok); border-color: color-mix(in srgb, var(--rx-ok) 45%, transparent); background: var(--rx-ok-bg); }
+.pill.warn { color: var(--rx-warn); border-color: color-mix(in srgb, var(--rx-warn) 45%, transparent); background: var(--rx-warn-bg); }
+.pill.bad { color: var(--rx-bad); border-color: color-mix(in srgb, var(--rx-bad) 45%, transparent); background: var(--rx-bad-bg); }
+.pill.quiet { color: var(--rx-muted); background: transparent; }
+/* A live dot: the one accent on a status. */
+.live::before { content: ""; inline-size: .5em; block-size: .5em; border-radius: 50%; background: var(--rx-accent); }
+
+/* Facts in a line, spaced rather than joined with dots. */
+.meta { display: flex; flex-wrap: wrap; gap: var(--rx-1) var(--rx-5); list-style: none; padding: 0; color: var(--rx-ink-2); }
+.meta > li { margin: 0; }
+
+/* A card row: one large rounded surface split into columns by hairlines. It
+   stacks on narrow screens. `.stats` (numbers over their names) and `.cards`
+   (any columns, a `.card` each) share the shape. Each column draws its end
+   and bottom rule; the negative margins tuck the outer ones under the border. */
+.stats, .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0; margin-block: 0 var(--rx-5); overflow: hidden; }
+/* Numbers over their names wrap as a row: a short last row stretches across instead of leaving empty cells. */
+.stats { display: flex; flex-wrap: wrap; }
+.stats > div { flex: 1 1 11rem; }
+.stats > div, .cards > * { min-inline-size: 0; padding: var(--rx-5); border-inline-end: 1px solid var(--rx-rule); border-block-end: 1px solid var(--rx-rule); margin-inline-end: -1px; margin-block-end: -1px; }
+.stats > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: .15rem; }
+.stats dt { font-size: .8125rem; color: var(--rx-muted); }
+/* Labels written for the middle of a sentence still start a label with a capital. */
+.stats dt::first-letter { text-transform: uppercase; }
+.stats dd { margin: 0; font-size: 1.125rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.card { border-radius: 0; background: none; }
+.cards > .card { border-block-start: 0; border-inline-start: 0; }
+.card h3 { margin-block-end: var(--rx-1); }
+.card > :last-child { margin-block-end: 0; }
+.cards > .card-text { display: flex; flex-direction: column; justify-content: center; gap: var(--rx-3); }
+.cards > .card-text p { margin: 0; color: var(--rx-ink-2); }
+
+/* A stat: a big dot-matrix number with a small sans caption under it. Only
+   numbers that are true and measured. */
+.stat { display: flex; flex-direction: column; gap: var(--rx-2); text-align: start; }
+.stat .value, .stat > b { font-family: var(--rx-font-dot); font-weight: 900; font-size: clamp(2.25rem, 4vw, 3.25rem); line-height: 1; letter-spacing: .02em; text-transform: uppercase; color: var(--rx-ink); font-variant-numeric: tabular-nums; }
+/* A unit is read, not displayed: the text face, its own case (ms, not MS), smaller. */
+.stat .value small { margin-inline-start: .3em; font: 500 .4em/1 var(--rx-font-sans); letter-spacing: 0; text-transform: none; color: var(--rx-ink-2); }
+/* A unit before the number (a currency) keeps its gap on the other side. */
+.stat .value small.pre { margin-inline: 0 .3em; }
+.stat .caption, .stat > span { font-size: .875rem; color: var(--rx-muted); }
+:lang(ar) .stat .value, :lang(ar) .stat > b { font-family: var(--rx-font-sans); font-weight: 800; letter-spacing: 0; }
+
+/* A diagram: the mark on a raised tile in the centre, thin lines leaving it to
+   both sides, each ending in a dot and a pill tag. Flex order mirrors in RTL. */
+.flow { display: flex; align-items: center; justify-content: center; gap: 0; margin-block: var(--rx-5); }
+.flow-side { flex: 1 1 0; display: flex; flex-direction: column; gap: var(--rx-3); list-style: none; margin: 0; padding: 0; max-inline-size: 18rem; }
+.flow-side li { display: flex; align-items: center; gap: 0; }
+.flow-side li::before, .flow-side li::after { content: ""; display: block; flex: none; }
+/* The line towards the tile, and the dot where it meets the pill. */
+.flow-side .line { flex: 1 1 1.5rem; min-inline-size: 1.5rem; block-size: 1px; background: var(--rx-rule-strong); }
+.flow-side .pt { flex: none; inline-size: .45rem; block-size: .45rem; border-radius: 50%; background: var(--rx-ink); }
+.flow-side .pill { flex: none; }
+/* Start side: pill, dot, line (towards the tile at the end). */
+.flow-start li > .pill { order: 0; margin-inline-end: var(--rx-2); }
+.flow-start li > .pt { order: 1; }
+.flow-start li > .line { order: 2; }
+/* End side: line (from the tile), dot, pill. */
+.flow-end li > .line { order: 0; }
+.flow-end li > .pt { order: 1; }
+.flow-end li > .pill { order: 2; margin-inline-start: var(--rx-2); }
+.flow-side li::before, .flow-side li::after { display: none; }
+/* The tile: two nested rounded squares, the outer one tinted, raised. */
+.flow-tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 6.5rem;
+  block-size: 6.5rem;
+  margin-inline: var(--rx-3);
+  border-radius: var(--rx-r-card);
+  background: color-mix(in srgb, var(--rx-accent) 10%, var(--rx-surface));
+  border: 1px solid color-mix(in srgb, var(--rx-accent) 30%, var(--rx-rule));
+  box-shadow: var(--rx-shadow);
+}
+.flow-tile i {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .5rem;
+  padding: .75rem;
+  inline-size: 3.5rem;
+  block-size: 3.5rem;
+  border-radius: var(--rx-r-control);
+  background: var(--rx-ink);
+}
+.flow-tile i::before, .flow-tile i::after, .flow-tile b::before, .flow-tile b::after { content: ""; display: block; border-radius: 50%; background: var(--rx-surface); }
+.flow-tile i::before { background: var(--rx-accent); }
+.flow-tile b { display: contents; }
+.flow-small .flow-tile { inline-size: 4.5rem; block-size: 4.5rem; }
+.flow-small .flow-tile i { inline-size: 2.5rem; block-size: 2.5rem; gap: .35rem; padding: .55rem; }
+.flow-small .flow-side { gap: var(--rx-2); max-inline-size: 14rem; }
+
+/* Dot art: a decorative field of cells forming a shape, drawn as an inline
+   SVG (circles for idle dots, rounded squares for the cells of a node, the lit
+   ones in coral). aria-hidden; the only motion is a slow CSS pulse of the lit
+   cells, which prefers-reduced-motion stops. */
+.dots { display: block; margin: 0; }
+.dots svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
+.dots .dot-idle { fill: var(--rx-idle); }
+.dots .cell { fill: color-mix(in srgb, var(--rx-ink) 22%, var(--rx-paper)); }
+.dots .lit { fill: var(--rx-accent); animation: rx-pulse 6s ease-in-out infinite; }
+.dots .lit:nth-of-type(2n) { animation-delay: -2s; }
+@keyframes rx-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* Segmented links: ranges, filters, an app's sections. */
+.tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--rx-sunken); border-radius: var(--rx-r-pill); }
+.tabs a { padding: .25rem .8rem; font-size: .8125rem; color: var(--rx-ink-2); text-decoration: none; border-radius: var(--rx-r-pill); }
+.tabs a:hover { color: var(--rx-ink); }
+.tabs a.current { background: var(--rx-surface); color: var(--rx-ink); font-weight: 500; }
+
+.review { padding: var(--rx-5); margin-block-end: var(--rx-5); border-color: var(--rx-ink); }
+
+.detail dl, dl.pairs { display: grid; grid-template-columns: max-content 1fr; gap: var(--rx-2) var(--rx-5); }
+.detail dt, dl.pairs dt { color: var(--rx-muted); font-size: .8125rem; }
+.detail dd, dl.pairs dd { margin: 0; word-break: break-word; }
+.detail { padding: var(--rx-4) var(--rx-5); margin-block: var(--rx-4); }
+
+/* Steps of a real sequence. A done step is a lit cell. */
+.checklist { list-style: none; padding: 0; }
+.checklist li { display: flex; align-items: center; gap: var(--rx-3); padding: var(--rx-3) var(--rx-4); border-block-end: 1px solid var(--rx-rule); }
+.checklist li:last-child { border-block-end: 0; }
+.checklist li::before { content: ""; flex: none; inline-size: .6rem; block-size: .6rem; border-radius: 50%; border: 1px solid var(--rx-rule-strong); background: var(--rx-surface); }
+.checklist li.done { color: var(--rx-muted); }
+.checklist li.done::before { background: var(--rx-accent); border-color: var(--rx-accent); }
+.checklist li:not(.done) a { font-weight: 500; }
+
+.codes { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: var(--rx-2); }
+.codes code { display: block; padding: var(--rx-2); text-align: center; border: 1px dashed var(--rx-field); background: var(--rx-surface); border-radius: var(--rx-r-control); }
+
+/* Bar charts drawn as <svg><rect>: cells stacked into columns. */
+.chart { margin: 0 0 var(--rx-5); padding: var(--rx-4) var(--rx-5); }
+.chart figcaption { margin-block-end: var(--rx-2); font-size: .8125rem; font-weight: 500; color: var(--rx-ink-2); }
+/* The baseline is drawn, so an hour, or a day, with nothing in it reads as zero, not as missing. */
+.chart svg { display: block; inline-size: 100%; block-size: 5.5rem; border-block-end: 1px solid var(--rx-rule-strong); }
+.chart rect { fill: var(--rx-rule-strong); }
+.chart rect:hover { fill: var(--rx-accent); }
+
+meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; accent-color: var(--rx-ink); }
+
+/* Logs in a sunken code panel, one line each, the level as a pill. */
+.console { padding: var(--rx-3) var(--rx-4); background: var(--rx-sunken); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-control); font-family: var(--rx-font-mono); font-size: .8125rem; line-height: 1.6; }
+.console > * { border-block-end: 1px solid color-mix(in srgb, var(--rx-rule-strong) 50%, transparent); }
+.console > :last-child { border-block-end: 0; }
+
+.legal, .prose { max-inline-size: var(--rx-measure); }
+.legal p, .legal li, .prose p, .prose li { line-height: 1.7; }
+
+/* 7. Utilities ------------------------------------------------------------- */
+
+.muted { color: var(--rx-muted); }
+.mono { font-family: var(--rx-font-mono); }
+.ar { direction: rtl; text-align: start; }
+.visually-hidden { position: absolute !important; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* 8. Dark ------------------------------------------------------------------ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rx-paper: #121211;
+    --rx-surface: #1a1a19;
+    --rx-sunken: #0d0d0c;
+    --rx-ink: #f1f0ec;
+    --rx-ink-2: #c9c8c2;
+    --rx-muted: #9a9993;
+    --rx-rule: #2b2b29;
+    --rx-rule-strong: #3d3d3a;
+    --rx-field: #3d3d3a;
+    --rx-accent: #f07a62;
+    --rx-accent-ink: #121211;
+    --rx-pill: #f1f0ec;
+    --rx-pill-ink: #121211;
+    --rx-idle: #3d3d3a;
+    --rx-ok: #5fc48f;
+    --rx-ok-bg: #152319;
+    --rx-warn: #e0a540;
+    --rx-warn-bg: #27200f;
+    --rx-bad: #ff8a7e;
+    --rx-bad-bg: #2b1816;
+    --rx-info-bg: #1a1a19;
+    --rx-grid: rgb(241 240 236 / .07);
+    --rx-shadow: 0 1px 2px rgb(0 0 0 / .4), 0 12px 32px -16px rgb(0 0 0 / .8);
+  }
+  .banner.impersonation { color: #1a0d0c; }
+}
+
+/* 9. Small screens --------------------------------------------------------- */
+
+@media (max-width: 48rem) {
+  .top { position: static; margin: var(--rx-3) var(--rx-3) 0; padding: var(--rx-2) var(--rx-3) var(--rx-2) var(--rx-4); gap: var(--rx-2) var(--rx-3); }
+  .top-links { order: 10; flex-basis: 100%; justify-content: center; font-size: .875rem; }
+  .frame { flex-direction: column; align-items: stretch; gap: 0; }
+  /* The section links wrap onto a second line rather than run past the screen's edge. */
+  .side {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 2px var(--rx-1);
+    min-inline-size: 0;
+    padding: var(--rx-3) var(--rx-4) 0;
+  }
+  .side-title, .side-group { display: none; }
+  .side > a { flex: none; }
+  main { padding: var(--rx-5) var(--rx-4) var(--rx-7); }
+  .hero { padding: var(--rx-6) var(--rx-3) var(--rx-6); }
+  .list { display: block; overflow-x: auto; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
+  .flow { flex-direction: column; gap: var(--rx-4); }
+  .flow-side { max-inline-size: none; inline-size: 100%; }
+  .flow-side .line { flex: 1 1 1rem; }
+  .flow-tile { margin: 0; }
+}
+
+/* 10. Motion and print ----------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+@media print {
+  :root { --rx-paper: #fff; --rx-surface: #fff; }
+  .top, .side, .banner, button, .button, .dots { display: none !important; }
+  main { padding: 0; }
+  a { text-decoration: none; }
+}

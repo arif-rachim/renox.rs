@@ -6,12 +6,14 @@
 // to `done` (lib/visits.ts, through lib/jobs.ts); check-out also drafts the
 // report's summary with the AI and builds the PDF.
 //
-// POST ?/checkin, ?/photo (multipart `photo`, or a data URL `photo_data`, with
-// `phase` and `caption`), ?/part, ?/removePart, ?/notes, ?/signature,
+// POST ?/checkin, ?/photo_url (the file's name, type and size: answers a signed
+// upload URL as JSON, which public/upload.js PUTs the file to), ?/photo (the
+// stored `key`, with `phase` and `caption`; lib/visits.ts), ?/part, ?/removePart, ?/notes, ?/signature,
 // ?/checkout, ?/summary. A refusal answers with its status and the reason:
 // 409 (twice, closed, check in first), 413 (a photo over 10 MiB, naming the
 // limit), 415 (not an image), 422 (a form that is wrong, naming the field).
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
+import { storage } from "renox:modules";
 
 import { clock } from "../../../lib/booking-sync";
 import { check } from "../../../lib/forms";
@@ -19,9 +21,9 @@ import { shell } from "../../../lib/page";
 import { unprocessable } from "../../../lib/problems";
 import { day } from "../../../lib/quotes";
 import { aed } from "../../../lib/money";
-import { bytesOfDataUrl, imageOf, partsOf, partTotal, photosOf, type VisitRow } from "../../../lib/visit-data";
+import { imageOf, partsOf, partTotal, photosOf, type VisitRow } from "../../../lib/visit-data";
 import { checkinSchema, notesSchema, PHASES, partSchema, signatureSchema, summarySchema, type Phase } from "../../../lib/visit-forms";
-import { addPart, addPhoto, checkIn, checkOut, performerOf, removePart, saveNotes, saveSignature, setSummary, type Failure, type Result } from "../../../lib/visits";
+import { addPart, addPhoto, photoUploadUrl, checkIn, checkOut, performerOf, removePart, saveNotes, saveSignature, setSummary, type Failure, type Result } from "../../../lib/visits";
 
 export const guard = { action: "visit.perform" };
 
@@ -42,7 +44,7 @@ export async function load(ctx: LoaderContext) {
   const view = async (phase: Phase) => {
     const out = [];
     for (const p of photos.filter((x) => x.phase === phase)) {
-      out.push({ id: p.id, caption: p.caption, image: p.width !== null && p.height !== null ? await imageOf(ctx.storage, p) : null });
+      out.push({ id: p.id, caption: p.caption, image: p.width !== null && p.height !== null ? await imageOf(ctx.storage, p, 3600, storage) : null });
     }
     return out;
   };
@@ -101,21 +103,25 @@ export const actions = {
     return answer(await checkIn(ctx, ctx.params.id, input.value), back(ctx.params.id));
   },
 
+  /** Step one of a photo (`upload.js`): a signed URL for the browser's PUT, as JSON `{ url, max_bytes }`; a refusal is JSON `{ message }` with its status. */
+  async photo_url(ctx: ActionContext) {
+    const size = ctx.form.get("size");
+    const r = await photoUploadUrl(storage, ctx, ctx.params.id, {
+      name: String(ctx.form.get("name") ?? ""),
+      type: String(ctx.form.get("type") ?? ""),
+      size: typeof size === "string" && /^\d+$/u.test(size) ? Number(size) : null,
+    });
+    const headers = { "cache-control": "no-store" };
+    return r.ok ? Response.json(r.value, { headers }) : Response.json({ message: (r as Failure).message }, { status: (r as Failure).status, headers });
+  },
+
+  /** Step two: the form posts the key the upload stored, with the phase and the caption. */
   async photo(ctx: ActionContext) {
     const page = await shell(ctx);
     const phase = ctx.form.get("phase");
     if (!isPhase(phase)) return unprocessable(page.locale, { phase: "visits.err.phase" }, back(ctx.params.id));
     const caption = String(ctx.form.get("caption") ?? "").trim().slice(0, 200);
-    const file = ctx.form.get("photo");
-    let upload: { type: string; bytes: Uint8Array } | null = null;
-    if (file instanceof File && file.size > 0) {
-      upload = { type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) };
-    } else {
-      const data = ctx.form.get("photo_data");
-      upload = typeof data === "string" ? bytesOfDataUrl(data.trim()) : null;
-    }
-    if (upload === null) return plain(422, "Choose a photo to add.");
-    return answer(await addPhoto(ctx, ctx.params.id, phase, { ...upload, caption }), back(ctx.params.id));
+    return answer(await addPhoto(storage, ctx, ctx.params.id, phase, { key: ctx.form.get("key"), caption }), back(ctx.params.id));
   },
 
   async part(ctx: ActionContext) {
