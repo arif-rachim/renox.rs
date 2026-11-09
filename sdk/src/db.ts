@@ -43,3 +43,13 @@ export interface Db extends DbStatements {
    */
   scoped(scope: Scope): Db;
 }
+
+/**
+ * The transaction of a job attempt or an event delivery (ops.md sections 15
+ * and 20): its statements plus `scoped`, no nested `transaction`
+ * (neither on `ctx.db` nor on what `scoped` returns).
+ */
+export interface TxDb extends DbStatements {
+  /** The run's statements carrying `scope`, fenced as `Db.scoped` is; no `transaction`. */
+  scoped(scope: Scope): DbStatements;
+}

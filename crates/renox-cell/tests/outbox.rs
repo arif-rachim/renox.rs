@@ -59,6 +59,16 @@ fn module(name: &str, exports: serde_json::Value) -> serde_json::Value {
     })
 }
 
+/// A module that owns `<name>__owned` (`owner = user_id`), for the scoped handler case (#612).
+fn owned_module(name: &str) -> serde_json::Value {
+    let mut m = module(name, serde_json::json!({}));
+    m["authz"] = serde_json::json!({
+        "actions": [],
+        "ownership": { format!("{name}__owned"): { "owner": "user_id" } },
+    });
+    m
+}
+
 const BILLING: &str = r#"
 export async function pay(ctx, invoice, fail) {
   return ctx.db.transaction(async () => {
@@ -75,6 +85,18 @@ fn handler(module: &str) -> String {
 export const on = {{
   "billing.invoice_paid": async (ctx, e) => {{
     if (e.payload.invoice_id === "throw") throw new Error("smtp down");
+    if (e.payload.invoice_id === "scoped") {{
+      const s = ctx.db.scoped({{ user_id: "u1" }});
+      const out = {{}};
+      await s.execute("insert into {module}__owned (id, note) values (1, 'mine')");
+      try {{ await s.execute("insert into {module}__owned (id, user_id, note) values (2, 'u2', 'theirs')"); }}
+      catch (err) {{ out.code = err.code; out.reason = err.details && err.details.reason; }}
+      await ctx.db.scoped({{ user_id: "u2" }}).execute("insert into {module}__owned (id, note) values (3, 'other')");
+      out.update_changes = (await s.execute("update {module}__owned set note = 'x' where id = 3")).changes;
+      out.visible = (await s.query("select id from {module}__owned order by id")).map((r) => r.id);
+      await ctx.db.execute("insert into {module}__seen (event_id, attempt) values (?, ?)", [JSON.stringify(out), e.attempt]);
+      return;
+    }}
     if (e.payload.invoice_id === "spin") {{ const t = Date.now(); while (Date.now() - t < 200) {{}} }}
     await ctx.db.execute("insert into {module}__seen (event_id, attempt) values (?, ?)", [e.id, e.attempt]);
   }},
@@ -109,8 +131,8 @@ fn artifact(store: &Path) -> String {
         "permissions": { "network": [], "secrets": [] },
         "modules": [
             module("billing", serde_json::json!({ "services": ["pay"], "events": { "billing.invoice_paid": { "type": "object" } } })),
-            module("email", serde_json::json!({})),
-            module("audit", serde_json::json!({})),
+            owned_module("email"),
+            owned_module("audit"),
         ],
     });
     let files: Vec<(&str, String)> = vec![
@@ -144,6 +166,11 @@ fn prepare_db(data: &Path) {
     for m in ["email", "audit"] {
         db.execute(
             &format!("create table if not exists {m}__seen (event_id text, attempt integer)"),
+            &[],
+        )
+        .unwrap();
+        db.execute(
+            &format!("create table if not exists {m}__owned (id integer, user_id text, note text)"),
             &[],
         )
         .unwrap();
@@ -453,4 +480,33 @@ async fn an_idle_tenant_is_not_polled() {
         after.statements, before.statements,
         "the worker read an idle tenant"
     );
+}
+
+/// #612: an event handler gets `ctx.db.scoped()` like a request, in the
+/// delivery's transaction: the owner is filled in, an explicit other owner is
+/// refused (`RENOX_DB_SCOPE`, `owner_mismatch`), an update of another owner's
+/// row changes nothing, and a scoped read sees the owner's rows only.
+#[tokio::test]
+async fn an_event_handler_uses_db_scoped_with_the_ownership_fence() {
+    let (data, artifacts, hash) = setup();
+    let n = node(&data, &artifacts, &hash, fast());
+    n.get("invoice=scoped").await;
+    assert!(
+        eventually(Duration::from_secs(10), || seen(&data, "email").len() == 1
+            && seen(&data, "audit").len() == 1)
+        .await,
+        "{:?}",
+        seen(&data, "email")
+    );
+    for m in ["email", "audit"] {
+        let out: serde_json::Value = serde_json::from_str(&seen(&data, m)[0].0).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "code": "RENOX_DB_SCOPE", "reason": "owner_mismatch",
+                "update_changes": 0, "visible": [1],
+            }),
+            "{m}"
+        );
+    }
 }

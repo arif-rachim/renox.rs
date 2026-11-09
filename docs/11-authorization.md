@@ -67,7 +67,7 @@ Example: the refund button is hidden because `inv.amount > 10,000,000`. The user
 "shop__cart_items" = { owner = "session_id" }
 ```
 
-`db.scoped({ user_id, org_id })` rewrites statements against declared tables to add the ownership predicate (via SQLite's authorizer callback plus a statement rewriter for `SELECT/UPDATE/DELETE`). Official modules must use `scoped` for user-owned tables, and `renox check` flags unscoped access to tables with declared ownership. This is weaker than database-level RLS and is acknowledged as a trade-off (D16); authorization tests for official modules are mandatory.
+`db.scoped({ user_id, org_id })` rewrites statements against declared tables to add the ownership predicate (via SQLite's authorizer callback plus a statement rewriter for `SELECT/UPDATE/DELETE`). Official modules must use `scoped` for user-owned tables, and `renox check` flags unscoped access to tables with declared ownership. This is weaker than database-level RLS and is acknowledged as a trade-off (D16); authorization tests for official modules are mandatory. Scheduled jobs and event handlers have `db.scoped` too: their `ctx.db` is the run's transaction (`TxDb`), and the scope is always an explicit argument, never derived from the System principal they run as.
 
 ## In templates
 

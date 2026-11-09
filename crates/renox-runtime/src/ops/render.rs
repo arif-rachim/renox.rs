@@ -71,9 +71,10 @@ mod ops {
             )));
         };
         let (locale, dir) = (locale.unwrap_or_default(), dir.unwrap_or_default());
+        let principal = request.borrow().authz.principal.clone();
         let host_id = id.clone();
         let out = tokio::task::spawn_blocking(move || {
-            host.render_fragment(&host_id, &data_json, &locale, &dir)
+            host.render_fragment(&host_id, &data_json, &locale, &dir, principal)
         })
         .await
         .map_err(|_| {

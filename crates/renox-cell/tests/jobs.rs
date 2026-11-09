@@ -67,10 +67,31 @@ export async function run(ctx) {
   const p = ctx.job.payload;
   if (p && p.throw) throw new Error("smtp down");
   if (p && p.spin) await new Promise((r) => setTimeout(r, p.spin));
+  if (p && p.scoped) return probeScoped(ctx);
   await ctx.db.execute(
     "insert into app__runs (id, tick, attempt, payload, principal, kind, started, ended) values (?, ?, ?, ?, ?, ?, ?, ?)",
     [ctx.job.id, ctx.job.tick, ctx.job.attempt, JSON.stringify(p), ctx.principal.id, ctx.principal.kind, started, Date.now()],
   );
+}
+"#;
+
+/// #612: `ctx.db.scoped()` in a job, against the app's owned table `app__owned`.
+const SCOPED_PROBE: &str = r#"
+export async function probeScoped(ctx) {
+  const s = ctx.db.scoped({ user_id: "u1" });
+  const out = { type: typeof ctx.db.scoped, tx: typeof s.transaction };
+  await s.execute("insert into app__owned (id, note) values (1, 'mine')");
+  out.insert_ok = true;
+  try {
+    await s.execute("insert into app__owned (id, user_id, note) values (2, 'u2', 'theirs')");
+  } catch (e) {
+    out.code = e.code;
+    out.reason = e.details && e.details.reason;
+  }
+  await ctx.db.execute("insert into app__owned (id, user_id, note) values (3, 'u2', 'other')");
+  out.update_changes = (await s.execute("update app__owned set note = 'x' where id = 3")).changes;
+  out.visible = (await s.query("select id from app__owned order by id")).map((r) => r.id);
+  await ctx.db.execute("insert into app__probe (result) values (?)", [JSON.stringify(out)]);
 }
 "#;
 
@@ -131,6 +152,7 @@ fn artifact(store: &Path) -> String {
             { "kind": "job", "name": "report", "module": "jobs/report", "schedule": "* * * * *" },
         ],
         "permissions": { "network": [], "secrets": [] },
+        "authz": { "actions": [], "ownership": { "app__owned": { "owner": "user_id" } } },
         "modules": [module("jobs", serde_json::json!({ "services": ["list", "retry", "cancel"] }))],
     });
     let files: Vec<(&str, String)> = vec![
@@ -139,7 +161,7 @@ fn artifact(store: &Path) -> String {
             serde_json::to_string_pretty(&manifest).unwrap(),
         ),
         ("code/functions/f.js", APP.into()),
-        ("code/jobs/report.js", REPORT.into()),
+        ("code/jobs/report.js", format!("{REPORT}{SCOPED_PROBE}")),
         ("code/modules/jobs/services.js", JOBS_MODULE.into()),
     ];
     for (p, src) in &files {
@@ -166,6 +188,13 @@ fn prepare_db(data: &Path) {
         &[],
     )
     .unwrap();
+    db.execute(
+        "create table if not exists app__owned (id integer, user_id text, note text)",
+        &[],
+    )
+    .unwrap();
+    db.execute("create table if not exists app__probe (result text)", &[])
+        .unwrap();
     db.close().unwrap();
 }
 
@@ -552,4 +581,47 @@ async fn the_jobs_module_lists_retries_and_cancels_and_no_one_else_can() {
         .collect();
     assert_eq!(audit.first().map(String::as_str), Some("jobs.retry"));
     assert_eq!(audit.last().map(String::as_str), Some("jobs.cancel"));
+}
+
+/// #612: a job gets `ctx.db.scoped()` like a request: an insert into an
+/// owned table carries the owner, an explicit other owner is refused
+/// (`RENOX_DB_SCOPE`, `owner_mismatch`), an update of another owner's row
+/// changes nothing, and a scoped read sees the owner's rows only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_uses_db_scoped_with_the_ownership_fence() {
+    let (data, artifacts, hash) = setup();
+    let _ = clear_of_minute_boundary().await;
+    let n = node(&data, &artifacts, &hash);
+    let v = n.get("enqueue=%7B%22scoped%22%3Atrue%7D").await;
+    assert!(v["id"].is_string(), "{v}");
+    let probe = || {
+        let db = open(&data);
+        db.query("select result from app__probe", &[]).unwrap()
+    };
+    assert!(eventually(Duration::from_secs(10), || probe().len() == 1).await);
+    let rows = probe();
+    let Some(Value::Text(text)) = rows[0].get("result") else {
+        panic!("{rows:?}");
+    };
+    let out: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(
+        out,
+        serde_json::json!({
+            "type": "function", "tx": "undefined", "insert_ok": true,
+            "code": "RENOX_DB_SCOPE", "reason": "owner_mismatch",
+            "update_changes": 0, "visible": [1],
+        })
+    );
+    let db = open(&data);
+    let owned = db
+        .query("select id, user_id from app__owned order by id", &[])
+        .unwrap();
+    let owners: Vec<(i64, String)> = owned
+        .iter()
+        .map(|r| match (r.get("id"), r.get("user_id")) {
+            (Some(Value::Integer(i)), Some(Value::Text(u))) => (*i, u.clone()),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(owners, vec![(1, "u1".to_string()), (3, "u2".to_string())]);
 }

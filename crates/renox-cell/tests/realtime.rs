@@ -61,6 +61,10 @@ export const ws = {
   },
   async message(ctx) {
     if (ctx.data === "boom") throw new Error("message failed");
+    if (ctx.data === "gated") {
+      await ctx.realtime.publish("room:" + ctx.params.room, { fragment: "partials/gated", data: {} });
+      return;
+    }
     await ctx.realtime.publish("room:" + ctx.params.room, { fragment: "partials/msg", data: { text: ctx.data } });
   },
   async close(ctx) {
@@ -166,6 +170,10 @@ fn auth_module() -> serde_json::Value {
 fn artifact(store: &Path) -> String {
     let mut project = TemplateProject::new();
     project.insert("partials/msg.html", r#"<p class="msg">{{ text }}</p>"#);
+    project.insert(
+        "partials/gated.html",
+        r#"<p r-can="room.join">gated</p><p>open</p>"#,
+    );
     let compiled = Compiler::new(CompileOptions::default())
         .compile(&project)
         .unwrap_or_else(|d| panic!("{d:?}"));
@@ -612,6 +620,22 @@ async fn ws_round_trip_with_open_message_close() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(n.closes()[0].1, 1000);
+}
+
+/// #603: a realtime `fragment` has no principal, so `r-can` in it still
+/// denies (fail closed), even with policies deployed and a user who could
+/// otherwise hold the action; the rest of the fragment renders.
+#[tokio::test]
+async fn a_realtime_fragment_still_denies_r_can() {
+    let n = node().await;
+    let mut ws = Ws::connect(n.addr, "/ws/chat/8", Some("uid=u_alice"))
+        .await
+        .unwrap();
+    assert_eq!(ws.next_text().await, "welcome u_alice");
+    ws.text("gated").await;
+    let html = ws.next_text().await;
+    assert!(html.contains(">open</p>"), "{html}");
+    assert!(!html.contains("gated"), "{html}");
 }
 
 /// A denied `guard` answers 403 before the handshake: no upgrade, no hub

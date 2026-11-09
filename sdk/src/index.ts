@@ -112,7 +112,7 @@ export { formToObject, validate, ValidationError } from "./validate.ts";
 export { timingSafeEqual } from "./crypto.ts";
 export type { RedirectStatus, SafeRedirectOptions } from "./redirect.ts";
 export { redirect, safeRedirectTarget } from "./redirect.ts";
-export type { Db, DbStatements, ExecuteResult, Param, Row, Scope, Value } from "./db.ts";
+export type { Db, DbStatements, ExecuteResult, Param, Row, Scope, TxDb, Value } from "./db.ts";
 export type {
   AuthzErrorCode,
   DbErrorCode,

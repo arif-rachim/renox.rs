@@ -92,6 +92,7 @@ fn artifact(store: &Path, with_auth: bool) -> String {
         ("list_notes", "return await ctx.db.query('select text from app__notes order by text');".into(), "note.read", false),
         ("delete_notes", "await ctx.db.execute('delete from app__notes'); return { deleted: true, preview: ctx.tool.preview, client: ctx.tool.client.name };".into(), "note.delete", true),
         ("purge", "return 1;".into(), "note.purge", false),
+        ("book_slot", "return { error: { code: 'slot_taken', message: 'That slot is taken.' } };".into(), "note.delete", true),
         ("big_output", "return 'x'.repeat(300 * 1024);".into(), "note.read", false),
         ("leak", "return { key: ctx.secrets.API_KEY };".into(), "note.read", false),
         ("thrower", "throw new Error('failed with ' + ctx.secrets.API_KEY);".into(), "note.read", false),
@@ -324,7 +325,7 @@ async fn list_is_filtered_by_scope_and_tokens_are_required() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 6, "{names:?}");
+    assert_eq!(names.len(), 7, "{names:?}");
     let del = all.body["result"]["tools"]
         .as_array()
         .unwrap()
@@ -543,6 +544,34 @@ async fn the_confirm_flow() {
         .await;
     assert_eq!(
         (replay.status, error_code(&replay)),
+        (409, "RENOX_TOOL_CONFIRM")
+    );
+}
+
+/// A `confirm` tool whose preview returns an error object gets a tool error
+/// and no confirmation token; any token sent afterwards is refused.
+#[tokio::test]
+async fn a_preview_that_returns_an_error_gets_no_confirmation() {
+    let n = node(true);
+    let preview = n.call("tok_full", "book_slot", serde_json::json!({})).await;
+    assert_eq!(preview.status, 200, "{}", preview.body);
+    assert_eq!(preview.body["result"]["isError"], true, "{}", preview.body);
+    let content = &preview.body["result"]["structuredContent"];
+    assert_eq!(
+        content["preview"]["error"]["code"], "slot_taken",
+        "{}",
+        preview.body
+    );
+    assert!(content.get("confirmation").is_none(), "{}", preview.body);
+    let sent = n
+        .rpc(
+            Some("tok_full"),
+            "tools/call",
+            serde_json::json!({ "name": "book_slot", "arguments": {}, "_meta": { "renox/confirmation": "anything" } }),
+        )
+        .await;
+    assert_eq!(
+        (sent.status, error_code(&sent)),
         (409, "RENOX_TOOL_CONFIRM")
     );
 }

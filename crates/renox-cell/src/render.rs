@@ -23,6 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use http::{HeaderMap, Response};
+use renox_authz::Principal;
 use renox_runtime::manifest::{Manifest, TemplateKind};
 use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
@@ -277,13 +278,18 @@ impl PageRenderer {
         data_json: &str,
         locale: Option<&str>,
         dir: Option<&str>,
+        principal: Option<&Arc<Principal>>,
+        now_ms: i64,
     ) -> Result<(String, u64, f64), PartialError> {
         if !self.partials.contains(id) && !self.fragments.contains_key(id) {
             return Err(PartialError::Unknown);
         }
         let data: Value =
             serde_json::from_str(data_json).map_err(|e| PartialError::Failed(e.to_string()))?;
-        let cx = Self::with_locale_tag(self.context(None), locale, dir);
+        let mut cx = Self::with_locale_tag(self.context(None), locale, dir);
+        // `r-can` answers for the request's principal; none (realtime, or
+        // no tenant code ran) with policies denies all.
+        cx.can = self.can_with(principal, data_json, now_ms).0;
         self.renderer
             .render(RenderTarget::Page(id), data, &cx, &RenderLimits::DEFAULT)
             .map(|o| (o.html, o.fuel_used, o.ms))
@@ -327,6 +333,17 @@ impl PageRenderer {
         page: &PageRender,
         now_ms: i64,
     ) -> (Option<Arc<Can>>, Arc<Mutex<Vec<String>>>) {
+        self.can_with(page.principal.as_ref(), &page.data_json, now_ms)
+    }
+
+    /// [`Self::can_for`] for a principal and loader data not held by a
+    /// `PageRender` (`ctx.render`, realtime fragments).
+    fn can_with(
+        &self,
+        principal: Option<&Arc<Principal>>,
+        data_json: &str,
+        now_ms: i64,
+    ) -> (Option<Arc<Can>>, Arc<Mutex<Vec<String>>>) {
         use renox_authz::{PlatformContext, Reason};
         let warnings = Arc::new(Mutex::new(Vec::new()));
         let state = self
@@ -335,9 +352,9 @@ impl PageRenderer {
             .and_then(|slot| slot.read().ok().and_then(|s| s.clone()))
             .filter(|st| declares_actions(&st.engine));
         let Some(st) = state else {
-            return (data_action_set(&page.data_json).map(Arc::new), warnings);
+            return (data_action_set(data_json).map(Arc::new), warnings);
         };
-        let Some(principal) = page.principal.clone() else {
+        let Some(principal) = principal.cloned() else {
             // Policies but no principal (no tenant code ran): deny all.
             return (Some(Arc::new(Can::default())), warnings);
         };
@@ -971,6 +988,7 @@ impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
         data_json: &str,
         locale: &str,
         dir: &str,
+        principal: Option<Arc<Principal>>,
     ) -> Result<(String, u64, f64), TemplateError> {
         let some = |s: &str| (!s.is_empty()).then_some(s.to_string());
         self.0
@@ -979,6 +997,8 @@ impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
                 data_json,
                 some(locale).as_deref(),
                 some(dir).as_deref(),
+                principal.as_ref(),
+                wall_now_ms(),
             )
             .map_err(|e| match e {
                 PartialError::Unknown => TemplateError::Unknown,
@@ -989,10 +1009,24 @@ impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
 }
 
 /// The template slot of an artifact with templates; `None` without.
-pub fn pdf_templates(artifact_dir: &Path) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
+fn wall_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+/// `authz` is the deployment's slot: `ctx.render` answers `r-can` from it.
+pub fn pdf_templates(
+    artifact_dir: &Path,
+    authz: Option<renox_runtime::ops::authz::AuthzSlot>,
+) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
     let raw = std::fs::read(artifact_dir.join("manifest.json")).ok()?;
     let manifest: Manifest = serde_json::from_slice(&raw).ok()?;
-    let renderer = PageRenderer::load(artifact_dir, &manifest, "", None).ok()??;
+    let mut renderer = PageRenderer::load(artifact_dir, &manifest, "", None).ok()??;
+    if let Some(slot) = authz {
+        renderer = renderer.with_authz(slot);
+    }
     Some(renox_runtime::ops::pdf::TemplateSlot(std::sync::Arc::new(
         PdfTemplates(renderer),
     )))

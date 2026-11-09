@@ -951,7 +951,7 @@ async function runInMemory(st, id, name, payload) {
     const h = on[name];
     if (typeof h !== "function") continue;
     const e = ObjectFreeze({ id, name, payload, attempt: 1 });
-    const hctx = eventCtx(st.ctxOf(m), m, statements("current", m), e);
+    const hctx = eventCtx(st.ctxOf(m), m, actionDb("current", m), e);
     try {
       await within([[moduleVar, m]], () => h(hctx, e));
     } catch (err) {
@@ -2277,7 +2277,7 @@ function deliver(token, id, name, payloadJson, attempt, module, job) {
         throw toRenoxError(e);
       }
       const e = ObjectFreeze({ id, name, payload: JSONParse(payloadJson), attempt });
-      const hctx = eventCtx(st.ctxOf(module), module, statements(tx, module), e);
+      const hctx = eventCtx(st.ctxOf(module), module, actionDb(tx, module), e);
       try {
         await within([[txVar, tx]], () => h(hctx, e));
         if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} handler of ${name}: a callee failed`, { module, event: name, cause_code: null });
@@ -2339,7 +2339,7 @@ function deliverJob(token, id, payloadJson, attempt, module, job) {
       }
       const tick = typeof job.tick === "number" ? job.tick : null;
       const info = ObjectFreeze({ id, name: job.name, tick, attempt, payload: payloadJson === "null" ? null : ObjectFreeze(JSONParse(payloadJson)) });
-      const jctx = jobCtx(st.ctxOf(module), statements(tx, module), info);
+      const jctx = jobCtx(st.ctxOf(module), actionDb(tx, module), info);
       try {
         await within([[txVar, tx]], () => fn(jctx));
         if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} job ${job.name}: a callee failed`, { module, job: job.name, cause_code: null });

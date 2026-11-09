@@ -84,7 +84,9 @@ pub trait TemplateHost: Send + Sync {
 
     /// `ctx.render` (`ops.md` section 25): a page or partial of the
     /// deployment as a fragment, in the request's `locale` and `dir` (empty
-    /// strings: `en` and the locale's default). `(html, fuel, ms)`. Blocking.
+    /// strings: `en` and the locale's default). `principal` is the request's
+    /// (`None`: anonymous or no tenant code ran), which answers `r-can`.
+    /// `(html, fuel, ms)`. Blocking.
     /// The default knows no template, so a host without it answers
     /// [`TemplateError::Unknown`].
     fn render_fragment(
@@ -93,8 +95,9 @@ pub trait TemplateHost: Send + Sync {
         data_json: &str,
         locale: &str,
         dir: &str,
+        principal: Option<Arc<renox_authz::Principal>>,
     ) -> Result<(String, u64, f64), TemplateError> {
-        let _ = (template, data_json, locale, dir);
+        let _ = (template, data_json, locale, dir, principal);
         Err(TemplateError::Unknown)
     }
 }

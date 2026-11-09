@@ -279,6 +279,16 @@ export interface Db extends DbStatements {
   scoped(scope: Scope): Db;
 }
 
+/**
+ * The transaction of a job attempt or an event delivery (sections 15 and 20,
+ * 1.11.0): its statements plus `scoped`, no nested `transaction`
+ * (neither on `ctx.db` nor on what `scoped` returns).
+ */
+export interface TxDb extends DbStatements {
+  /** The run's statements carrying `scope`, fenced as `Db.scoped` is; no `transaction`. */
+  scoped(scope: Scope): DbStatements;
+}
+
 // ---------------------------------------------------------------------------
 // Fetch (section 2): the standard signature; the allowlist and blocked ranges
 // are enforced in Rust and surface as the Fetch* errors above.
@@ -613,7 +623,7 @@ export interface JobInfo<P = unknown> {
 
 /** The ctx of `run`: the module's ctx without the request, with the attempt's transaction and the System principal. */
 export interface JobContext<P = unknown> extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
-  readonly db: DbStatements;
+  readonly db: TxDb;
   readonly job: JobInfo<P>;
 }
 
@@ -691,7 +701,7 @@ export interface DeliveredEvent<P = unknown> extends EventInfo {
  * in the emitter's current transaction.
  */
 export interface EventContext extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
-  readonly db: DbStatements;
+  readonly db: TxDb;
   readonly event: EventInfo;
   // `principal` is the System principal of the handling module (section 17, 1.5.0).
 }
