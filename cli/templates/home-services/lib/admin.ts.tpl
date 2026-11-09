@@ -27,7 +27,7 @@ const now = (): number => Math.floor(Date.now() / 1000);
 
 // ---------------------------------------------------------------- settings
 
-export const SETTING_KEYS = ["brand_name", "brand_name_ar", "brand_color", "brand_footer_en", "brand_footer_ar", "sender_name", "accounts_email", "whatsapp_sandbox"] as const;
+export const SETTING_KEYS = ["brand_name", "brand_name_ar", "brand_color", "brand_footer_en", "brand_footer_ar", "sender_name", "accounts_email"] as const;
 
 export type BrandingInput = Record<(typeof SETTING_KEYS)[number], string>;
 
@@ -44,14 +44,13 @@ export const brandingSchema = schema<BrandingInput>(async (raw) => {
     brand_footer_ar: text(raw, "brand_footer_ar", 200),
     sender_name: text(raw, "sender_name", 80),
     accounts_email: text(raw, "accounts_email", 254),
-    whatsapp_sandbox: raw.whatsapp_sandbox === "1" ? "1" : "0",
   };
   if (v.brand_name === "" || v.brand_name.length > 80) errors.brand_name = "backoffice.err.brand_name";
   if (v.brand_name_ar.length > 80) errors.brand_name_ar = "backoffice.err.brand_name";
   if (!/^#[0-9a-fA-F]{6}$/u.test(v.brand_color)) errors.brand_color = "backoffice.err.color";
   if (v.brand_footer_en.length > 200) errors.brand_footer_en = "backoffice.err.footer";
   if (v.brand_footer_ar.length > 200) errors.brand_footer_ar = "backoffice.err.footer";
-  if (v.sender_name.length > 80) errors.sender_name = "backoffice.err.sender";
+  if (v.sender_name.length > 80 || /[<>\r\n]/u.test(v.sender_name)) errors.sender_name = "backoffice.err.sender";
   if (v.accounts_email !== "" && !EMAIL.test(v.accounts_email)) errors.accounts_email = "backoffice.err.accounts_email";
   return Object.keys(errors).length > 0 ? { errors } : { value: v };
 });
@@ -164,10 +163,15 @@ export async function createBranch(ctx: AdminCtx, input: BranchInput, activeOrg:
   return { ok: true, id };
 }
 
-/** Changes a branch's own fields. Its slug (the dispatch socket's URL) and its organisation do not change: `org` has no rename. */
+/** Changes a branch's own fields. The English name is the organisation's name too (`org.rename`); its slug (the dispatch socket's URL) and its organisation do not change. */
 export async function updateBranch(ctx: AdminCtx, id: string, input: BranchInput): Promise<boolean> {
   const won = await ctx.db.execute("update app__branches set name_en = ?, name_ar = ?, phone = ?, address = ?, emirate = ?, area = ? where id = ?", [input.name_en, input.name_ar, input.phone, input.address, input.emirate, input.area, id]);
   if (won.changes !== 1) return false;
+  const branch = await ctx.db.queryOne<{ org_id: string }>("select org_id from app__branches where id = ?", [id]);
+  if (branch !== null) {
+    const renamed = (await org.rename({ org: branch.org_id, name: input.name_en })) as { error?: string };
+    if (renamed.error !== undefined) throw new Error(`org.rename: ${renamed.error}`);
+  }
   await audit.record({ action: "branch.update", actor: { kind: "user", id: ctx.principal?.id ?? "unknown" }, resource: { type: "Branch", id } });
   return true;
 }

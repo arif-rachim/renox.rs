@@ -20,10 +20,12 @@ declare module "renox:modules" {
     sendTemplate(to: string, name: string, params?: string[], language?: string): Promise<{ id: string }>;
     send(to: string, text: string): Promise<{ id: string }>;
     /** Messages newest first; an inbound one has direction "in". */
+    /** Outgoing messages newest first (a sandbox app's would-have-sent list); a template's body is `{ name, language, components }` as JSON. */
+    outbox(limit?: number): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
     inbox(filter?: { phone?: string; direction?: "in" | "out"; limit?: number }): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
   };
   export const email: {
-    sendRaw(msg: { to: string; subject: string; text?: string; html?: string; reply_to?: string }): Promise<{ id: string | null; cancelled?: true }>;
+    sendRaw(msg: { to: string; subject: string; text?: string; html?: string; reply_to?: string; from_name?: string }): Promise<{ id: string | null; cancelled?: true }>;
     isSuppressed(address: string): Promise<boolean>;
   };
   /** The tax_gcc module: FTA tax invoices and credit notes (amounts in fils). */
@@ -43,6 +45,8 @@ declare module "renox:modules" {
   export const reports: {
     /** Rows as RFC 4180 CSV with a UTF-8 BOM and a formula guard; `headers` orders the columns. */
     csv(rows: readonly Record<string, unknown>[], headers?: string[]): Promise<string>;
+    /** Rows as a one-sheet .xlsx (bytes): numbers stay numbers, strings are never formulas; `sheet` is 1 to 31 characters. */
+    xlsx(sheet: string, rows: readonly (readonly (string | number | null)[])[]): Promise<Uint8Array>;
     /** The nightly report for the day before `nowMs`: kept as a snapshot and emailed when `email_to` is set. */
     nightly(nowMs: number): Promise<{ day: string; sent_to: string | null }>;
   };
@@ -63,6 +67,8 @@ declare module "renox:modules" {
     /** Invites by email (admin or owner of the organisation); the link goes out through the email module. */
     invite(input: { org: string; email: string; role?: "member" | "admin" | "owner" }): Promise<{ invite_id: string; expires_at: number } | { error: string }>;
     removeMember(input: { org: string; user: string }): Promise<{ ok: true } | { error: string }>;
+    /** Renames an organisation (admin or owner; 1 to 80 characters); the slug stays. */
+    rename(input: { org: string; name: string }): Promise<{ ok: true } | { error: string }>;
   };
   export const audit: {
     /** The trail, newest first (needs `audit.read`): the module's rows merged with the platform's decisions on sensitive actions. */

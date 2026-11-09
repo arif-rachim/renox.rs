@@ -2,7 +2,7 @@
 // and exit 0, an unknown command gets "did you mean", an unknown flag is
 // named, and `renox --help` is grouped. The overview is snapshotted.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { GROUPS, HELP, overview, suggest, unknownFlag } from "../src/lib/usage.ts";
@@ -25,6 +25,16 @@ test("every command of main.ts has help, and every help entry is a command", () 
   expect(names.length).toBeGreaterThan(15);
   expect([...names].sort()).toEqual(Object.keys(HELP).sort());
   for (const h of Object.values(HELP)) expect(GROUPS).toContain(h.group);
+});
+
+test("the `new` usage line and summary name every template under cli/templates/ (#618)", () => {
+  const templates = readdirSync(join(import.meta.dir, "../templates"), { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+  expect(templates.length).toBeGreaterThanOrEqual(4);
+  const line = /--template ([a-z|-]+)\]/u.exec(HELP.new?.usage[0] ?? "")?.[1]?.split("|") ?? [];
+  expect([...line].sort()).toEqual([...templates].sort());
+  for (const name of templates) expect(HELP.new?.summary).toContain(`${name}:`);
 });
 
 test("`renox <command> --help` and `-h` print that command's usage and exit 0, for every command", () => {

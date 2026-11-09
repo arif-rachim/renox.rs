@@ -6,7 +6,7 @@ exports[`renox --help groups the commands 1`] = `
 Usage: renox <command> [options]    renox <command> --help for one command
 
 Start:
-  new <name> [--template blank|hello|tutorial]
+  new <name> [--template blank|hello|tutorial|home-services]
 
 Develop:
   dev [--port 8787] [--jobs]

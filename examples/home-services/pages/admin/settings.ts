@@ -1,8 +1,7 @@
 // GET /admin/settings: the branding form. POST ?/save changes the company's
 // settings (`settings.write`, sensitive: the owner with a recent second
 // factor; every decision is audited): the names, the colour (#rrggbb; anything
-// else is a 422), the footers, the sender name, the accounts email, the WhatsApp
-// sandbox switch, and the logo (multipart `logo`: a PNG, JPEG or WebP up to
+// else is a 422), the footers, the sender name, the accounts email, and the logo (multipart `logo`: a PNG, JPEG or WebP up to
 // 512 KB, stored public under app/brand/ and loaded through /_img). The layout,
 // the PDFs, the mails and the WhatsApp texts read these settings (lib/settings.ts).
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
@@ -35,7 +34,6 @@ export async function load(ctx: LoaderContext) {
       brand_footer_ar: s.brand_footer_ar ?? "",
       sender_name: s.sender_name ?? "",
       accounts_email: s.accounts_email ?? "",
-      sandbox: s.whatsapp_sandbox === "1",
     },
   };
 }

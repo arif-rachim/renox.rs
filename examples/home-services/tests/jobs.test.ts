@@ -176,6 +176,20 @@ describe("an approved quotation becomes a job, which is scheduled with a technic
     expect(res.html).not.toContain(`value="${BILAL}@`);
   });
 
+  test("the sync runs on every page load and adds no hours, services or staff twice", async () => {
+    const count = () => ({
+      hours: rows("select count(*) as n from booking__hours where staff_id = ?", [ALI])[0]?.n,
+      weekly: rows("select count(distinct weekday) as n from booking__hours where staff_id = ?", [ALI])[0]?.n,
+      services: rows("select count(*) as n from booking__services")[0]?.n,
+      staff: rows("select count(*) as n from booking__staff")[0]?.n,
+    });
+    const before = count();
+    expect(before.hours).toBe(6); // Mon to Thu, Fri, Sat: Sunday is closed
+    for (let i = 0; i < 2; i++) expect((await dubai.page(`/jobs/${id}?day=${first.day}&technician=${ALI}`)).status).toBe(200);
+    expect(count()).toEqual(before);
+    expect(before.weekly).toBe(before.hours);
+  });
+
   test("Friday opens at 14:00, Sunday is closed", async () => {
     const fri = new Date(`${first.day}T00:00:00Z`);
     fri.setUTCDate(fri.getUTCDate() + 4);
@@ -364,10 +378,10 @@ describe("booking is told about technicians the first time they are seen", () =>
       { weekday: 5, open_min: 840, close_min: 1080 },
       { weekday: 6, open_min: 480, close_min: 1080 },
     ]);
-    // A second visit adds nothing: booking inserts a row of hours at every setHours call.
+    // A second visit adds nothing: the hours are replaced, not added, at every sync. A sync hands over the job's service only, so the technician has that one service.
     await dubai.page(`/jobs/jb_seed_01?day=${day.day}`);
     expect(rows("select count(*) as n from booking__hours where staff_id = 'u_dxb_chandra'")[0]?.n).toBe(6);
-    expect(rows("select count(*) as n from booking__staff_services where staff_id = 'u_dxb_chandra'")[0]?.n).toBe(8);
+    expect(rows("select count(*) as n from booking__staff_services where staff_id = 'u_dxb_chandra'")[0]?.n).toBe(1);
   });
 
   test("the Sharjah dispatcher's slot picker never offers Dubai's technicians", async () => {

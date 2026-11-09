@@ -174,5 +174,5 @@ hash = "8000bf02afdb68398997885bf1350a584d0a6b2fefb262d3bedea627eb2d7da4"
 isolation = "shared"
 mount = "/whatsapp"
 dependencies = []
-config = { api_version = "v21.0", sends_per_minute = 60, otp_template = "", otp_language = "en", sandbox = false, api_host = "https://graph.facebook.com" }
+config = { api_version = "v21.0", sends_per_minute = 60, otp_template = "", otp_language = "en", sandbox = true, api_host = "https://graph.facebook.com" }
 approved = { tables = "whatsapp__*", network = ["graph.facebook.com"], secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_otp"] }

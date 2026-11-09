@@ -3,7 +3,7 @@
 // open invoices by age. Each is a header row and rows (`Report`), read through
 // the branch-scoped Db of lib/scope.ts, and exported as CSV (the module's `csv`
 // service: a UTF-8 BOM, RFC 4180 quoting, a formula guard) or as an .xlsx
-// (lib/xlsx.ts). Amounts are fils, as everywhere in the app; hours have two
+// (the module's `xlsx` service). Amounts are fils, as everywhere in the app; hours have two
 // decimals. Days are Dubai days.
 import type { DbStatements } from "@renoxium/sdk";
 import { audit, reports } from "renox:modules";
@@ -11,7 +11,6 @@ import { audit, reports } from "renox:modules";
 import { addDays } from "./contract-dates";
 import { validDay } from "./contract-forms";
 import { day } from "./quotes";
-import { type Cell, xlsx } from "./xlsx";
 
 export type ReportRow = Record<string, string | number>;
 export interface Report {
@@ -149,8 +148,8 @@ export async function download(who: string, name: string, stamp: string, report:
     const body = await reports.csv(report.rows, report.headers);
     return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${file}"`, "cache-control": "no-store" } });
   }
-  const cells: Cell[][] = [report.headers, ...report.rows.map((r) => report.headers.map((h) => r[h] ?? ""))];
-  return new Response(xlsx(name, cells) as BodyInit, {
+  const cells: (string | number)[][] = [report.headers, ...report.rows.map((r) => report.headers.map((h) => r[h] ?? ""))];
+  return new Response((await reports.xlsx(name, cells)) as BodyInit, {
     headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="${file}"`, "cache-control": "no-store" },
   });
 }

@@ -276,9 +276,9 @@ export async function schedule(ctx: JobCtx, id: unknown, technicianId: string, s
   const technicians = await techniciansOf(ctx, branch);
   const tech = technicians.find((t) => t.id === technicianId);
   if (tech === undefined) return fail(422, "Choose a technician of this branch.");
-  await ensureSynced(ctx.db, branch, technicians);
   const service = await ctx.db.queryOne<{ code: string }>("select code from app__services where id = ?", [job.service_id]);
   if (service === null) return fail(422, "Unknown service.");
+  await ensureSynced(ctx.db, branch, [tech], service.code);
   const code = bookingService(service.code);
   if (!Number.isSafeInteger(startMs)) return fail(422, "Choose a start.");
   const free = (await slotsOn(code, dayOf(Math.floor(startMs / 1000)), [tech.id])).find((s) => s.start === startMs);

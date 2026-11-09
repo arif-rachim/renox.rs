@@ -20,7 +20,7 @@ export const GROUPS = ["Start", "Develop", "Deploy and operate", "Modules", "Oth
 export type Group = (typeof GROUPS)[number];
 
 export const HELP: Record<string, CommandHelp> = {
-  new: { group: "Start", usage: ["new <name> [--template blank|hello|tutorial]"], summary: "Create an app in ./<name> (hello: a function, a page and a test; blank: one function; tutorial: chapter 1 of the tutorial). Prints the next steps.", flags: ["--template"] },
+  new: { group: "Start", usage: ["new <name> [--template blank|hello|tutorial|home-services]"], summary: "Create an app in ./<name> (hello: a function, a page and a test; blank: one function; tutorial: chapter 1 of the tutorial; home-services: the reference app (docs/reference-app.md)). Prints the next steps.", flags: ["--template"] },
   dev: {
     group: "Develop",
     usage: ["dev [--port 8787] [--jobs]", "dev --worker <path>"],

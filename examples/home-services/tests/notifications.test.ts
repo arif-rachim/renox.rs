@@ -3,11 +3,12 @@
 // or "reschedule" reply becoming a task. Runs on the local worker with the
 // seed's users (password below).
 //
-// The worker cannot reach a fake Cloud API (tenant fetch refuses private
-// addresses) and the test secrets hold no WhatsApp token, so "whatsapp.send is
-// called" is read from the module's own queue: one `whatsapp__messages` row of
-// kind `template`, with the template's name, language, parameters and the
-// customer's +971 number. The module's own tests cover the Cloud API calls.
+// The app runs the `whatsapp` module in its sandbox (`sandbox = true` in
+// renox.toml): a message is recorded as sent and no API is called. "whatsapp is
+// called" is read from the module's outbox (tests/outbox.ts: `whatsapp__messages`,
+// what `whatsapp.outbox()` lists): a row of kind `template` with the template's
+// name, language, parameters and the customer's +971 number. The module's own
+// tests cover the Cloud API calls.
 import { Database } from "bun:sqlite";
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -16,6 +17,7 @@ import { app } from "@renoxium/sdk/test";
 
 import { renderMessage } from "../lib/messages";
 import { replyKind } from "../lib/reply";
+import { outboxOf } from "./outbox";
 
 setDefaultTimeout(30_000);
 const t = await app();
@@ -49,7 +51,6 @@ const rw = <T>(f: (db: Database) => T): T => {
     db.close();
   }
 };
-const setSandbox = (on: boolean) => rw((db) => db.run("update app__settings set value = ? where key = 'whatsapp_sandbox'", [on ? "1" : "0"]));
 const setContact = (id: string, phone: string, email: string | null) => rw((db) => db.run("update app__customers set phone = ?, email = ? where id = ?", [phone, email, id]));
 
 /** The day (`YYYY-MM-DD`, Dubai) of a Monday about two weeks away (the booking module takes starts at most 30 days ahead). */
@@ -65,9 +66,15 @@ async function schedule(job: string) {
   expect(slot).toBeDefined();
   return dubai.action(`/jobs/${job}`, "schedule", { slot: slot as string });
 }
-const previews = (customerId: string) => rows("select channel, to_address, template, body from app__outbox_preview where customer_id = ? order by id", [customerId]);
+const PHONE = { layla: "+971501110001", peter: "+971521110002", fatima: "+971551110003" };
+/** What the whatsapp module sent to the customer's phone (as seeded), oldest first. */
+const sent = (customerId: string) => outboxOf(rows, String(rows("select phone from app__customers where id = ?", [customerId])[0]?.phone));
+/** Waits for the module's outbox handler: in the sandbox every queued message ends as sent, with a `sandbox-` id. */
+async function settled(): Promise<void> {
+  for (let i = 0; i < 100 && Number(rows("select count(*) as n from whatsapp__messages where direction = 'out' and status = 'queued'")[0]?.n) > 0; i++) await Bun.sleep(50);
+  expect(rows("select 1 from whatsapp__messages where direction = 'out' and (status != 'sent' or wa_id not like 'sandbox-%')")).toEqual([]);
+}
 const messages = (customerId: string, kind: string) => rows("select channel, template from app__customer_messages where customer_id = ? and kind = ? order by id", [customerId, kind]);
-const waOut = (phone: string) => rows("select kind, phone, body, status from whatsapp__messages where direction = 'out' and phone = ? order by at", [phone]);
 const emails = (to: string) => rows("select subject, text_body from email__messages where to_address = ? order by at", [to]);
 
 async function hmac(secret: string, body: string): Promise<string> {
@@ -119,42 +126,44 @@ describe("the texts", () => {
   });
 });
 
-describe("with the WhatsApp sandbox on (the default)", () => {
-  test("normal case: scheduling writes the preview and sends nothing on WhatsApp", async () => {
+describe("with the whatsapp module in its sandbox (renox.toml)", () => {
+  test("normal case: scheduling queues the template in the module's outbox, sent in the sandbox", async () => {
     // Fatima Al Suwaidi (Arabic, a phone, no email): J-000008 is moved to Ali.
-    const before = rows("select count(*) as n from whatsapp__messages")[0]?.n;
     expect((await schedule("jb_seed_08")).status).toBe(303);
-    const p = previews("cu_dxb_03");
+    await settled();
+    const p = sent("cu_dxb_03");
     expect(p).toHaveLength(1);
-    expect(p[0]).toMatchObject({ channel: "whatsapp", to_address: "+971551110003", template: "visit_scheduled" });
-    // Edge case: the customer's language is Arabic: the Arabic body.
-    expect(String(p[0]?.body)).toContain("مرحباً Fatima Al Suwaidi، تم تحديد موعد زيارتك J-000008");
-    expect(messages("cu_dxb_03", "visit_scheduled")).toEqual([{ channel: "preview", template: "visit_scheduled" }]);
-    expect(rows("select count(*) as n from whatsapp__messages")[0]?.n).toBe(before);
+    expect(p[0]).toMatchObject({ kind: "template", phone: PHONE.fatima, template: "visit_scheduled", status: "sent" });
+    // Edge case: the customer's language is Arabic: the Arabic template, with her name and the job number first.
+    expect(p[0]?.language).toBe("ar");
+    expect(p[0]?.params.slice(0, 2)).toEqual(["Fatima Al Suwaidi", "J-000008"]);
+    expect(messages("cu_dxb_03", "visit_scheduled")).toEqual([{ channel: "whatsapp", template: "visit_scheduled" }]);
     expect(emails("fatima@example.com")).toEqual([]);
   });
 
-  test("a customer with a phone and an email gets the preview and the email", async () => {
+  test("a customer with a phone and an email is told on WhatsApp only", async () => {
     // Peter Nowak (English): J-000002 is scheduled.
     expect((await schedule("jb_seed_02")).status).toBe(303);
-    expect(previews("cu_dxb_02")).toHaveLength(1);
-    expect(messages("cu_dxb_02", "visit_scheduled")).toEqual([{ channel: "email", template: "visit_scheduled" }]);
-    const mail = emails("peter.nowak@example.com");
-    expect(mail).toHaveLength(1);
-    expect(mail[0]?.subject).toBe("Your visit J-000002 is scheduled");
-    expect(waOut("+971521110002")).toEqual([]);
+    await settled();
+    const p = sent("cu_dxb_02");
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ kind: "template", phone: PHONE.peter, template: "visit_scheduled", language: "en" });
+    expect(messages("cu_dxb_02", "visit_scheduled")).toEqual([{ channel: "whatsapp", template: "visit_scheduled" }]);
+    expect(emails("peter.nowak@example.com")).toEqual([]);
   });
 
   test("a quotation sent to the customer carries the approval link", async () => {
-    const before = previews("cu_dxb_04").length;
     const q = rows("select id, customer_id, number from app__quotes where status = 'draft' and branch_id = 'br_dubai' order by number limit 1")[0] as { id: string; customer_id: string; number: string };
+    const before = sent(q.customer_id).length;
     const res = await dubai.action(`/quotes/${q.id}`, "send", {});
     expect(res.status).toBe(200);
-    const sent = messages(q.customer_id, "quote_sent");
-    expect(sent).toHaveLength(1);
-    const p = previews(q.customer_id);
-    expect(p.length).toBeGreaterThan(before === 0 ? 0 : -1);
-    expect(String(p[p.length - 1]?.body)).toMatch(new RegExp(`${q.number}.*https?://[^ ]*/l/approve/[A-Za-z0-9_-]{43}`, "u"));
+    expect(messages(q.customer_id, "quote_sent")).toHaveLength(1);
+    const all = sent(q.customer_id);
+    expect(all).toHaveLength(before + 1);
+    const last = all[all.length - 1];
+    expect(last?.template).toBe("quote_sent");
+    expect(last?.text).toContain(q.number);
+    expect(last?.text).toMatch(/https?:\/\/[^ ]*\/l\/approve\/[A-Za-z0-9_-]{43}/u);
   });
 });
 
@@ -167,35 +176,30 @@ describe("a customer without a phone", () => {
     const mail = emails("layla.haddad@example.com").filter((m) => String(m.subject).includes("J-000001"));
     expect(mail).toHaveLength(1);
     expect(mail[0]?.subject).toBe("تم تحديد موعد زيارتك J-000001");
-    expect(previews("cu_dxb_01").filter((p) => p.template === "visit_scheduled")).toEqual([]);
+    expect(outboxOf(rows, PHONE.layla).filter((p) => p.template === "visit_scheduled")).toEqual([]);
     setContact("cu_dxb_01", "+971501110001", "layla.haddad@example.com");
   });
 
   test("with no email either, the message is recorded as no channel on the job's timeline", async () => {
     setContact("cu_dxb_03", "", null);
     expect((await schedule("jb_seed_08")).status).toBe(303);
-    expect(messages("cu_dxb_03", "visit_scheduled").map((m) => m.channel)).toEqual(["preview", "none"]);
+    expect(messages("cu_dxb_03", "visit_scheduled").map((m) => m.channel)).toEqual(["whatsapp", "none"]);
     const event = rows("select note from app__job_events where job_id = 'jb_seed_08' and to_status is null order by id desc limit 1")[0];
     expect(String(event?.note)).toContain("no channel");
     setContact("cu_dxb_03", "+971551110003", null);
   });
 });
 
-describe("with the sandbox off", () => {
-  test("normal case: whatsapp is called once with the visit_scheduled template and the +971 number", async () => {
-    setSandbox(false);
+describe("a second message to the same customer", () => {
+  test("moving another job of his queues a second message with the new job's number", async () => {
     // Peter again: J-000006 is moved to a new time.
     expect((await schedule("jb_seed_06")).status).toBe(303);
-    const sent = waOut("+971521110002");
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ kind: "template", phone: "+971521110002" });
-    expect(JSON.parse(String(sent[0]?.body))).toMatchObject({ name: "visit_scheduled", language: "en" });
-    expect(JSON.parse(String(sent[0]?.body)).params.slice(0, 2)).toEqual(["Peter Nowak", "J-000006"]);
-    expect(messages("cu_dxb_02", "visit_scheduled").map((m) => m.channel)).toEqual(["email", "whatsapp"]);
-    // Live means no preview and no email for this message.
-    expect(previews("cu_dxb_02")).toHaveLength(1);
-    expect(emails("peter.nowak@example.com")).toHaveLength(1);
-    setSandbox(true);
+    await settled();
+    const p = sent("cu_dxb_02");
+    expect(p).toHaveLength(2);
+    expect(p[1]).toMatchObject({ kind: "template", phone: PHONE.peter, template: "visit_scheduled", language: "en" });
+    expect(p[1]?.params.slice(0, 2)).toEqual(["Peter Nowak", "J-000006"]);
+    expect(messages("cu_dxb_02", "visit_scheduled").map((m) => m.channel)).toEqual(["whatsapp", "whatsapp"]);
   });
 });
 
@@ -204,14 +208,14 @@ describe("the technician's flow tells the customer", () => {
 
   test("on the way, then the report link that opens the report page and its PDF", async () => {
     expect((await dubai.action("/jobs/jb_seed_06", "status", { to: "en_route" })).status).toBe(303);
-    const way = previews("cu_dxb_02").filter((p) => p.template === "technician_on_the_way");
+    const way = sent("cu_dxb_02").filter((p) => p.template === "technician_on_the_way");
     expect(way).toHaveLength(1);
-    expect(String(way[0]?.body)).toContain("Ali Hassan is on the way for visit J-000006");
+    expect(way[0]?.params).toEqual(expect.arrayContaining(["Ali Hassan", "J-000006"]));
     expect((await ali.action("/me/visits/jb_seed_06", "checkin", {})).status).toBe(303);
     expect((await ali.action("/me/visits/jb_seed_06", "checkout", {})).status).toBe(303);
-    const ready = previews("cu_dxb_02").filter((p) => p.template === "report_ready");
+    const ready = sent("cu_dxb_02").filter((p) => p.template === "report_ready");
     expect(ready).toHaveLength(1);
-    reportPath = /(\/l\/report\/[A-Za-z0-9_-]{43})/u.exec(String(ready[0]?.body))?.[1] ?? "";
+    reportPath = /(\/l\/report\/[A-Za-z0-9_-]{43})/u.exec(String(ready[0]?.text))?.[1] ?? "";
     expect(reportPath).not.toBe("");
     const page = await customer.page(reportPath);
     expect(page.status).toBe(200);
@@ -286,8 +290,7 @@ describe("a customer's reply", () => {
 });
 
 describe("the ownership fence", () => {
-  test("every preview and task repeats its customer's or job's branch", () => {
-    expect(rows("select count(*) as n from app__outbox_preview p join app__customers c on c.id = p.customer_id where p.branch_id != c.branch_id")[0]?.n).toBe(0);
+  test("every task repeats its job's branch", () => {
     expect(rows("select count(*) as n from app__tasks k join app__jobs j on j.id = k.job_id where k.branch_id != j.branch_id")[0]?.n).toBe(0);
   });
 });

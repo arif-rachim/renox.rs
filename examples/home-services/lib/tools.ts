@@ -98,7 +98,7 @@ const DAYS_AHEAD = 14;
 export async function nextFreeSlots(ctx: ToolCtx, branch: Branch, serviceCode: string, fromDay: string | undefined, count = 3): Promise<FreeSlot[]> {
   const technicians = await techniciansOf(ctx, branch);
   if (technicians.length === 0) return [];
-  await ensureSynced(ctx.db, branch, technicians);
+  await ensureSynced(ctx.db, branch, technicians, serviceCode);
   const names = new Map(technicians.map((t) => [t.id, t.name]));
   const staff = technicians.map((t) => t.id);
   const start = fromDay ?? dayOf(Math.floor(Date.now() / 1000));

@@ -93,7 +93,6 @@ describe("branding", () => {
     brand_footer_ar: "المفتاح الأزرق ذ.م.م",
     sender_name: "The Blue Spanner team",
     accounts_email: "billing@bluespanner.example",
-    whatsapp_sandbox: "1",
     ...extra,
   });
   let before = "";
@@ -160,14 +159,25 @@ describe("branding", () => {
   });
 
   test("the invoice email's subject and sender carry the brand", async () => {
-    // Peter Nowak (English, with an address): his done job is invoiced by the owner.
+    // Peter Nowak (English, with an address): his done job is invoiced by the owner. With no phone the invoice goes by email (a phone gets the WhatsApp template).
+    rw((db) => db.run("update app__customers set phone = '' where id = 'cu_dxb_02'"));
     const issued = await owner.action("/jobs/jb_seed_11/invoice", "default", {});
+    rw((db) => db.run("update app__customers set phone = '+971521110002' where id = 'cu_dxb_02'"));
     expect(issued.status).toBe(303);
     const number = located(issued).replace("/invoices/", "");
-    const mail = rows("select subject, text_body from email__messages where to_address = 'peter.nowak@example.com' and subject like ?", [`%${number}%`]);
+    const mail = rows("select subject, text_body, from_name from email__messages where to_address = 'peter.nowak@example.com' and subject like ?", [`%${number}%`]);
     expect(mail).toHaveLength(1);
     expect(mail[0]?.subject).toBe(`Tax invoice ${number} from Blue Spanner`);
-    expect(String(mail[0]?.text_body).trim().endsWith("The Blue Spanner team")).toBe(true);
+    // The sender's display name is the email module's `from_name`, not a line in the body.
+    expect(mail[0]?.from_name).toBe("The Blue Spanner team");
+    expect(String(mail[0]?.text_body)).not.toContain("The Blue Spanner team");
+  });
+
+  test("error case: a sender name the email module would refuse is a 422", async () => {
+    const res = await owner.action("/admin/settings", "save", form({ sender_name: "Blue <Spanner>" }));
+    expect(res.status).toBe(422);
+    expect(res.html).toContain('id="err-sender_name"');
+    expect(setting("sender_name")).toBe("The Blue Spanner team");
   });
 });
 
@@ -195,6 +205,8 @@ describe("branches", () => {
     const res = await owner.action("/admin/branches", "update", { branch_id: "br_ajman", name_en: "Ajman City", name_ar: "مدينة عجمان", emirate: "ajman", phone: "+971 6 000 0004", area: "Al Rashidiya", address: "Ajman" });
     expect(res.status).toBe(303);
     expect(rows("select name_en, phone, area from app__branches where id = 'br_ajman'")).toEqual([{ name_en: "Ajman City", phone: "+971 6 000 0004", area: "Al Rashidiya" }]);
+    // The organisation is renamed through org.rename (its slug stays).
+    expect(rows("select o.name, o.slug from org__orgs o join app__branches b on b.org_id = o.id where b.id = 'br_ajman'")).toEqual([{ name: "Ajman City", slug: "ajman" }]);
     expect((await owner.action("/admin/branches", "update", { branch_id: "br_nowhere", name_en: "X", name_ar: "س", emirate: "dubai" })).status).toBe(404);
   });
 });

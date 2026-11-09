@@ -135,7 +135,7 @@ export const PROBLEMS: Record<string, Text> = {
   "backoffice.err.brand_name": { en: "Enter a name of 1 to 80 characters.", ar: "أدخل اسماً من 1 إلى 80 حرفاً." },
   "backoffice.err.color": { en: "Enter a colour as #rrggbb, for example #1f6f5c.", ar: "أدخل اللون بصيغة #rrggbb، مثل #1f6f5c." },
   "backoffice.err.footer": { en: "A footer is at most 200 characters.", ar: "التذييل 200 حرف كحد أقصى." },
-  "backoffice.err.sender": { en: "A sender name is at most 80 characters.", ar: "اسم المرسل 80 حرفاً كحد أقصى." },
+  "backoffice.err.sender": { en: "A sender name is at most 80 characters, with no < or > and no line break.", ar: "اسم المرسل 80 حرفاً كحد أقصى، دون < أو > ودون فواصل أسطر." },
   "backoffice.err.accounts_email": { en: "Enter a valid email address, or leave it empty.", ar: "أدخل بريداً إلكترونياً صحيحاً أو اتركه فارغاً." },
   "backoffice.err.logo_type": { en: "A logo is a PNG, JPEG or WebP image.", ar: "الشعار صورة PNG أو JPEG أو WebP." },
   "backoffice.err.logo_size": { en: "The logo is over 512 KB.", ar: "الشعار أكبر من 512 كيلوبايت." },

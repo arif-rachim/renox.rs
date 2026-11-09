@@ -10,7 +10,6 @@
     <p><label><r-t key="backoffice.settings.f.footer_ar" /> <input name="brand_footer_ar" maxlength="200" dir="rtl" :value="f.brand_footer_ar"></label></p>
     <p><label><r-t key="backoffice.settings.f.sender" /> <input name="sender_name" maxlength="80" :value="f.sender_name"></label> <small class="muted"><r-t key="backoffice.settings.sender_hint" /></small></p>
     <p><label><r-t key="backoffice.settings.f.accounts_email" /> <input name="accounts_email" type="email" dir="ltr" maxlength="254" :value="f.accounts_email"></label> <small class="muted"><r-t key="backoffice.settings.accounts_hint" /></small></p>
-    <p><label><input type="checkbox" name="whatsapp_sandbox" value="1" :checked="f.sandbox"> <r-t key="backoffice.settings.f.sandbox" /></label></p>
     <p><label><r-t key="backoffice.settings.f.logo" /> <input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
       <small class="muted"><r-t key="backoffice.settings.logo_limit" /></small>
       <img r-if="logo_src" id="current-logo" :src="logo_src" alt="" class="brand-logo"><small r-else><r-t key="backoffice.settings.logo_none" /></small></p>

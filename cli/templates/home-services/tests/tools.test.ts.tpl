@@ -9,6 +9,8 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { app } from "@renoxium/sdk/test";
 
+import { outboxOf } from "./outbox";
+
 setDefaultTimeout(60_000);
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -197,7 +199,7 @@ describe("create_job", () => {
     expect(job).toMatchObject({ status: "scheduled", technician_user_id: slot.split("@")[0], branch_id: "br_dubai", created_by: "u_dxb_dispatcher" });
     expect(job.booking_id).not.toBeNull();
     expect(Number(job.scheduled_start) * 1000).toBe(Number(slot.split("@")[1]));
-    expect(rows("select count(*) as n from app__outbox_preview where customer_id = 'cu_dxb_01' and template = 'visit_scheduled'")[0]?.n).toBe(1);
+    expect(outboxOf(rows, "+971501110001").filter((m) => m.template === "visit_scheduled")).toHaveLength(1);
     expect(rows("select count(*) as n from app__job_events where job_id = (select id from app__jobs where number = ?) and to_status = 'scheduled'", [number])[0]?.n).toBe(1);
     // The confirmation is single use.
     expect((await call(dinaToken, "create_job", args(slot), first.out.confirmation?.token)).status).toBe(409);
@@ -219,19 +221,19 @@ describe("create_job", () => {
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(jobs);
   });
 
-  test("error case: a technician's and an accountant's token are refused (forbidden, nothing written); an unverified user's is a 403", async () => {
+  test("error case: a technician's and an accountant's token are refused by the cell (403, nothing written); an unverified user's is a 403", async () => {
     const free = ((await call(dinaToken, "next_free_slot", { service: "AC-SERVICE", from: day })).out.slots as { slot: string }[])[0]?.slot as string;
     const jobs = rows("select count(*) as n from app__jobs")[0]?.n;
     for (const token of [aliToken, accountantToken]) {
-      // The cell lets the token through (it names no roles); the tool asks the policies with the user's roles and answers forbidden
-      // on the preview. A preview that returns an error is a tool error with no confirmation (#609), so no token can confirm it.
+      // The token's principal carries the user's roles and branch (#590), so the cell's check of the tool's action
+      // (job.write: the dispatcher's, the branch manager's and the owner's) refuses a technician's and an accountant's
+      // token before the tool runs: a 403, no preview and no confirmation token. A made-up confirmation is refused
+      // as such (409) before the action is checked.
       const preview = await call(token, "create_job", args(free));
-      expect(preview.status, preview.text).toBe(200);
-      expect(preview.isError).toBe(true);
-      expect(preview.out.preview).toMatchObject({ error: "forbidden" });
-      expect(preview.out.confirmation).toBeUndefined();
+      expect(preview.status, preview.text).toBe(403);
+      expect(preview.text).toContain("RENOX_FORBIDDEN");
       const confirmed = await call(token, "create_job", args(free), "any-token");
-      expect(confirmed.status).toBe(409);
+      expect(confirmed.status, confirmed.text).toBe(409);
       expect(confirmed.text).toContain("RENOX_TOOL_CONFIRM");
     }
     const unverified = await call(strangerToken, "create_job", args(free));
