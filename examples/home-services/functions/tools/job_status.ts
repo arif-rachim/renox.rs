@@ -26,13 +26,13 @@ export default tool({
     const { jobResource } = await import("../../lib/jobs");
     const { day } = await import("../../lib/quotes");
     const { techniciansOf } = await import("../../lib/technicians");
-    const { branchesOfUser, fenced, refuse } = await import("../../lib/tools");
+    const { branchesOfToken, fenced, refuse } = await import("../../lib/tools");
     // The run gets the arguments as sent (the schema checks them, it does not rewrite them).
     const number = ctx.tool.input.number.trim().toUpperCase();
     const me = ctx.principal;
     if (me === null) return refuse("forbidden", "A signed-in user is required.");
-    // The number is company-wide; the branch it belongs to must be one of the user's.
-    const mine = await branchesOfUser(ctx.db, me.id);
+    // The number is company-wide; the branch it belongs to must be one the token acts in.
+    const mine = await branchesOfToken(ctx.db, me);
     if (mine.length === 0) return refuse("forbidden", "You belong to no branch.");
     const row = await ctx.db.queryOne<{ branch_id: string }>("select branch_id from app__jobs where number = ?", [number]);
     const branch = row === null ? undefined : mine.find((b) => b.id === row.branch_id);

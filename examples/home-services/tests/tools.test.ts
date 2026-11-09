@@ -152,6 +152,40 @@ describe("next_free_slot", () => {
   });
 });
 
+describe("a user of two branches", () => {
+  /** An agent token whose consent picked `orgId` (the consent page asks a user of several organisations, #590). */
+  async function tokenFor(u: Awaited<ReturnType<typeof signIn>>, orgId: string): Promise<string> {
+    const redirect = "https://agent.example/callback";
+    const verifier = "agent-verifier-0123456789abcdefghijklmnopqrstuvwxyz";
+    const reg = await t.request("POST", "/auth/oauth/register", { body: { client_name: "Booking Agent", redirect_uris: [redirect] } });
+    const clientId = reg.json<{ client_id: string }>().client_id;
+    const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    const challenge = btoa(String.fromCharCode(...d)).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+    const allow = await u.action("/auth/oauth/consent", "allow", { response_type: "code", client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", org_id: orgId });
+    expect(allow.status, allow.html).toBe(303);
+    const code = new URL(allow.headers.get("location") as string).searchParams.get("code") as string;
+    const tok = await t.request("POST", "/auth/oauth/token", {
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirect, client_id: clientId, code_verifier: verifier }).toString(),
+    });
+    expect(tok.status).toBe(200);
+    return tok.json<{ access_token: string }>().access_token;
+  }
+  const tool = async (token: string, name: string, args: Record<string, unknown>) =>
+    ((await rpc(token, "tools/call", { name, arguments: args })).json<{ result?: { structuredContent?: Record<string, unknown> } }>().result?.structuredContent ?? {}) as Record<string, unknown>;
+
+  test("a token acts in the branch picked at consent only: the other branch is unknown to it", async () => {
+    // The owner belongs to Dubai and Sharjah (seed); the consent picked Dubai.
+    const owner = await signIn("owner-agent", "owner@fixit.example");
+    const token = await tokenFor(owner, "org_dubai");
+    expect(await tool(token, "next_free_slot", { service: "AC-SERVICE" })).toMatchObject({ branch: "dubai" });
+    expect(await tool(token, "next_free_slot", { service: "AC-SERVICE", branch: "dubai" })).toMatchObject({ branch: "dubai" });
+    expect(await tool(token, "next_free_slot", { service: "AC-SERVICE", branch: "sharjah" })).toMatchObject({ error: "not_found", branches: ["dubai"] });
+    // A Sharjah job is out of reach too.
+    expect(await tool(token, "job_status", { number: "J-000017" })).toMatchObject({ error: "not_found" });
+  });
+});
+
 describe("create_job", () => {
   const day = monday(5);
   const args = (slot: string, extra: Record<string, unknown> = {}) => ({ customer_phone: "+971 50 111 0001", service: "AC-SERVICE", slot, ...extra });
