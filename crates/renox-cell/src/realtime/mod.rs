@@ -24,7 +24,7 @@
 //! while a connection is open.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
@@ -41,7 +41,6 @@ use renox_runtime::ops::realtime::{
     RtError, RtFuture, RtPayload, RtRender,
 };
 use tokio::io::AsyncReadExt;
-use tokio::sync::mpsc;
 
 use crate::cell::Cell;
 use crate::render::SharedPages;
@@ -225,7 +224,9 @@ struct Session {
     cell: Arc<Cell>,
     ctx: RequestCtx,
     route: RealtimeRoute,
-    parts: http::request::Parts,
+    /// The handshake's URI and headers, owned copies ([`owned_head`]).
+    uri: http::Uri,
+    headers: http::HeaderMap,
     session: String,
     principal: Option<Arc<renox_authz::Principal>>,
     /// The wall-clock budget of one handler run.
@@ -248,10 +249,10 @@ impl Session {
     ) {
         let mut req = Request::builder()
             .method(http::Method::GET)
-            .uri(self.parts.uri.clone())
+            .uri(self.uri.clone())
             .body(Bytes::new())
             .expect("valid request");
-        *req.headers_mut() = self.parts.headers.clone();
+        *req.headers_mut() = self.headers.clone();
         req.extensions_mut().insert(RealtimeCall {
             phase,
             conn: conn.to_string(),
@@ -291,6 +292,100 @@ impl Session {
             None => (RealtimeResult::Threw, None, status),
         }
     }
+}
+
+/// The handshake's URI and headers as owned copies (#522, B14). hyper
+/// parses them as slices of the connection's read buffer (8 KB or more),
+/// so a connection that kept the parsed values kept that whole buffer for
+/// its lifetime.
+fn owned_head(parts: &http::request::Parts) -> (http::Uri, http::HeaderMap) {
+    let uri = http::Uri::try_from(parts.uri.to_string()).unwrap_or_else(|_| parts.uri.clone());
+    let mut headers = http::HeaderMap::with_capacity(parts.headers.len());
+    for (name, value) in &parts.headers {
+        let copy = match http::HeaderValue::from_bytes(value.as_bytes()) {
+            Ok(mut v) => {
+                v.set_sensitive(value.is_sensitive());
+                v
+            }
+            Err(_) => value.clone(),
+        };
+        headers.append(name.clone(), copy);
+    }
+    (uri, headers)
+}
+
+/// A future whose panic is returned as `Err` instead of unwinding through
+/// the connection's task (the transport used to run in a task of its own,
+/// whose panic the handler side saw as a `JoinError`). The panicked future
+/// is dropped at once, as tokio drops a panicked task: the transport's
+/// inbox sender goes with it, so the handler loop ends.
+struct CatchUnwind<F>(Option<F>);
+
+impl<F: std::future::Future> std::future::Future for CatchUnwind<F> {
+    type Output = Result<F::Output, ()>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        // SAFETY: the field is structurally pinned: it is never moved out,
+        // only dropped in place (set to `None`).
+        let this = unsafe { self.get_unchecked_mut() };
+        let Some(inner) = this.0.as_mut() else {
+            return std::task::Poll::Ready(Err(()));
+        };
+        // SAFETY: `inner` lives in the pinned `self` and is not moved.
+        let inner = unsafe { std::pin::Pin::new_unchecked(inner) };
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inner.poll(cx))) {
+            Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+            Ok(std::task::Poll::Ready(v)) => {
+                this.0 = None;
+                std::task::Poll::Ready(Ok(v))
+            }
+            Err(_) => {
+                this.0 = None;
+                std::task::Poll::Ready(Err(()))
+            }
+        }
+    }
+}
+
+/// Connections accepted since the last allocator trim, process-wide (the
+/// allocator is).
+static OPENED_SINCE_TRIM: AtomicU64 = AtomicU64::new(0);
+static TRIM_SCHEDULED: AtomicBool = AtomicBool::new(false);
+/// A burst this large schedules a trim ...
+const TRIM_BURST: u64 = 256;
+/// ... once no connection was accepted for this long.
+const TRIM_QUIET: Duration = Duration::from_secs(2);
+
+/// Counts an accepted connection; after a burst, gives the handshakes'
+/// freed memory back to the OS (#522, B14). Every handshake allocates and
+/// frees far more than the connection keeps (hyper's read buffer, the
+/// request, the connect and open runs), and glibc keeps the freed pages
+/// between the connections' long-lived allocations: 10,000 connections
+/// left about 40 MB free but resident. One `malloc_trim` after the burst
+/// settles returns most of it (see `crate::alloc`, the same trim the
+/// evictions use).
+fn connection_opened() {
+    let n = OPENED_SINCE_TRIM.fetch_add(1, Ordering::AcqRel) + 1;
+    if n < TRIM_BURST || TRIM_SCHEDULED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    tokio::spawn(async {
+        let mut seen = OPENED_SINCE_TRIM.load(Ordering::Acquire);
+        loop {
+            tokio::time::sleep(TRIM_QUIET).await;
+            let now = OPENED_SINCE_TRIM.load(Ordering::Acquire);
+            if now == seen {
+                break;
+            }
+            seen = now;
+        }
+        OPENED_SINCE_TRIM.store(0, Ordering::Release);
+        TRIM_SCHEDULED.store(false, Ordering::Release);
+        let _ = tokio::task::spawn_blocking(crate::alloc::trim).await;
+    });
 }
 
 /// Serves a `ws` or `sse` route (module doc, steps 1 to 5).
@@ -352,11 +447,17 @@ pub(crate) async fn serve(
         .deadline
         .saturating_duration_since(t0)
         .max(Duration::from_secs(1));
+    let (uri, headers) = owned_head(&parts);
     let mut s = Session {
         cell: cell.clone(),
-        ctx: ctx.clone(),
+        // The CSP nonce is for pages; a connection never renders one.
+        ctx: RequestCtx {
+            csp_nonce: String::new(),
+            ..ctx.clone()
+        },
         route: route.clone(),
-        parts: parts.clone(),
+        uri,
+        headers,
         session,
         principal: None,
         wall,
@@ -433,7 +534,7 @@ pub(crate) async fn serve(
             .get("last-event-id")
             .and_then(|v| v.to_str().ok()),
     );
-    let mut conn = match host.hub.connect(ConnInfo {
+    let conn = match host.hub.connect(ConnInfo {
         user,
         transport: route.transport,
         last_event_id,
@@ -464,19 +565,9 @@ pub(crate) async fn serve(
     };
     let conn_id = conn.id.clone();
 
-    // Delivered messages are counted on their way to the transport.
-    let delivered = Arc::new(AtomicU64::new(0));
-    let (count_tx, count_rx) = mpsc::channel(host.hub.limits().queue);
-    let mut hub_rx = std::mem::replace(&mut conn.rx, count_rx);
-    let counter = delivered.clone();
-    tokio::spawn(async move {
-        while let Some(m) = hub_rx.recv().await {
-            counter.fetch_add(1, Ordering::Relaxed);
-            if count_tx.send(m).await.is_err() {
-                break;
-            }
-        }
-    });
+    // Delivered messages: what the transport took from the hub's queue
+    // (counted by the queue itself; no relay task, #522).
+    let delivered = conn.delivered();
 
     // The connection keeps the cell in flight until it ends.
     let held = crate::manager::OwnedInFlight::take(&cell);
@@ -485,65 +576,80 @@ pub(crate) async fn serve(
         Transport::Ws => {
             let upgrade = upgrade.expect("checked above");
             let response = upgrade.accept();
+            // One task per connection (#522, B14): the transport and the
+            // handler runs are polled together in it, and a handler run is
+            // boxed only while it runs, so an idle connection holds a small
+            // future and nothing else.
             tokio::spawn(async move {
                 let _held = held;
-                let Some(io) = upgrade.upgraded().await else {
+                let io = upgrade.upgraded().await;
+                // The pending upgrade holds a request header (hyper's read
+                // buffer, see `owned_head`): released with it.
+                drop(upgrade);
+                let Some(io) = io else {
                     conn.finish(1006, "handshake");
                     drop(conn);
                     record(&manager, &s, MeterStatus::Ok, 101, Some((0.0, 0)), 0);
                     return;
                 };
-                let (in_tx, mut in_rx) = mpsc::channel::<ws::Inbound>(16);
+                connection_opened();
+                let (in_tx, mut in_rx) = ws::inbox(16);
                 let opened = Instant::now();
                 let hub = host.hub.clone();
-                let serve = tokio::spawn(ws::serve(io, conn, in_tx));
-                // 3. open, then one `message` run per inbound frame, in order.
-                let (open, _, _) = s.run(RealtimePhase::Open, &conn_id, None, None).await;
-                let mut status = MeterStatus::Ok;
-                match open {
-                    RealtimeResult::Ok | RealtimeResult::NoHandler => {}
-                    RealtimeResult::Forbidden => hub.close(&conn_id, 1008, "forbidden"),
-                    RealtimeResult::Threw => {
-                        status = MeterStatus::Error;
-                        hub.close(&conn_id, 1011, "open failed");
-                    }
-                }
-                let mut received = 0u64;
-                let mut ingress = 0u64;
-                let mut has_message = true;
-                while let Some(m) = in_rx.recv().await {
-                    received += 1;
-                    let data = match m {
-                        ws::Inbound::Text(t) => {
-                            ingress += t.len() as u64;
-                            RealtimeData::Text(t)
+                let transport = CatchUnwind(Some(ws::serve(io, conn, in_tx)));
+                let conn_id = conn_id.as_str();
+                let handlers = async {
+                    // 3. open, then one `message` run per inbound frame, in order.
+                    let (open, _, _) =
+                        Box::pin(s.run(RealtimePhase::Open, conn_id, None, None)).await;
+                    let mut status = MeterStatus::Ok;
+                    match open {
+                        RealtimeResult::Ok | RealtimeResult::NoHandler => {}
+                        RealtimeResult::Forbidden => hub.close(conn_id, 1008, "forbidden"),
+                        RealtimeResult::Threw => {
+                            status = MeterStatus::Error;
+                            hub.close(conn_id, 1011, "open failed");
                         }
-                        ws::Inbound::Binary(b) => {
-                            ingress += b.len() as u64;
-                            RealtimeData::Binary(b)
-                        }
-                    };
-                    if has_message {
-                        let (r, _, _) = s
-                            .run(RealtimePhase::Message, &conn_id, Some(data), None)
-                            .await;
-                        has_message = r != RealtimeResult::NoHandler;
                     }
-                }
-                let closed = serve.await.unwrap_or(renox_realtime::Closed {
+                    let mut received = 0u64;
+                    let mut ingress = 0u64;
+                    let mut has_message = true;
+                    // Ends when the transport returned (its inbox sender is gone).
+                    while let Some(m) = in_rx.recv().await {
+                        received += 1;
+                        let data = match m {
+                            ws::Inbound::Text(t) => {
+                                ingress += t.len() as u64;
+                                RealtimeData::Text(t)
+                            }
+                            ws::Inbound::Binary(b) => {
+                                ingress += b.len() as u64;
+                                RealtimeData::Binary(b)
+                            }
+                        };
+                        if has_message {
+                            let (r, _, _) =
+                                Box::pin(s.run(RealtimePhase::Message, conn_id, Some(data), None))
+                                    .await;
+                            has_message = r != RealtimeResult::NoHandler;
+                        }
+                    }
+                    (status, received, ingress)
+                };
+                let (closed, (status, received, ingress)) = tokio::join!(transport, handlers);
+                let closed = closed.unwrap_or(renox_realtime::Closed {
                     code: 1011,
                     reason: "transport".into(),
                 });
-                let _ = s
-                    .run(
-                        RealtimePhase::Close,
-                        &conn_id,
-                        None,
-                        Some((closed.code, closed.reason.clone())),
-                    )
-                    .await;
+                let _ = Box::pin(s.run(
+                    RealtimePhase::Close,
+                    conn_id,
+                    None,
+                    Some((closed.code, closed.reason.clone())),
+                ))
+                .await;
                 let lifetime = opened.elapsed().as_secs_f64();
-                let messages = received + delivered.load(Ordering::Relaxed);
+                let messages = received + delivered.get();
                 record(
                     &manager,
                     &s,
@@ -575,6 +681,7 @@ pub(crate) async fn serve(
                     }
                 }
             });
+            connection_opened();
             tokio::spawn(async move {
                 let _held = held;
                 let opened = Instant::now();
@@ -608,7 +715,7 @@ pub(crate) async fn serve(
                     &s,
                     status,
                     200,
-                    Some((lifetime, delivered.load(Ordering::Relaxed))),
+                    Some((lifetime, delivered.get())),
                     0,
                 );
             });
@@ -626,4 +733,60 @@ pub(crate) async fn serve(
 
 fn to_body(r: Response<Bytes>) -> Response<Body> {
     r.map(Body::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A transport that panics ends as `Err` and is dropped at once, so the
+    /// handler loop waiting on its inbox ends too (#522: the transport no
+    /// longer has a task of its own).
+    #[tokio::test]
+    async fn a_panicking_transport_ends_the_handler_loop() {
+        let (tx, mut rx) = ws::inbox(16);
+        let transport = CatchUnwind(Some(async move {
+            let _sender = tx;
+            tokio::task::yield_now().await;
+            panic!("transport bug");
+        }));
+        let handlers = async {
+            let mut n = 0;
+            while rx.recv().await.is_some() {
+                n += 1;
+            }
+            n
+        };
+        let (closed, n): (Result<(), ()>, u32) = tokio::join!(transport, handlers);
+        assert_eq!(closed, Err(()));
+        assert_eq!(n, 0);
+    }
+
+    /// The owned head equals the request's, and shares no buffer with it.
+    #[test]
+    fn owned_head_copies_uri_and_headers() {
+        let raw = bytes::Bytes::from_static(b"/ws/chat/general?x=1 cookie-value");
+        let mut parts = Request::builder()
+            .uri(http::Uri::from_maybe_shared(raw.slice(0..20)).unwrap())
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        let mut v = http::HeaderValue::from_maybe_shared(raw.slice(21..)).unwrap();
+        v.set_sensitive(true);
+        parts.headers.append(header::COOKIE, v);
+        parts
+            .headers
+            .append("x-two", http::HeaderValue::from_static("a"));
+        parts
+            .headers
+            .append("x-two", http::HeaderValue::from_static("b"));
+        let (uri, headers) = owned_head(&parts);
+        assert_eq!(uri, parts.uri);
+        assert_eq!(headers, parts.headers);
+        assert!(headers[header::COOKIE].is_sensitive());
+        assert_eq!(headers.get_all("x-two").iter().count(), 2);
+        let buf = raw.as_ptr_range();
+        assert!(!buf.contains(&headers[header::COOKIE].as_bytes().as_ptr()));
+    }
 }
