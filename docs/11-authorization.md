@@ -76,12 +76,12 @@ Example: the refund button is hidden because `inv.amount > 10,000,000`. The user
 - Alternative for large pages: `authz.canBatch("invoice.refund", invoices)` in the loader, then `r-if="inv.canRefund"`.
 - Undeclared actions or attributes are compile errors at deploy. A resource missing a required attribute yields `deny` and a dev-mode warning.
 - Fragment caches include the hash of the user's action set; fragments with resource-based `r-can` are never cached across users.
-- Cross-module slots are evaluated with the providing module's actions (`requires` in the manifest).
+- Cross-module slots are evaluated with the providing module's actions (`requires` in the manifest). The app's own fillers (`renox.toml [[slots]]`, `07-app-model.md`, "Slots") take `requires` too: it is checked against the viewer like an `r-can` without a resource, so a user without the action sees nothing of that filler.
 
 ## Cross-module context and audit
 
 - Each module enforces policies for its own resources; the user identity travels with every service call.
-- Event handlers, jobs, and cron run as `System::"<module>"` with explicit permissions, never as a superuser. Admin impersonation is recorded in the context and audit log.
+- Event handlers, jobs, and cron run as `System::"<module>"` with explicit permissions, never as a superuser. The app's own event handlers (`hooks.ts` `on`, `07-app-model.md`, "Events and hooks") run as `Renox::System::"app"`, like its jobs; its hook fillers run inside the request that ran the hook, with that request's principal; `ctx.db.scoped()` is there for a handler that acts on a user's behalf. Admin impersonation is recorded in the context and audit log.
 - Decisions for `sensitive` actions are written append-only: who, action, resource, result, deciding policy.
 - `renox authz explain --user alice --action invoice.refund --resource inv_123` prints the permitting or forbidding policies and the principal attributes it used (`--attr key=value`, repeatable, sets one that a hook fills in the app, such as `org` or `mfa_verified`; the value is JSON when it parses, else a string); `renox test` runs policy test cases (principal, action, resource, expected result) and per-role template snapshots.
 

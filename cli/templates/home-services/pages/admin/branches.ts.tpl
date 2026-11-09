@@ -39,9 +39,9 @@ export const actions = {
     const branch = await branchOf(ctx);
     if (branch === null) return noBranch();
     const input = await check(ctx.form, branchSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "create");
     const made = await createBranch(ctx, input.value, branch.org_id);
-    if (!made.ok) return invalid(page.locale, ctx.form, { name_en: made.error });
+    if (!made.ok) return invalid(page.locale, ctx.form, { name_en: made.error }, "create");
     return redirect("/admin/branches?saved=created");
   },
 

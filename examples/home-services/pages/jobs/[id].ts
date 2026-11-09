@@ -171,7 +171,7 @@ export const actions = {
     const refused = await deniedWrite(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, summarySchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "summary");
     const branch = await branchOf(ctx);
     if (branch === null) return noBranch();
     const scoped = scopedDb(ctx.db, branch);
@@ -188,7 +188,7 @@ export const actions = {
     const refused = await denied(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, scheduleSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "schedule");
     return answer(await schedule(ctx, ctx.params.id, input.value.technician, input.value.start, input.value.note), `/jobs/${ctx.params.id}`);
   },
 
@@ -197,7 +197,7 @@ export const actions = {
     const refused = await denied(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, assignSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "assign");
     return answer(await assign(ctx, ctx.params.id, input.value.technician), `/jobs/${ctx.params.id}`);
   },
 
@@ -213,7 +213,7 @@ export const actions = {
     const refused = await denied(ctx);
     if (refused !== null) return refused;
     const input = await check(ctx.form, statusSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "status");
     return answer(await transition(ctx, ctx.params.id, input.value.to, input.value.note), `/jobs/${ctx.params.id}`);
   },
 };

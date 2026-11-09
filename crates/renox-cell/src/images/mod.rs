@@ -521,6 +521,104 @@ pub async fn serve(
     }
 }
 
+/// `[storage.images] widths` of a manifest's `storage` object (empty: the defaults).
+pub fn manifest_widths(storage: Option<&serde_json::Value>) -> Vec<u32> {
+    storage
+        .and_then(|s| s.get("images"))
+        .and_then(|i| i.get("widths"))
+        .and_then(|w| w.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u32))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `ctx.pdf`'s images (ops.md 1.13.0 section 24, #582): a key of this
+/// deployment's tenant, as the `/_img` variant of the asked width (at most
+/// 1600 px) in the original's format, JPEG or PNG (other originals become
+/// PNG). The variant cache is the one `/_img` uses. No signature is needed
+/// for a private key: the render runs server-side as the tenant, and the
+/// lookup is in the tenant's own `renox__files` and object prefix, so another
+/// tenant's key never resolves.
+pub struct PdfImageStore {
+    pub storage: Arc<CellStorage>,
+    pub db: DbHandle,
+    pub tenant_id: String,
+    pub widths: Vec<u32>,
+}
+
+impl PdfImageStore {
+    async fn read(
+        &self,
+        key: &str,
+        width: Option<u32>,
+    ) -> Result<(Vec<u8>, renox_runtime::ops::pdf::ImageFormat), renox_runtime::ops::pdf::ImageError>
+    {
+        use renox_runtime::ops::pdf::{ImageError, ImageFormat, MAX_IMAGE_WIDTH};
+        if check_key(key, key.split('/').next().unwrap_or("")).is_err() {
+            return Err(ImageError::NotFound);
+        }
+        let file = row(&self.db, key).await.ok_or(ImageError::NotFound)?;
+        let (format, pdf_format) = match file.content_type.as_str() {
+            "image/jpeg" => (Format::Jpeg, ImageFormat::Jpeg),
+            "image/png" | "image/webp" | "image/avif" | "image/gif" => {
+                (Format::Png, ImageFormat::Png)
+            }
+            _ => return Err(ImageError::Unsupported),
+        };
+        let asked = width.unwrap_or(MAX_IMAGE_WIDTH).min(MAX_IMAGE_WIDTH);
+        let width =
+            round_width(asked, &self.widths, file.width.unwrap_or(u32::MAX)).min(MAX_IMAGE_WIDTH);
+        let variant = format!(
+            "tenants/{}/variants/{}-w{width}-{}",
+            self.tenant_id,
+            file.sha256,
+            format.as_str()
+        );
+        if let Ok(Some(hit)) = self.storage.store().get(variant.clone()).await {
+            return Ok((hit.to_vec(), pdf_format));
+        }
+        let original = match self
+            .storage
+            .store()
+            .get(object_key(&self.tenant_id, key))
+            .await
+        {
+            Ok(Some(b)) => b,
+            Ok(None) => return Err(ImageError::NotFound),
+            Err(e) => return Err(ImageError::Failed(e.to_string())),
+        };
+        // Already on the blocking pool (the PDF render).
+        let out = transform(&original, width, format).map_err(ImageError::Failed)?;
+        let out = Bytes::from(out);
+        if let Err(e) = self
+            .storage
+            .store()
+            .put(variant, out.clone(), format.content_type().into())
+            .await
+        {
+            tracing::warn!(tenant_id = %self.tenant_id, error = %e, "pdf image variant not stored");
+        }
+        Ok((out.to_vec(), pdf_format))
+    }
+}
+
+impl renox_runtime::ops::pdf::PdfImages for PdfImageStore {
+    fn read_image(
+        &self,
+        key: &str,
+        width: Option<u32>,
+    ) -> Result<(Vec<u8>, renox_runtime::ops::pdf::ImageFormat), renox_runtime::ops::pdf::ImageError>
+    {
+        // Called from the render's blocking-pool thread, which carries the runtime.
+        let handle = tokio::runtime::Handle::try_current()
+            .map_err(|e| renox_runtime::ops::pdf::ImageError::Failed(format!("no runtime: {e}")))?;
+        handle.block_on(self.read(key, width))
+    }
+}
+
 /// One query parameter exactly as it appears in the URL (not decoded): the signed message
 /// holds `ct` in that spelling.
 fn raw_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {

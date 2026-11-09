@@ -973,16 +973,23 @@ pub type SharedPages = Arc<PageRenderer>;
 
 /// `ctx.pdf`'s renderer for one deployment (#322; ops.md 1.7.0 section 24):
 /// its templates, rendered like pages, then converted by the runtime.
-/// `ctx.pdf` and `ctx.render` (#322) on the deployment's page renderer:
-/// the same `Arc` as the cell's pages, so the templates are compiled once
-/// per deployment, not once for pages and again for documents (#641).
-struct PdfTemplates(Arc<PageRenderer>);
+/// It is the deployment's page renderer itself, the same `Arc` as the
+/// cell's pages, so the templates are compiled once per deployment, not
+/// once for pages and again for documents (#641).
+struct PdfTemplates(
+    Arc<PageRenderer>,
+    Option<Arc<dyn renox_runtime::ops::pdf::PdfImages>>,
+);
 
 use renox_runtime::ops::pdf::TemplateError;
 
 impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
     fn render(&self, template: &str, data_json: &str) -> Result<String, String> {
         self.0.render_document(template, data_json)
+    }
+
+    fn images(&self) -> Option<Arc<dyn renox_runtime::ops::pdf::PdfImages>> {
+        self.1.clone()
     }
 
     fn render_fragment(
@@ -1019,15 +1026,39 @@ fn wall_now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// The template slot of `ctx.pdf` and `ctx.render`: the deployment's page
-/// renderer itself (#641; it already answers `r-can` from the deployment's
-/// authz slot). `None` for an artifact without templates.
+/// The tenant's file store for `ctx.pdf`'s `/_img` images (#582).
+pub struct PdfImageSource {
+    pub storage: Arc<crate::storage::CellStorage>,
+    pub db: renox_runtime::ops::db::DbHandle,
+    pub tenant_id: String,
+}
+
+/// The template slot of `ctx.pdf` and `ctx.render`: `pages`, the
+/// deployment's page renderer (#641; it answers `r-can` from the
+/// deployment's authz slot). `images` is the tenant's store (`None`:
+/// `/_img` images are dropped); its widths come from the artifact's
+/// `[storage.images]`. `None` for an artifact without templates.
 pub fn pdf_templates(
+    artifact_dir: &Path,
     pages: Option<&Arc<PageRenderer>>,
+    images: Option<PdfImageSource>,
 ) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
     let pages = pages?.clone();
+    let images = images.map(|s| {
+        let widths = std::fs::read(artifact_dir.join("manifest.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<Manifest>(&raw).ok())
+            .map(|m| crate::images::manifest_widths(m.storage.as_ref()))
+            .unwrap_or_default();
+        Arc::new(crate::images::PdfImageStore {
+            storage: s.storage,
+            db: s.db,
+            tenant_id: s.tenant_id,
+            widths,
+        }) as Arc<dyn renox_runtime::ops::pdf::PdfImages>
+    });
     Some(renox_runtime::ops::pdf::TemplateSlot(Arc::new(
-        PdfTemplates(pages),
+        PdfTemplates(pages, images),
     )))
 }
 

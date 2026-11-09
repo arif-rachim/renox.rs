@@ -237,6 +237,14 @@ describe("the technician's flow from scheduled to done", () => {
     expect((await ali.page(`/me/visits/${FLOW}`)).html).toContain("25.00");
   });
 
+  test("a refused part form comes back with what was typed", async () => {
+    const res = await ali.action(`/me/visits/${FLOW}`, "part", { description: "Typed part", qty: "0", price: "9.50" });
+    expect(res.status).toBe(422);
+    expect(res.html).toMatch(/name="description"[^>]*value="Typed part"/u);
+    expect(res.html).toMatch(/name="qty"[^>]*value="0"/u);
+    expect(res.html).toMatch(/name="price"[^>]*value="9.50"/u);
+  });
+
   test("notes, and the drawn signature with the name of whoever signed (twice: the second replaces the first)", async () => {
     expect((await ali.action(`/me/visits/${FLOW}`, "notes", { notes: "Replaced the leaking joint under the sink." })).status).toBe(303);
     expect(visitOf(FLOW)?.notes).toBe("Replaced the leaking joint under the sink.");

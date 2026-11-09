@@ -18,7 +18,7 @@ default = ["v8", "pdf"]
 # bench/results/2026-11-01-B20-binary-size-bloat-renox-worker.md). Without
 # it `op_render_pdf` answers `RENOX_INTERNAL` with `reason: "pdf_unavailable"`
 # and the layout code and its tests are compiled out.
-pdf = ["dep:typst", "dep:typst-pdf", "dep:typst-layout", "dep:html5ever", "dep:markup5ever_rcdom"]
+pdf = ["dep:typst", "dep:typst-pdf", "dep:typst-layout", "dep:html5ever", "dep:markup5ever_rcdom", "dep:base64"]
 v8 = ["dep:deno_runtime", "dep:deno_core", "dep:deno_fs", "dep:deno_error", "dep:deno_resolver", "dep:sys_traits", "dep:v8", "dep:eszip", "dep:futures"]
 # Embed the platform snapshot and the residual lazy sources, so the binary
 # runs without the cargo registry (#154; build.rs, README "Packaging").
@@ -72,6 +72,8 @@ typst-pdf = { version = "0.15.1", optional = true }
 typst-layout = { version = "0.15.1", optional = true }
 html5ever = { version = "0.39.0", optional = true }
 markup5ever_rcdom = { version = "0.39.0", optional = true }
+# #582: `data:image/png|jpeg;base64,` URIs in a PDF template.
+base64 = { version = "0.23", optional = true }
 tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 url = "2"
@@ -86,4 +88,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 renox-runtime = { path = ".", default-features = false, features = ["test-hooks"] }
 eszip = "*"
 rcgen = "0.14"
+# #582: JPEG and PNG fixtures for tests/pdf.rs.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

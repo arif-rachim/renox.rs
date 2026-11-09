@@ -8,7 +8,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { FetchBlockedError, type ActionContext, type Ctx, type DbStatements, type ExecuteResult, type LoaderContext, type Param, type Row } from "@renoxium/sdk";
+import { FetchBlockedError, type ActionContext, type Ctx, type DbStatements, type ExecuteResult, type LoaderContext, type Param, type Row, type TxDb } from "@renoxium/sdk";
 
 import { logIngest, type StoredLine } from "../../api/src/ingest/logs.ts";
 import { harness, type Harness } from "../../api/tests/helpers.ts";
@@ -156,7 +156,8 @@ export function actionCtx(d: Dash, path: string, action: string, fields: Record<
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
   const c = base(d, "POST", `${path}?/${action}`, opts.params ?? {}, opts.headers);
-  return { ...c, db: statements(d.sqlite), action, form, fragment: "page", session: { id: d.sessionId }, setLocale: noop };
+  const db: TxDb = { ...statements(d.sqlite), scoped: () => db };
+  return { ...c, db, action, form, fragment: "page", session: { id: d.sessionId }, setLocale: noop };
 }
 
 const APP = join(import.meta.dir, "..");

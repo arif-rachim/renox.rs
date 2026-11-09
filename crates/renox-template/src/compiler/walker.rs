@@ -1162,7 +1162,7 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 continue;
             }
             let Some(target) = name.strip_prefix(':') else {
-                self.emit_static_attr(ctx, node, name, value);
+                self.emit_static_attr(ctx, node, tag, name, value);
                 continue;
             };
             if target.is_empty() || target.starts_with(':') || target.starts_with("r-") {
@@ -1188,17 +1188,17 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 self.out
                     .push_str(&format!("{{% if {expr} %}} {target}{{% endif %}}"));
             } else if attrs::URL_ATTRS.contains(&target) {
+                let filter = attrs::url_filter(tag, target);
                 self.out
-                    .push_str(&format!(" {target}=\"{{{{ ({expr}) | __url }}}}\""));
+                    .push_str(&format!(" {target}=\"{{{{ ({expr}) | {filter} }}}}\""));
             } else {
                 self.out
                     .push_str(&format!(" {target}=\"{{{{ {expr} }}}}\""));
             }
         }
-        let _ = tag;
     }
 
-    fn emit_static_attr(&mut self, ctx: &Ctx, node: &Handle, name: &str, value: &str) {
+    fn emit_static_attr(&mut self, ctx: &Ctx, node: &Handle, tag: &str, name: &str, value: &str) {
         self.out.push(' ');
         self.out.push_str(name);
         if value.is_empty() && attrs::is_boolean_attr(name) {
@@ -1213,7 +1213,8 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 Segment::Static(s) => attrs::escape_attr(s, quote, &mut self.out),
                 Segment::Interp(inner) => match self.cx.checker.check(inner) {
                     Ok(e) if url && i == 0 => {
-                        self.out.push_str(&format!("{{{{ ({e}) | __url }}}}"))
+                        let filter = attrs::url_filter(tag, name);
+                        self.out.push_str(&format!("{{{{ ({e}) | {filter} }}}}"))
                     }
                     Ok(e) => self.out.push_str(&format!("{{{{ {e} }}}}")),
                     Err(m) => self.error(ctx, node, Some(name), format!("`{name}`: {m}")),

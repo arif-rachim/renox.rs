@@ -330,6 +330,18 @@ pub fn url(value: &Value) -> Value {
     Value::from(s)
 }
 
+/// Internal: a bound `<img src>` (`ops.md` 1.13.0 section 24, #582). A base64
+/// PNG or JPEG data URL passes as is, for `ctx.pdf` to embed; anything else
+/// goes through [`url`].
+pub fn img_url(value: &Value) -> Value {
+    let s = value.to_string();
+    if crate::compiler::attrs::is_image_data_url(&s) {
+        Value::from(s)
+    } else {
+        url(value)
+    }
+}
+
 /// Internal (`<x-image>`, ops.md 1.7.0 section 21; #321): the `src`,
 /// `srcset` (1x and 2x), `width` and `height` attributes of a stored image,
 /// from the file object the loader passes (`ctx.storage.get`: `key`,

@@ -7,7 +7,8 @@
 //! | HTML → document | [`to_typst`]: the HTML subset of invoices and reports (headings, paragraphs, `strong`/`em`, `br`, lists, tables, `hr`) as typst code; `<html dir lang>` sets the direction and language |
 //! | Layout and shaping | `typst` (rustybuzz shaping, Unicode bidi), with the bundled Noto Sans and Noto Naskh Arabic only: no system fonts, no remote resources |
 //! | PDF | `typst-pdf` |
-//! | Limits | 200 pages and 20 MB of output (*proposed*): `RENOX_PDF_LIMIT` |
+//! | Images | `<img src>` of a tenant file (`/_img/<key>?w=`, through [`PdfImages`]) or a `data:image/png|jpeg;base64,` URI, served to typst under synthetic paths `/img/<n>.<ext>` only the converted document names (1.13.0, #582) |
+//! | Limits | 200 pages and 20 MB of output (*proposed*); 50 images, 2 MiB per data URI, 20 MB of image bytes: `RENOX_PDF_LIMIT` |
 //!
 //! Every text node becomes a typst string literal, so template data can
 //! never be read as typst markup or code.
@@ -21,6 +22,65 @@ use std::sync::Arc;
 /// Output limits (*proposed*, ops.md section 24).
 pub const MAX_PAGES: usize = 200;
 pub const MAX_BYTES: usize = 20 * 1024 * 1024;
+/// Image limits (ops.md 1.13.0 section 24): images per document, decoded
+/// bytes of one data URI, image bytes per document, and the widest variant
+/// asked of the store.
+pub const MAX_IMAGES: usize = 50;
+pub const MAX_DATA_IMAGE_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+pub const MAX_IMAGE_WIDTH: u32 = 1600;
+
+/// The format of an image embedded in a PDF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFormat {
+    Png,
+    Jpeg,
+}
+
+impl ImageFormat {
+    /// The extension of its synthetic path (`/img/<n>.<ext>`).
+    pub fn ext(self) -> &'static str {
+        match self {
+            ImageFormat::Png => "png",
+            ImageFormat::Jpeg => "jpg",
+        }
+    }
+
+    /// The format whose signature `bytes` start with.
+    pub fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            Some(ImageFormat::Png)
+        } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            Some(ImageFormat::Jpeg)
+        } else {
+            None
+        }
+    }
+}
+
+/// Why a tenant image did not come through; the `<img>` is then dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageError {
+    /// No stored file has this key (or it belongs to another tenant).
+    NotFound,
+    /// The file is not an image the renderer embeds.
+    Unsupported,
+    /// The store or the transform failed (the cause, for the log).
+    Failed(String),
+}
+
+/// The cell's image pipeline for `ctx.pdf` (ops.md 1.13.0 section 24, #582):
+/// `/_img/<key>?w=<n>` of the deployment's tenant as JPEG or PNG bytes.
+/// `width` is the asked width, at most [`MAX_IMAGE_WIDTH`] (`None`: no `w`).
+/// A private key needs no signature: the render runs as the tenant.
+/// Blocking (called on the blocking pool).
+pub trait PdfImages: Send + Sync {
+    fn read_image(
+        &self,
+        key: &str,
+        width: Option<u32>,
+    ) -> Result<(Vec<u8>, ImageFormat), ImageError>;
+}
 
 /// The page options of `ctx.pdf.render`.
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +160,12 @@ pub trait TemplateHost: Send + Sync {
         let _ = (template, data_json, locale, dir, principal);
         Err(TemplateError::Unknown)
     }
+
+    /// The tenant's `/_img` keys for `ctx.pdf` (#582). The default has none:
+    /// a `/_img` image is dropped, data URIs still render.
+    fn images(&self) -> Option<Arc<dyn PdfImages>> {
+        None
+    }
 }
 
 /// Why `ctx.render` failed.
@@ -124,23 +190,28 @@ impl std::fmt::Debug for TemplateSlot {
 }
 
 #[cfg(feature = "pdf")]
-pub use engine::{html_to_pdf, layout, text_runs, to_typst};
+pub use engine::{html_to_pdf, html_to_pdf_with, layout, layout_with, text_runs, to_typst};
 
 /// The layout engine: typst with the bundled fonts, and the HTML reader.
 #[cfg(feature = "pdf")]
 mod engine {
+    use std::collections::HashMap;
     use std::sync::OnceLock;
 
+    use base64::Engine as _;
     use html5ever::tendril::TendrilSink;
     use markup5ever_rcdom::{Handle, NodeData, RcDom};
     use typst::diag::{FileError, FileResult};
     use typst::foundations::{Bytes, Datetime};
-    use typst::syntax::{FileId, Source};
+    use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
     use typst::text::{Font, FontBook};
     use typst::utils::LazyHash;
     use typst::{Library, LibraryExt, World};
 
-    use super::{MAX_BYTES, MAX_PAGES, PdfError, PdfOptions};
+    use super::{
+        ImageError, ImageFormat, MAX_BYTES, MAX_DATA_IMAGE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_WIDTH,
+        MAX_IMAGES, MAX_PAGES, PdfError, PdfImages, PdfOptions,
+    };
 
     const FONTS: &[&[u8]] = &[
         include_bytes!("../../fonts/NotoSans-Regular.ttf"),
@@ -172,6 +243,9 @@ mod engine {
 
     struct Doc {
         main: Source,
+        /// The images of this document under their synthetic paths: the
+        /// only files the World serves.
+        files: HashMap<FileId, Bytes>,
     }
 
     impl World for Doc {
@@ -191,15 +265,198 @@ mod engine {
                 Err(FileError::AccessDenied)
             }
         }
-        fn file(&self, _id: FileId) -> FileResult<Bytes> {
-            // No images, no includes, no remote resources.
-            Err(FileError::AccessDenied)
+        fn file(&self, id: FileId) -> FileResult<Bytes> {
+            // The document's own images (#582); no includes, no remote resources.
+            self.files.get(&id).cloned().ok_or(FileError::AccessDenied)
         }
         fn font(&self, index: usize) -> Option<Font> {
             shared().fonts.get(index).cloned()
         }
         fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
             None
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Images (ops.md 1.13.0 section 24, #582).
+
+    /// Standard base64, padded or not.
+    const B64: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new()
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+    );
+
+    /// What an `<img src>` names.
+    enum Src {
+        /// `data:image/png|jpeg;base64,`: the base64 payload.
+        Data(String),
+        /// `/_img/<key>?w=<n>`.
+        Key(String, Option<u32>),
+    }
+
+    /// The `src` the renderer embeds; `None` is dropped (`https:`, other
+    /// `data:` types, relative paths, ...).
+    fn classify(src: &str) -> Option<Src> {
+        let src = src.trim();
+        for prefix in ["data:image/png;base64,", "data:image/jpeg;base64,"] {
+            if src.len() > prefix.len()
+                && src.is_char_boundary(prefix.len())
+                && src[..prefix.len()].eq_ignore_ascii_case(prefix)
+            {
+                let payload: String = src[prefix.len()..]
+                    .chars()
+                    .filter(|c| !c.is_ascii_whitespace())
+                    .collect();
+                return Some(Src::Data(payload));
+            }
+        }
+        let rest = src.strip_prefix("/_img/")?;
+        let (key, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let key_ok = !key.is_empty()
+            && key.len() <= 256
+            && !key.contains("..")
+            && key.bytes().all(|b| {
+                b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || matches!(b, b'/' | b'_' | b'.' | b'-')
+            });
+        if !key_ok {
+            return None;
+        }
+        let width = query
+            .split('&')
+            .filter_map(|p| p.split_once('='))
+            .find(|(k, _)| *k == "w")
+            .and_then(|(_, v)| v.parse::<u32>().ok())
+            .map(|w| w.clamp(1, MAX_IMAGE_WIDTH));
+        Some(Src::Key(key.to_string(), width))
+    }
+
+    /// One embedded image: its synthetic path and the `<img>`'s printed width.
+    struct Placed {
+        path: String,
+        width_pt: Option<f64>,
+        alt: Option<String>,
+    }
+
+    /// The images of one document, by `<img>` node.
+    #[derive(Default)]
+    struct Images {
+        placed: HashMap<*const markup5ever_rcdom::Node, Placed>,
+        files: HashMap<FileId, Bytes>,
+    }
+
+    fn collect(node: &Handle, out: &mut Vec<(Handle, Src)>) {
+        for child in node.children.borrow().iter() {
+            match tag(child).as_deref() {
+                Some("script" | "style" | "head" | "template") => {}
+                Some("img") => {
+                    if let Some(src) = attr(child, "src").as_deref().and_then(classify) {
+                        out.push((child.clone(), src));
+                    }
+                }
+                Some(_) => collect(child, out),
+                None => {}
+            }
+        }
+    }
+
+    /// Finds, checks and reads the images under `body`; every limit is
+    /// checked before layout.
+    fn gather(body: &Handle, host: Option<&dyn PdfImages>) -> Result<Images, PdfError> {
+        let mut found = Vec::new();
+        collect(body, &mut found);
+        if found.len() > MAX_IMAGES {
+            return Err(PdfError::Limit(format!(
+                "{} images, at most {MAX_IMAGES}",
+                found.len()
+            )));
+        }
+        // A data URI over the limit is refused before it is decoded.
+        for (_, src) in &found {
+            if let Src::Data(b64) = src
+                && b64.len() / 4 * 3 > MAX_DATA_IMAGE_BYTES + 3
+            {
+                return Err(PdfError::Limit(format!(
+                    "a data URI image of about {} bytes, at most {MAX_DATA_IMAGE_BYTES}",
+                    b64.len() / 4 * 3
+                )));
+            }
+        }
+        let mut images = Images::default();
+        let mut total = 0usize;
+        for (node, src) in found {
+            let got = match src {
+                Src::Data(b64) => B64.decode(b64.as_bytes()).ok().and_then(|bytes| {
+                    if bytes.len() > MAX_DATA_IMAGE_BYTES {
+                        return Some(Err(bytes.len()));
+                    }
+                    ImageFormat::sniff(&bytes).map(|f| Ok((bytes, f)))
+                }),
+                Src::Key(key, width) => match host.map(|h| h.read_image(&key, width)) {
+                    Some(Ok((bytes, format))) if ImageFormat::sniff(&bytes) == Some(format) => {
+                        Some(Ok((bytes, format)))
+                    }
+                    Some(Err(ImageError::Failed(m))) => {
+                        tracing::warn!(error = %m, "pdf image not read");
+                        None
+                    }
+                    _ => None,
+                },
+            };
+            let (bytes, format) = match got {
+                None => continue,
+                Some(Err(n)) => {
+                    return Err(PdfError::Limit(format!(
+                        "a data URI image of {n} bytes, at most {MAX_DATA_IMAGE_BYTES}"
+                    )));
+                }
+                Some(Ok(x)) => x,
+            };
+            total += bytes.len();
+            if total > MAX_IMAGE_BYTES {
+                return Err(PdfError::Limit(format!(
+                    "{total} bytes of images, at most {MAX_IMAGE_BYTES}"
+                )));
+            }
+            let path = format!("/img/{}.{}", images.placed.len(), format.ext());
+            let id = RootedPath::new(
+                VirtualRoot::Project,
+                VirtualPath::new(&path).map_err(|e| PdfError::Render(format!("{e:?}")))?,
+            )
+            .intern();
+            images.files.insert(id, Bytes::new(bytes));
+            // `width` in CSS pixels (1px = 0.75pt), as a browser prints it.
+            let width_pt = attr(&node, "width")
+                .and_then(|w| w.trim().trim_end_matches("px").parse::<f64>().ok())
+                .filter(|w| w.is_finite() && *w > 0.0)
+                .map(|w| (w.min(10_000.0) * 0.75 * 100.0).round() / 100.0);
+            images.placed.insert(
+                std::rc::Rc::as_ptr(&node),
+                Placed {
+                    path,
+                    width_pt,
+                    alt: attr(&node, "alt"),
+                },
+            );
+        }
+        Ok(images)
+    }
+
+    /// The typst call of one placed image: never wider than its column.
+    fn image_call(p: &Placed) -> String {
+        let alt = p
+            .alt
+            .as_deref()
+            .map(|a| format!(", alt: {}", string_lit(a)))
+            .unwrap_or_default();
+        match p.width_pt {
+            Some(w) => format!(
+                "layout(size => image({}, width: calc.min(size.width, {w}pt){alt}))",
+                string_lit(&p.path)
+            ),
+            None => format!("image({}{alt})", string_lit(&p.path)),
         }
     }
 
@@ -241,7 +498,7 @@ mod engine {
     }
 
     /// Inline content of `node` as a typst content expression `[...]`.
-    fn inline(node: &Handle, out: &mut String) {
+    fn inline(node: &Handle, cx: &Images, out: &mut String) {
         for child in node.children.borrow().iter() {
             match &child.data {
                 NodeData::Text { contents } => {
@@ -264,18 +521,23 @@ mod engine {
                 }
                 NodeData::Element { .. } => match tag(child).as_deref() {
                     Some("br") => out.push_str(" #linebreak() "),
+                    Some("img") => {
+                        if let Some(p) = cx.placed.get(&std::rc::Rc::as_ptr(child)) {
+                            out.push_str(&format!("#box({})", image_call(p)));
+                        }
+                    }
                     Some("strong" | "b" | "th") => {
                         out.push_str("#strong[");
-                        inline(child, out);
+                        inline(child, cx, out);
                         out.push(']');
                     }
                     Some("em" | "i") => {
                         out.push_str("#emph[");
-                        inline(child, out);
+                        inline(child, cx, out);
                         out.push(']');
                     }
                     Some("script" | "style" | "head" | "template") => {}
-                    _ => inline(child, out),
+                    _ => inline(child, cx, out),
                 },
                 _ => {}
             }
@@ -304,7 +566,7 @@ mod engine {
     }
 
     /// Block content of `node` as typst code lines.
-    fn blocks(node: &Handle, out: &mut String) {
+    fn blocks(node: &Handle, cx: &Images, out: &mut String) {
         for child in node.children.borrow().iter() {
             match &child.data {
                 NodeData::Text { contents } => {
@@ -320,15 +582,20 @@ mod engine {
                         "h1" | "h2" | "h3" | "h4" => {
                             let level = &name[1..];
                             out.push_str(&format!("#heading(level: {level}, outlined: false)["));
-                            inline(child, out);
+                            inline(child, cx, out);
                             out.push_str("]\n");
                         }
                         "p" => {
                             out.push_str("#par[");
-                            inline(child, out);
+                            inline(child, cx, out);
                             out.push_str("]\n");
                         }
                         "hr" => out.push_str("#line(length: 100%)\n"),
+                        "img" => {
+                            if let Some(p) = cx.placed.get(&std::rc::Rc::as_ptr(child)) {
+                                out.push_str(&format!("#{}\n", image_call(p)));
+                            }
+                        }
                         "ul" | "ol" => {
                             let f = if name == "ul" { "list" } else { "enum" };
                             out.push_str(&format!("#{f}("));
@@ -339,7 +606,7 @@ mod engine {
                                 .filter(|c| tag(c).as_deref() == Some("li"))
                             {
                                 out.push('[');
-                                inline(li, out);
+                                inline(li, cx, out);
                                 out.push_str("], ");
                             }
                             out.push_str(")\n");
@@ -355,10 +622,10 @@ mod engine {
                                     if let Some(c) = cs.get(i) {
                                         if tag(c).as_deref() == Some("th") {
                                             out.push_str("#strong[");
-                                            inline(c, out);
+                                            inline(c, cx, out);
                                             out.push(']');
                                         } else {
-                                            inline(c, out);
+                                            inline(c, cx, out);
                                         }
                                     }
                                     out.push_str("], ");
@@ -369,7 +636,7 @@ mod engine {
                         "script" | "style" | "head" | "template" => {}
                         "span" | "strong" | "b" | "em" | "i" | "a" | "small" => {
                             out.push_str("#par[");
-                            inline(child, out);
+                            inline(child, cx, out);
                             out.push_str("]\n");
                         }
                         // div, section, article, body, header, footer, main, …
@@ -377,10 +644,10 @@ mod engine {
                             let dir = attr(child, "dir");
                             if let Some(d) = dir.as_deref().filter(|d| *d == "rtl" || *d == "ltr") {
                                 out.push_str(&format!("#[#set text(dir: {d})\n"));
-                                blocks(child, out);
+                                blocks(child, cx, out);
                                 out.push_str("]\n");
                             } else {
-                                blocks(child, out);
+                                blocks(child, cx, out);
                             }
                         }
                     }
@@ -397,10 +664,25 @@ mod engine {
         node.children.borrow().iter().find_map(|c| find(c, name))
     }
 
-    /// The typst source of an HTML document or fragment.
+    /// The typst source of an HTML document or fragment (no image is read:
+    /// every `<img>` is dropped).
     pub fn to_typst(html: &str, options: &PdfOptions) -> String {
         let dom = html5ever::parse_document(RcDom::default(), Default::default()).one(html);
-        let root = dom.document.clone();
+        typst_of(&dom.document, options, &Images::default())
+    }
+
+    fn parse(html: &str) -> Handle {
+        html5ever::parse_document(RcDom::default(), Default::default())
+            .one(html)
+            .document
+    }
+
+    fn body_of(root: &Handle) -> Handle {
+        find(root, "body").unwrap_or_else(|| root.clone())
+    }
+
+    fn typst_of(root: &Handle, options: &PdfOptions, cx: &Images) -> String {
+        let root = root.clone();
         let html_el = find(&root, "html");
         let dir = html_el
             .as_ref()
@@ -423,18 +705,31 @@ mod engine {
             options.margin_mm,
             dir.map(|d| format!(", dir: {d}")).unwrap_or_default(),
         );
-        let body = find(&root, "body").unwrap_or(root);
-        blocks(&body, &mut out);
+        blocks(&body_of(&root), cx, &mut out);
         out
     }
 
-    /// Lays `html` out; the document, for the PDF writer and the tests.
+    /// Lays `html` out with no image host (data URIs still render); the
+    /// document, for the PDF writer and the tests.
     pub fn layout(
         html: &str,
         options: &PdfOptions,
     ) -> Result<typst_layout::PagedDocument, PdfError> {
+        layout_with(html, options, None)
+    }
+
+    /// Lays `html` out, reading `/_img` keys through `images`.
+    pub fn layout_with(
+        html: &str,
+        options: &PdfOptions,
+        images: Option<&dyn PdfImages>,
+    ) -> Result<typst_layout::PagedDocument, PdfError> {
+        let root = parse(html);
+        let cx = gather(&body_of(&root), images)?;
+        let main = Source::detached(typst_of(&root, options, &cx));
         let world = Doc {
-            main: Source::detached(to_typst(html, options)),
+            main,
+            files: cx.files,
         };
         let doc = typst::compile::<typst_layout::PagedDocument>(&world)
             .output
@@ -455,9 +750,18 @@ mod engine {
         Ok(doc)
     }
 
-    /// HTML to PDF bytes.
+    /// HTML to PDF bytes, with no image host (data URIs still render).
     pub fn html_to_pdf(html: &str, options: &PdfOptions) -> Result<Vec<u8>, PdfError> {
-        let doc = layout(html, options)?;
+        html_to_pdf_with(html, options, None)
+    }
+
+    /// HTML to PDF bytes, reading `/_img` keys through `images`.
+    pub fn html_to_pdf_with(
+        html: &str,
+        options: &PdfOptions,
+        images: Option<&dyn PdfImages>,
+    ) -> Result<Vec<u8>, PdfError> {
+        let doc = layout_with(html, options, images)?;
         let bytes = typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default()).map_err(|errs| {
             PdfError::Render(
                 errs.iter()
@@ -549,7 +853,8 @@ mod ops {
             let html = host
                 .render(&template, &data_json)
                 .map_err(PdfError::Render)?;
-            html_to_pdf(&html, &options)
+            let images = host.images();
+            html_to_pdf_with(&html, &options, images.as_deref())
         })
         .await
         .map_err(|_| {

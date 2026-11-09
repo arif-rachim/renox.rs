@@ -2567,6 +2567,7 @@ async fn create_worker(
             db: ctx.spec.db.clone(),
             redactor: Arc::new(Redactor::new(ctx.spec.secrets.values())),
             modules: ctx.modules.clone(),
+            app_events: Arc::new(ctx.artifact.manifest.app_events()),
         }));
         state.put(Rc::new(crate::ops::authz::AuthzEnv {
             slot: ctx.authz.clone(),
@@ -2757,11 +2758,25 @@ async fn create_worker(
     let module_time = module_start.elapsed();
 
     // Step 5 for modules (ops.md 1.3.0 section 11): the bootstrap checks each
-    // module's services and hooks against its manifest (fail closed).
-    if !ctx.modules.is_empty() {
+    // module's services and hooks against its manifest (fail closed). The
+    // app's own `hooks` entry (artifact 1.8, ops.md 1.12.0 section 15.4)
+    // registers as module `app`, with or without installed modules.
+    let app_hooks = namespaces
+        .get("hooks")
+        .filter(|_| ctx.is_local(crate::ops::modules::APP));
+    if !ctx.modules.is_empty() || app_hooks.is_some() {
         let arg = {
             deno_core::scope!(scope, &mut worker.js_runtime);
             let obj = v8::Object::new(scope);
+            if let Some(ns) = app_hooks {
+                let entry = v8::Object::new(scope);
+                let k = v8::String::new(scope, "hooks").expect("short ASCII string");
+                let v = v8::Local::new(scope, ns);
+                entry.set(scope, k.into(), v.into());
+                let k =
+                    v8::String::new(scope, crate::ops::modules::APP).expect("short ASCII string");
+                obj.set(scope, k.into(), entry.into());
+            }
             for m in ctx.modules.modules() {
                 let entry = v8::Object::new(scope);
                 for part in ["services", "hooks"] {

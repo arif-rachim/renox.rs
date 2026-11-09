@@ -16,7 +16,7 @@
           <small r-if="s.needs_factor" class="problem"> <r-t key="backoffice.users.twofa_needed" /></small></td>
         <td r-can="user.manage">
           <x-form action="role" class="inline" r-if="!s.self"><input type="hidden" name="user_id" :value="s.user_id">
-            <select name="role"><option r-for="r in roles" :value="r.value" :selected="r.value == s.role">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select>
+            <select name="role"><option r-for="r in roles" :value="r.value" :selected="r.value == (values.role if values.user_id == s.user_id else s.role)">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select>
             <button type="submit"><r-t key="backoffice.users.set_role" /></button></x-form>
           <x-form action="remove" class="inline" r-if="!s.self"><input type="hidden" name="user_id" :value="s.user_id"><button type="submit"><r-t key="backoffice.users.remove" /></button></x-form>
         </td>
@@ -29,7 +29,7 @@
     <h2><r-t key="backoffice.users.invite" /></h2>
     <x-form action="invite" class="stack narrow">
       <p><label><r-t key="backoffice.users.email" /> <input name="email" type="email" dir="ltr" maxlength="254" :value="values.email" required></label></p>
-      <p><label><r-t key="backoffice.users.role" /> <select name="role"><option r-for="r in roles" :value="r.value" :selected="r.value == (values.role or 'technician')">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select></label></p>
+      <p><label><r-t key="backoffice.users.role" /> <select name="role"><option r-for="r in roles" :value="r.value" :selected="r.value == ((values.role if values.user_id is not defined else '') or 'technician')">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="backoffice.users.invite_submit" /></button></p>
     </x-form>
   </section>

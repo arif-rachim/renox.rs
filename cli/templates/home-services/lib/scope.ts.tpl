@@ -21,7 +21,7 @@ export type Scopable = DbStatements & { scoped(scope: Scope): DbStatements };
 
 interface BranchCtx {
   readonly principal: Principal | null;
-  readonly db: DbStatements;
+  readonly db: Scopable;
 }
 
 /** The active organisation's branch row, or null (signed out, no organisation, or an organisation that is no branch). */
@@ -40,16 +40,15 @@ export async function findBranch(db: DbStatements, id: string): Promise<Branch |
  * `db` fenced to the branch with this id: app__customers and app__sites
  * statements get `branch_id = <branch>` added, and an insert must carry that
  * branch_id. `[authz.ownership]` names `branch_id` as the owner column, which
- * db.scoped compares to `user_id`: the branch id goes there. Requests, jobs and
- * event handlers all have `db.scoped`; the cast is because the SDK types an
- * action's `ctx.db` as DbStatements, without it. There is no unfenced fallback.
+ * db.scoped compares to `user_id`: the branch id goes there. Requests, actions, jobs
+ * and event handlers all have `db.scoped`. There is no unfenced fallback.
  */
-export function branchDb(db: DbStatements, branchId: string): DbStatements {
-  return (db as Scopable).scoped({ user_id: branchId });
+export function branchDb(db: Scopable, branchId: string): DbStatements {
+  return db.scoped({ user_id: branchId });
 }
 
 /** `db` fenced to `branch` (see `branchDb`). */
-export function scopedDb(db: DbStatements, branch: Branch): DbStatements {
+export function scopedDb(db: Scopable, branch: Branch): DbStatements {
   return branchDb(db, branch.id);
 }
 

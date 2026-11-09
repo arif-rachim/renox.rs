@@ -886,6 +886,8 @@ mod v8_ops {
         pub redactor: Arc<Redactor>,
         /// The installed modules: their authorizer policies (ops.md 1.3.0).
         pub modules: Arc<crate::ops::modules::ModuleRegistry>,
+        /// The app's declared events (artifact 1.8): name -> payload schema.
+        pub app_events: Arc<std::collections::BTreeMap<String, serde_json::Value>>,
     }
 
     /// `[tag, number, string]`, with the bytes of tag 5 in a separate list.

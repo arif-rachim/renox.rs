@@ -2,12 +2,13 @@
 // through the app's `/mcp`, as the agent of a signed-in user (`t.tool`: an OAuth
 // token of the auth module). Under the same policies as the pages: a dispatcher's
 // token books a visit after the confirmation, a technician's token cannot, and
-// the slots are the ones the job page's slot picker offers. The raw `t.request`
-// stays for what `t.tool` does not express: `tools/list`, the HTTP status of a
-// narrowed token, and a confirmation token of someone else's arguments.
+// the slots are the ones the job page's slot picker offers. `t.tools` lists the
+// tools, and `t.tool(..., { confirmation })` sends a made-up, replayed or
+// other-argument confirmation as given. The raw `t.request` stays for the agent
+// of a user of two branches, whose consent picks the organisation.
 // Runs on the local worker with the seed's users (password below).
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
-import { agentToken, app, type ToolReply } from "@renoxium/sdk/test";
+import { app, type ToolReply } from "@renoxium/sdk/test";
 
 import { outboxOf } from "./outbox";
 
@@ -32,7 +33,7 @@ const refusal = (r: ToolReply) => {
   return (JSON.parse(r.error?.message ?? "{}") as { preview: { error: string; message: string } }).preview;
 };
 
-/** `tools/list` and a raw `tools/call`: JSON-RPC over `t.request` with an agent token. */
+/** A raw JSON-RPC call over `t.request` with an agent token (the two-branch agent below). */
 let seq = 0;
 const rpc = (token: string, method: string, params: unknown) => t.request("POST", "/mcp", { headers: { authorization: `Bearer ${token}` }, body: { jsonrpc: "2.0", id: ++seq, method, params } });
 
@@ -53,9 +54,9 @@ expect((await stranger.action("/auth/login", "default", { email: "stranger@examp
 
 describe("the listing", () => {
   test("a dispatcher's agent sees the three tools, create_job as the destructive one", async () => {
-    const list = await rpc(await agentToken(t, dina), "tools/list", {});
+    const list = await t.tools({ as: dina });
     expect(list.status).toBe(200);
-    const tools = list.json<{ result: { tools: { name: string; annotations: Record<string, boolean>; inputSchema: { required: string[] } }[] } }>().result.tools;
+    const tools = list.tools;
     expect(tools.map((x) => x.name)).toEqual(expect.arrayContaining(["create_job", "job_status", "next_free_slot"]));
     expect(tools.find((x) => x.name === "create_job")?.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
     expect(tools.find((x) => x.name === "job_status")?.annotations).toEqual({ readOnlyHint: true, destructiveHint: false });
@@ -63,11 +64,8 @@ describe("the listing", () => {
   });
 
   test("a token narrowed to one tool lists and calls only that one", async () => {
-    const narrow = await agentToken(t, dina, "tools:job_status");
-    const list = await rpc(narrow, "tools/list", {});
-    expect(list.json<{ result: { tools: { name: string }[] } }>().result.tools.map((x) => x.name)).toEqual(["job_status"]);
-    const refused = await rpc(narrow, "tools/call", { name: "create_job", arguments: { customer_phone: "+971501110001", service: "AC-SERVICE", slot: "x@1234567890" } });
-    expect(refused.status).toBe(403);
+    const list = await t.tools({ as: dina, scope: "tools:job_status" });
+    expect(list.tools.map((x) => x.name)).toEqual(["job_status"]);
     expect((await t.tool("create_job", { customer_phone: "+971501110001", service: "AC-SERVICE", slot: "x@1234567890" }, { as: dina, scope: "tools:job_status" })).error?.code).toBe("RENOX_TOOL_SCOPE");
   });
 });
@@ -201,14 +199,11 @@ describe("create_job", () => {
     expect(r.preview).toMatchObject({ would_create: { customer: "Layla Haddad", site: "Apartment", service: "AC-SERVICE", branch: "dubai" } });
     expect(typeof r.confirmation?.token).toBe("string");
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(jobs);
-    // A confirmation for other arguments does not work. Raw, on one agent token: the cell seals the
-    // confirmation over the tool, the arguments and the token, so the replay must change only the arguments.
-    const token = await agentToken(t, dina);
-    const preview = await rpc(token, "tools/call", { name: "create_job", arguments: args(slot) });
-    const sealed = preview.json<{ result: { structuredContent: { confirmation: { token: string } } } }>().result.structuredContent.confirmation.token;
-    const other = await rpc(token, "tools/call", { name: "create_job", arguments: args(slot, { service: "AC-REPAIR" }), _meta: { "renox/confirmation": sealed } });
-    expect(other.status).toBe(409);
-    expect(other.html).toContain("RENOX_TOOL_CONFIRM");
+    // A confirmation for other arguments does not work. On the same agent token (t.tool keeps one per user): the cell
+    // seals the confirmation over the tool, the arguments and the token, so the replay must change only the arguments.
+    const other = await t.tool("create_job", args(slot, { service: "AC-REPAIR" }), { as: dina, confirmation: r.confirmation?.token });
+    expect(other.ok).toBe(false);
+    expect(other.error?.code).toBe("RENOX_TOOL_CONFIRM");
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(jobs);
   });
 
@@ -228,13 +223,14 @@ describe("create_job", () => {
   });
 
   test("the confirmation is single use", async () => {
-    // Raw: `t.tool` confirms with a token of its own and does not hand it back, so the replay needs the token in hand.
     const next = await freeSlot();
-    const token = await agentToken(t, dina);
-    const call = (confirmation?: string) => rpc(token, "tools/call", { name: "create_job", arguments: args(next), ...(confirmation === undefined ? {} : { _meta: { "renox/confirmation": confirmation } }) });
-    const first = (await call()).json<{ result: { structuredContent: { confirmation: { token: string } } } }>().result.structuredContent.confirmation.token;
-    expect((await call(first)).status).toBe(200);
-    expect((await call(first)).status).toBe(409);
+    const first = (await t.tool("create_job", args(next), { as: dina })).confirmation?.token;
+    expect(typeof first).toBe("string");
+    const used = await t.tool("create_job", args(next), { as: dina, confirmation: first });
+    expect(used.ok, JSON.stringify(used)).toBe(true);
+    const replay = await t.tool("create_job", args(next), { as: dina, confirmation: first });
+    expect(replay.ok).toBe(false);
+    expect(replay.error?.code).toBe("RENOX_TOOL_CONFIRM");
   });
 
   test("edge case: the slot is taken now, an unknown phone, a customer with two sites, a malformed slot: objects, nothing written", async () => {
@@ -262,10 +258,10 @@ describe("create_job", () => {
       expect(preview.error?.code).toBe("RENOX_FORBIDDEN");
       expect(preview.preview).toBeUndefined();
       expect(preview.confirmation).toBeUndefined();
-      // A made-up confirmation is refused as such (409) before the action is checked (raw: `t.tool` sends only real confirmations).
-      const confirmed = await rpc(await agentToken(t, user), "tools/call", { name: "create_job", arguments: args(free), _meta: { "renox/confirmation": "any-token" } });
-      expect(confirmed.status, confirmed.html).toBe(409);
-      expect(confirmed.html).toContain("RENOX_TOOL_CONFIRM");
+      // A made-up confirmation is refused as such (409) before the action is checked.
+      const confirmed = await t.tool("create_job", args(free), { as: user, confirmation: "any-token" });
+      expect(confirmed.ok).toBe(false);
+      expect(confirmed.error?.code, JSON.stringify(confirmed)).toBe("RENOX_TOOL_CONFIRM");
     }
     const unverified = await t.tool("create_job", args(free), { as: stranger });
     expect(unverified.ok).toBe(false);

@@ -931,8 +931,36 @@ function register(namespaces) {
       eventHandlers.set(name, on);
     }
   }
+  // ops.md 1.12.0 section 15.4: the app's own hooks.ts, as module "app".
+  // It is the tenant's own code, so it needs no permissions.hooks; its
+  // `on` is stored last, so the in-memory order runs it after the modules.
+  const appHooks = namespaces.app?.hooks;
+  if (appHooks !== undefined && appHooks !== null) {
+    const fills = appHooks.hooks;
+    if (fills !== undefined && fills !== null) {
+      for (const hook of new SafeArrayIterator(ObjectKeys(fills))) {
+        const filler = fills[hook];
+        if (typeof filler?.handle !== "function") throw new TypeError(`app: hooks.${hook}.handle is not a function`);
+        const priority = filler.priority ?? 100;
+        if (typeof priority !== "number" || priority < 0 || priority > 1000) throw new TypeError(`app: hooks.${hook}.priority must be 0-1000`);
+        const list = hookFillers.get(hook) ?? [];
+        ArrayPrototypePush(list, { module: "app", priority, handle: filler.handle });
+        hookFillers.set(hook, list);
+      }
+    }
+    const on = appHooks.on;
+    if (on !== undefined && on !== null) {
+      for (const [ev, h] of new SafeArrayIterator(ObjectEntries(on))) {
+        if (typeof h !== "function") throw new TypeError(`app: on["${ev}"] is not a function`);
+      }
+      eventHandlers.delete("app");
+      eventHandlers.set("app", on);
+    }
+  }
+  // Priority, then module name, the app last on ties (artifact 1.8).
+  const byModule = (a, b) => (a === b ? 0 : a === "app" ? 1 : b === "app" ? -1 : a < b ? -1 : 1);
   for (const list of new SafeArrayIterator([...hookFillers.values()])) {
-    ArrayPrototypeSort(list, (a, b) => a.priority - b.priority || (a.module < b.module ? -1 : a.module > b.module ? 1 : 0));
+    ArrayPrototypeSort(list, (a, b) => a.priority - b.priority || byModule(a.module, b.module));
   }
   // Module -> the events it handles: the cell fans durable events out to them.
   const handled = {};

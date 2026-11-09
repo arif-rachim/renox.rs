@@ -10,7 +10,7 @@
 // next scheduled job, a line on that job's timeline, and a notification to the
 // dispatcher who made the job. Any other text, and any other phone, only stays
 // in the inbox.
-import { branchDb } from "./scope";
+import { branchDb, type Scopable } from "./scope";
 import type { DbStatements } from "@renoxium/sdk";
 import { notifications, whatsapp } from "renox:modules";
 
@@ -27,7 +27,7 @@ export interface SweepResult {
 }
 
 /** Handles the inbox messages not handled yet, oldest first. */
-export async function sweepInbox(ctx: { readonly db: DbStatements }): Promise<SweepResult> {
+export async function sweepInbox(ctx: { readonly db: Scopable }): Promise<SweepResult> {
   const inbox = await whatsapp.inbox({ direction: "in", limit: 200 });
   const result: SweepResult = { seen: 0, tasks: 0 };
   for (const m of [...inbox].reverse()) {
@@ -45,7 +45,7 @@ export async function sweepInbox(ctx: { readonly db: DbStatements }): Promise<Sw
   return result;
 }
 
-async function reply(ctx: { readonly db: DbStatements }, customer: CustomerRow, kind: ReplyKind): Promise<void> {
+async function reply(ctx: { readonly db: Scopable }, customer: CustomerRow, kind: ReplyKind): Promise<void> {
   const sdb = branchDb(ctx.db, customer.branch_id);
   const job = await sdb.queryOne<JobRow>("select id, number, created_by from app__jobs where customer_id = ? and status in ('scheduled', 'en_route') order by scheduled_start, number limit 1", [customer.id]);
   const asked = kind === "cancel" ? "cancel" : "reschedule";
