@@ -7,6 +7,8 @@ export const createPlan = (ctx: Ctx, p: Parameters<typeof core.createPlan>[1]) =
 export const plans = (ctx: Ctx) => core.plans(ctx);
 /** One checkout per order: ({ order_id, customer_id, plan_id } | { order_id, customer_id, amount, description }) -> { url, session_id, reused }. */
 export const createCheckout = (ctx: Ctx, opts: core.CheckoutOptions) => core.createCheckout(ctx, opts ?? {});
+/** Expires card checkouts open for more than 24 h (the job `jobs/checkouts.ts`) -> { expired }. */
+export const expireStaleCheckouts = (ctx: Ctx) => core.expireStaleCheckouts(ctx);
 export const checkout = (ctx: Ctx, customerId: unknown, planId: unknown) => core.checkout(ctx, customerId, planId);
 export const getSubscription = (ctx: Ctx, customerId: unknown) => core.subscription(ctx, customerId);
 export const subscription = getSubscription;

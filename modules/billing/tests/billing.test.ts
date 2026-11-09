@@ -167,3 +167,72 @@ test("a dispute recorded from a Stripe sandbox (#351): found through its payment
   other.data.object.payment_intent = "pi_not_ours";
   expect(await core.applyEvent(c, { ...other, id: "evt_other" })).toBe("ignored");
 });
+
+// #655: an abandoned 3DS challenge expires the checkout and the order can be retried.
+test("an abandoned 3DS challenge: checkout.session.expired expires the checkout and cancels the pending subscription; the order gets a new session", async () => {
+  const { calls, fetchFn } = recording();
+  const { c, emitted } = ctx(fetchFn);
+  await core.createPlan(c, { id: "pro", name: "Pro", amount: 29900, interval: "month" });
+  const order = { order_id: "sub-1", customer_id: "cust_1", plan_id: "pro" };
+  expect(await core.createCheckout(c, order)).toMatchObject({ session_id: "cs_1", reused: false });
+  expect(await core.subscription(c, "cust_1")).toMatchObject({ status: "pending" });
+  const expired = { id: "evt_x1", type: "checkout.session.expired", data: { object: { id: "cs_1", metadata: { customer_id: "cust_1", order_id: "sub-1" } } } };
+  expect(await core.applyEvent(c, expired)).toBe("expired");
+  expect(await c.db.queryOne("select status from billing__checkouts where order_id = ?", ["sub-1"])).toEqual({ status: "expired" });
+  expect(await core.subscription(c, "cust_1")).toMatchObject({ status: "cancelled" });
+  expect(emitted.filter(([n]) => n === "billing.checkout_expired").map(([, p]) => p)).toEqual([{ order_id: "sub-1", checkout_id: "cs_1" }]);
+  // The same event again changes nothing.
+  expect(await core.applyEvent(c, expired)).toBe("ignored");
+  const again = await core.createCheckout(c, order);
+  expect(again).toMatchObject({ session_id: "cs_2", reused: false });
+  expect(calls[1]?.idempotency).toBe("checkout:sub-1:cs_1");
+  expect(await c.db.queryOne("select status, session_id from billing__checkouts where order_id = ?", ["sub-1"])).toEqual({ status: "open", session_id: "cs_2" });
+  expect(await core.subscription(c, "cust_1")).toMatchObject({ status: "pending" });
+});
+
+test("an abandoned 3DS challenge: payment_intent.canceled with reason abandoned does the same; other reasons are ignored", async () => {
+  const { fetchFn } = recording();
+  const { c, emitted } = ctx(fetchFn);
+  const order = { order_id: "order-1001", customer_id: "cust_2", amount: 12500, description: "Order 1001" };
+  await core.createCheckout(c, order);
+  const other = structuredClone(FIX.payment_intent_canceled) as { id: string; data: { object: { cancellation_reason: string } } };
+  other.data.object.cancellation_reason = "requested_by_customer";
+  expect(await core.applyEvent(c, other)).toBe("ignored");
+  expect(await c.db.queryOne("select status from billing__checkouts where order_id = ?", ["order-1001"])).toEqual({ status: "open" });
+  expect(await core.applyEvent(c, FIX.payment_intent_canceled)).toBe("expired");
+  expect(await c.db.queryOne("select status from billing__checkouts where order_id = ?", ["order-1001"])).toEqual({ status: "expired" });
+  expect(emitted.filter(([n]) => n === "billing.checkout_expired").map(([, p]) => p)).toEqual([{ order_id: "order-1001", checkout_id: "cs_1" }]);
+  expect(await core.createCheckout(c, order)).toMatchObject({ session_id: "cs_2", reused: false });
+  // The checkout.session.expired fixture on a fresh order.
+  const { c: c2 } = ctx(recording().fetchFn);
+  await core.createCheckout(c2, order);
+  expect(await core.applyEvent(c2, FIX.checkout_expired)).toBe("expired");
+});
+
+test("an abandoned 3DS challenge leaves an active subscription untouched", async () => {
+  const { fetchFn } = recording();
+  const { c } = ctx(fetchFn);
+  await core.createPlan(c, { id: "pro", name: "Pro", amount: 29900, interval: "month" });
+  await core.createCheckout(c, { order_id: "sub-1", customer_id: "cust_1", plan_id: "pro" });
+  await core.applyEvent(c, { id: "evt_a", type: "checkout.session.completed", data: { object: { client_reference_id: "cust_1", customer: "cus_9", subscription: "sub_9", metadata: { customer_id: "cust_1", order_id: "sub-1" } } } });
+  // The customer starts a second checkout (an upgrade) and abandons it.
+  await core.createCheckout(c, { order_id: "sub-2", customer_id: "cust_1", plan_id: "pro" });
+  expect(await core.subscription(c, "cust_1")).toMatchObject({ status: "active" });
+  expect(await core.applyEvent(c, { id: "evt_b", type: "checkout.session.expired", data: { object: { id: "cs_2", metadata: { customer_id: "cust_1", order_id: "sub-2" } } } })).toBe("expired");
+  expect(await c.db.queryOne("select status from billing__checkouts where order_id = ?", ["sub-2"])).toEqual({ status: "expired" });
+  expect(await core.subscription(c, "cust_1")).toMatchObject({ status: "active" });
+});
+
+test("an abandoned 3DS challenge: the sweep expires a card checkout open for 25 h and leaves one open for 1 h", async () => {
+  const { fetchFn } = recording();
+  const { c, emitted } = ctx(fetchFn);
+  await core.createCheckout(c, { order_id: "old", customer_id: "cust_1", amount: 100, description: "Old" });
+  await core.createCheckout(c, { order_id: "new", customer_id: "cust_2", amount: 100, description: "New" });
+  const t = Date.now();
+  await c.db.execute("update billing__checkouts set created_at = ? where order_id = 'old'", [t - 25 * 3600 * 1000]);
+  await c.db.execute("update billing__checkouts set created_at = ? where order_id = 'new'", [t - 3600 * 1000]);
+  expect(await core.expireStaleCheckouts(c)).toEqual({ expired: 1 });
+  expect(await c.db.query("select order_id, status from billing__checkouts order by order_id")).toEqual([{ order_id: "new", status: "open" }, { order_id: "old", status: "expired" }]);
+  expect(emitted.filter(([n]) => n === "billing.checkout_expired")).toHaveLength(1);
+  expect(await core.expireStaleCheckouts(c)).toEqual({ expired: 0 });
+});

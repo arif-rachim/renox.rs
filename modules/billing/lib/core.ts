@@ -130,7 +130,7 @@ export async function createCheckout(ctx: BillingCtx, o: CheckoutOptions): Promi
   if (method !== "card") return offlineCheckout(ctx, { orderId, customer, amount, currency, method });
   let s: { id: string; url: string };
   try {
-    s = await pspOf(ctx).createSession({ order_id: orderId, customer_id: customer, mode, amount, currency, description, interval, success_url: ctx.config.success_url ?? "/billing/thanks", cancel_url: ctx.config.cancel_url ?? "/billing" });
+    s = await pspOf(ctx).createSession({ order_id: orderId, customer_id: customer, mode, amount, currency, description, interval, success_url: ctx.config.success_url ?? "/billing/thanks", cancel_url: ctx.config.cancel_url ?? "/billing", ...(existing?.status === "expired" ? { retry_of: existing.session_id } : {}) });
   } catch (e) {
     if (e instanceof PspError) throw new BillingError(e.message, "PSP");
     throw e;
@@ -142,11 +142,33 @@ export async function createCheckout(ctx: BillingCtx, o: CheckoutOptions): Promi
   );
   if (planId !== null) {
     await ctx.db.execute(
-      "insert into billing__subscriptions (customer_id, plan_id, status, updated_at) values (?, ?, 'pending', ?) on conflict (customer_id) do update set plan_id = excluded.plan_id, updated_at = excluded.updated_at",
+      "insert into billing__subscriptions (customer_id, plan_id, status, updated_at) values (?, ?, 'pending', ?) on conflict (customer_id) do update set plan_id = excluded.plan_id, status = case when billing__subscriptions.status = 'cancelled' then 'pending' else billing__subscriptions.status end, updated_at = excluded.updated_at",
       [customer, planId, t],
     );
   }
   return { url: s.url, session_id: s.id, reused: false };
+}
+
+/** An `open` checkout becomes `expired`, its `pending` subscription `cancelled` (an active one stays); false when it was not open. */
+async function expireCheckout(ctx: BillingCtx, orderId: string): Promise<boolean> {
+  const t = Date.now();
+  const row = await ctx.db.queryOne<{ customer_id: string; mode: string; status: string; session_id: string }>("select customer_id, mode, status, session_id from billing__checkouts where order_id = ?", [orderId]);
+  if (row === null || row.status !== "open") return false;
+  await ctx.db.execute("update billing__checkouts set status = 'expired', updated_at = ? where order_id = ? and status = 'open'", [t, orderId]);
+  if (row.mode === "subscription") {
+    const { changes } = await ctx.db.execute("update billing__subscriptions set status = 'cancelled', updated_at = ? where customer_id = ? and status = 'pending'", [t, row.customer_id]);
+    if (changes > 0) await ctx.events.emit("billing.subscription_changed", { customer_id: row.customer_id, status: "cancelled" });
+  }
+  await ctx.events.emit("billing.checkout_expired", { order_id: orderId, checkout_id: row.session_id });
+  return true;
+}
+
+/** Card checkouts still `open` after 24 h expire the same way (Stripe's sessions last 24 h; the webhook may be missed). */
+export async function expireStaleCheckouts(ctx: BillingCtx, now: number = Date.now()): Promise<{ expired: number }> {
+  const stale = await ctx.db.query<{ order_id: string }>("select order_id from billing__checkouts where status = 'open' and method = 'card' and created_at < ?", [now - 24 * 3600 * 1000]);
+  let expired = 0;
+  for (const r of stale) if (await expireCheckout(ctx, r.order_id)) expired++;
+  return { expired };
 }
 
 /** Cash on delivery or a bank transfer (#330): the app's own pending page, no PSP. */
@@ -328,6 +350,19 @@ async function apply(ctx: BillingCtx, e: PspEvent): Promise<string> {
       await ctx.events.emit("billing.payment_failed", { customer_id: customer, ...(e.invoice_id === undefined ? {} : { invoice_id: e.invoice_id }), ...(e.order_id === undefined ? {} : { order_id: e.order_id }) });
       await ctx.events.emit("billing.subscription_changed", { customer_id: customer, status: "past_due" });
       return "past_due";
+    case "checkout_expired":
+    case "payment_cancelled": {
+      // An abandoned 3DS challenge or a session that ran out (#655): the checkout expires, its pending subscription is cancelled.
+      if (e.kind === "payment_cancelled" && e.reason !== "abandoned") return "ignored";
+      const row =
+        typeof e.checkout_id === "string"
+          ? await ctx.db.queryOne<{ order_id: string }>("select order_id from billing__checkouts where session_id = ?", [e.checkout_id])
+          : typeof e.order_id === "string"
+            ? await ctx.db.queryOne<{ order_id: string }>("select order_id from billing__checkouts where order_id = ?", [e.order_id])
+            : null;
+      if (row === null) return "ignored";
+      return (await expireCheckout(ctx, row.order_id)) ? "expired" : "ignored";
+    }
     case "disputed": {
       // A chargeback (#351): the paid invoice or one-off order of its payment intent.
       if (typeof e.payment_intent !== "string") return "ignored";

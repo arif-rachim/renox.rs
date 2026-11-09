@@ -14,6 +14,8 @@ export interface SessionRequest {
   interval?: "month" | "year";
   success_url: string;
   cancel_url: string;
+  /** A new session for an order whose earlier one expired: the Stripe idempotency key would otherwise answer the old session. */
+  retry_of?: string;
 }
 
 export interface Session {
@@ -24,7 +26,7 @@ export interface Session {
 /** A provider event, normalised. `kind` is what the module applies. */
 export interface PspEvent {
   id: string;
-  kind: "checkout_completed" | "payment_received" | "payment_failed" | "invoice_issued" | "subscription_cancelled" | "refunded" | "disputed" | "ignored";
+  kind: "checkout_completed" | "payment_received" | "payment_failed" | "invoice_issued" | "subscription_cancelled" | "refunded" | "disputed" | "checkout_expired" | "payment_cancelled" | "ignored";
   order_id?: string;
   customer_id?: string;
   invoice_id?: string;
@@ -36,6 +38,8 @@ export interface PspEvent {
   period_end?: number;
   /** A dispute's reason (Stripe's `fraudulent`, `product_not_received`, …). */
   reason?: string;
+  /** The Checkout session of a `checkout_expired` event. */
+  checkout_id?: string;
 }
 
 export interface PspAdapter {
@@ -101,7 +105,7 @@ export function stripe(fetchFn: FetchFn, key: string): PspAdapter {
         form.set("payment_intent_data[metadata][customer_id]", r.customer_id);
       }
       // One session per order, even when the call is retried (Stripe's idempotency key).
-      const s = await call("checkout/sessions", form, `checkout:${r.order_id}`);
+      const s = await call("checkout/sessions", form, r.retry_of === undefined ? `checkout:${r.order_id}` : `checkout:${r.order_id}:${r.retry_of}`);
       return { id: String(s.id), url: String(s.url) };
     },
     async capture(paymentIntent, amount) {
@@ -127,6 +131,12 @@ export function stripe(fetchFn: FetchFn, key: string): PspAdapter {
         case "invoice.payment_failed":
         case "payment_intent.payment_failed":
           return { ...base, kind: "payment_failed", invoice_id: typeof o.id === "string" && e.type === "invoice.payment_failed" ? o.id : undefined, order_id: meta.order_id, psp_customer: o.customer ?? undefined };
+        case "checkout.session.expired":
+          // The customer left (or abandoned the 3DS challenge) and the 24 h session ran out.
+          return { ...base, kind: "checkout_expired", order_id: meta.order_id, checkout_id: typeof o.id === "string" ? o.id : undefined };
+        case "payment_intent.canceled":
+          // Our metadata is on a one-off payment's intent (payment_intent_data); Stripe's cancellation_reason says why.
+          return { ...base, kind: "payment_cancelled", order_id: meta.order_id, payment_intent: typeof o.id === "string" ? o.id : undefined, reason: typeof o.cancellation_reason === "string" ? o.cancellation_reason : "unknown" };
         case "customer.subscription.deleted":
           return { ...base, kind: "subscription_cancelled", psp_customer: o.customer ?? undefined };
         case "charge.dispute.created":
