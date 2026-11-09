@@ -18,7 +18,7 @@
 // A module service that throws inside the caller's transaction rolls the whole
 // transaction back, so the address is checked first (a valid phone, an address
 // that is not suppressed) and a send that cannot work is skipped, not tried.
-import { branchDb } from "./scope";
+import { branchDb, type Scopable } from "./scope";
 import type { DbStatements } from "@renoxium/sdk";
 import { email, gcc, notifications, whatsapp } from "renox:modules";
 
@@ -28,7 +28,7 @@ import { brandName, getSettings } from "./settings";
 export type CustomerMessageKind = MessageKind | "quote_approved" | "quote_rejected";
 
 interface NotifyCtx {
-  readonly db: DbStatements;
+  readonly db: Scopable;
   readonly principal: { readonly id: string } | null;
   /** The request's URL: its origin makes the customer's links absolute. Jobs have none (the `public_url` setting is used). */
   readonly url?: URL;

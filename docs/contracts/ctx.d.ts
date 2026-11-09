@@ -1,4 +1,4 @@
-// TypeScript view of docs/contracts/ops.md, contract version 1.10.1.
+// TypeScript view of docs/contracts/ops.md, contract version 1.12.1.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
@@ -787,8 +787,8 @@ export type PageData = Record<string, unknown>;
 export type Loader = (ctx: LoaderContext) => PageData | Response | Promise<PageData | Response>;
 
 export interface ActionContext extends Omit<Ctx, "db"> {
-  /** The action's own IMMEDIATE transaction: committed when the action resolves, rolled back when it throws. */
-  readonly db: DbStatements;
+  /** The action's own IMMEDIATE transaction: committed when the action resolves, rolled back when it throws. `scoped` fences it as on a request (section 17). */
+  readonly db: TxDb;
   /** The action name from `?/<name>`, or "default". */
   readonly action: string;
   /** The parsed form body (urlencoded or multipart); empty for other content types. CSRF is checked before. */

@@ -13,7 +13,7 @@ import { audit } from "renox:modules";
 import { bookingService, bookVisit, cancelVisit, clock, ensureSynced, isTaken, nextFree, OFFSET_MS, slotsOn } from "./booking-sync";
 import { notifyCustomer } from "./notify";
 import { day as dayOf } from "./quotes";
-import { branchOf, scopedDb, type Branch } from "./scope";
+import { branchOf, scopedDb, type Branch, type Scopable } from "./scope";
 import { memberName, techniciansOf } from "./technicians";
 
 export const STATUSES = ["new", "scheduled", "en_route", "in_progress", "done", "invoiced", "cancelled"] as const;
@@ -106,7 +106,7 @@ export const topicOf = (branchId: string): string => `jobs:${branchId}`;
 
 /** What the actions of this file need of the ctx. */
 export interface JobCtx {
-  readonly db: DbStatements;
+  readonly db: Scopable;
   readonly principal: Principal | null;
   readonly authz: ActionContext["authz"];
   readonly realtime: Pick<Realtime, "publish">;
