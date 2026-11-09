@@ -1,0 +1,22 @@
+# 1.4.1 (artifact 1.8): the app fills slots with its own partials and declares its own events.
+# [[slots]] and [events] belong to the artifact contract (artifact.md section 3, "App fillers, app hooks, and app events"); this contract only carries them.
+[app]
+name = "clinic"
+timezone = "Asia/Dubai"
+
+[[slots]]
+name = "app.header"
+template = "partials/promo-banner.html"
+
+[[slots]]
+name = "app.footer"
+template = "partials/footer-note.html"
+priority = 200
+
+[events."app.appointment_booked"]
+description = "An appointment was booked."
+payload = { type = "object", required = ["appointment_id", "at"], properties = { appointment_id = { type = "string" }, at = { type = "integer" } } }
+
+[events."app.appointment_cancelled"]
+description = "An appointment was cancelled."
+payload = { type = "object", required = ["appointment_id"], properties = { appointment_id = { type = "string" } } }
