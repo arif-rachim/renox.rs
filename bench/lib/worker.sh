@@ -10,6 +10,7 @@
 #       <dir>/worker.toml and <dir>/routes.json. Each line of <tenants-file>:
 #       "<hostname> <tenant_id> <app>"; <app> is a name under examples/ or
 #       the absolute path of an app directory (B8 stages one).
+#       BENCH_WORKER_EXTRA_TOML, when set, is appended to worker.toml.
 #   bench/lib/worker.sh start <dir>
 #       Starts the worker in the background (log: <dir>/worker.log), waits
 #       until it listens, and prints its pid (also in <dir>/worker.pid).
@@ -86,6 +87,11 @@ rate_limit_per_ip = 10000000.0
 rate_limit_burst = 10000000
 max_connections_per_ip = 100000
 TOML
+  # Extra TOML appended verbatim, for runs that need one more setting (the RSS
+  # bisect of #457 raises [tiers.free] cpu_ms). Unset: nothing changes.
+  if [[ -n "${BENCH_WORKER_EXTRA_TOML:-}" ]]; then
+    printf '\n%s\n' "$BENCH_WORKER_EXTRA_TOML" >>"$dir/worker.toml"
+  fi
 }
 
 cmd_start() {

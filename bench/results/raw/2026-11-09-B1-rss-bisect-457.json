@@ -1,0 +1,413 @@
+{
+  "issue": 457,
+  "note": "B1 shop at N = 100 per commit, release workers (CARGO_PROFILE_RELEASE_DEBUG=0 cargo build --release --locked -p renox-cell --bin renox-worker, rusty_v8 150.4.0), worker.toml with [tiers.free] cpu_ms = 1000, dev container (provisional, D31). regions*: #343 regions.ts medians of 3 runs, MB per isolate; app_from != commit: that commit worker serving an older shop; hello: the app with no modules; trim: RSS before and after malloc_trim(0) through gdb.",
+  "hw": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.30GHz",
+    "cpus": 4,
+    "ram_mb": 16086,
+    "kernel": "Linux 6.18.44-fc-v310",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "bun": "1.4.4",
+    "node": "v22.23.4",
+    "deno": null,
+    "git": "012f94b"
+  },
+  "steps_tsv": [
+    "rss-bisect\tdddd743b3a079aad6704519623889efc216389c9\trss_mb=7.34\tpss_mb=7.34\tv8_heap_mb=4.25",
+    "rss-bisect\t7e84c8e7db670b8364aff180d36ff55d842fab08\trss_mb=11.9\tpss_mb=11.9\tv8_heap_mb=4.47",
+    "rss-bisect\t195ac6d8eca7aa13029bd73077829d0f7aca2967\trss_mb=11.89\tpss_mb=11.89\tv8_heap_mb=4.47",
+    "rss-bisect\t22c18737e6b7e571226fe2421f5678cde2577262\trss_mb=9.15\tpss_mb=9.15\tv8_heap_mb=4.13",
+    "rss-bisect\tf11fadd54db2786613ef8f37048e67d30522aecc\trss_mb=9.16\tpss_mb=9.16\tv8_heap_mb=4.12",
+    "rss-bisect\tea3695edfd3d36d7b1f42c9500aa1781bceadcb8\trss_mb=11.89\tpss_mb=11.89\tv8_heap_mb=4.47",
+    "rss-bisect\t1664c60e917e58776bfb90a2d3aff24d40f4dac5\trss_mb=10.09\tpss_mb=10.09\tv8_heap_mb=4.17",
+    "rss-bisect\t90bf1820c86e1f471b4ab9d6383ec155b835afdf\trss_mb=7.3\tpss_mb=7.3\tv8_heap_mb=4.25",
+    "rss-bisect\tf673ca8faf8a98e3202b278298d9897c7ca18770\trss_mb=9.17\tpss_mb=9.17\tv8_heap_mb=4.13",
+    "rss-bisect\tc9d63cc58414d7d8ebd9ea38157eca9c95e2d37e\trss_mb=7.35\tpss_mb=7.35\tv8_heap_mb=4.25",
+    "rss-bisect\t58a4baf99bb3cc8d21221287b5ee3a7b161f8963\trss_mb=11.96\tpss_mb=11.96\tv8_heap_mb=4.5"
+  ],
+  "measurements": {
+    "1664c60:regions-app-f11fadd": {
+      "commit": "1664c60e917e58776bfb90a2d3aff24d40f4dac5",
+      "app_from": "f11fadd54db2786613ef8f37048e67d30522aecc",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 10.113,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.222,
+        "anon rwx (V8 code)": 0.07,
+        "glibc arenas": 3.506,
+        "glibc main heap ([heap])": 0.067,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 4.795,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.102,
+        "worker binary": 0.277
+      }
+    },
+    "1664c60:regions-hello": {
+      "commit": "1664c60e917e58776bfb90a2d3aff24d40f4dac5",
+      "app_from": "1664c60e917e58776bfb90a2d3aff24d40f4dac5",
+      "app": "hello",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 6.655,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.013,
+        "anon rwx (V8 code)": 0.047,
+        "glibc arenas": 1.949,
+        "glibc main heap ([heap])": 0.047,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.195,
+        "shared libraries and files": 0.032,
+        "thread stacks (guard page before)": 0.102,
+        "worker binary": 0.263
+      }
+    },
+    "1664c60:regions": {
+      "commit": "1664c60e917e58776bfb90a2d3aff24d40f4dac5",
+      "app_from": "1664c60e917e58776bfb90a2d3aff24d40f4dac5",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 10.073,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.256,
+        "anon rwx (V8 code)": 0.07,
+        "glibc arenas": 4.454,
+        "glibc main heap ([heap])": 0.066,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.955,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.103,
+        "worker binary": 0.272
+      }
+    },
+    "1664c60:B1": {
+      "rss_delta_mb": 10.09,
+      "shop_n100_rss_delta_mb": 10.09,
+      "shop_n100_pss_delta_mb": 10.09,
+      "shop_n100_v8_heap_mb": 4.17
+    },
+    "195ac6d:B1": {
+      "rss_delta_mb": 11.89,
+      "shop_n100_rss_delta_mb": 11.89,
+      "shop_n100_pss_delta_mb": 11.89,
+      "shop_n100_v8_heap_mb": 4.47
+    },
+    "22c1873:B1": {
+      "rss_delta_mb": 9.15,
+      "shop_n100_rss_delta_mb": 9.15,
+      "shop_n100_pss_delta_mb": 9.15,
+      "shop_n100_v8_heap_mb": 4.13
+    },
+    "58a4baf:B1": {
+      "rss_delta_mb": 11.96,
+      "shop_n100_rss_delta_mb": 11.96,
+      "shop_n100_pss_delta_mb": 11.96,
+      "shop_n100_v8_heap_mb": 4.5
+    },
+    "7e84c8e:B1": {
+      "rss_delta_mb": 11.9,
+      "shop_n100_rss_delta_mb": 11.9,
+      "shop_n100_pss_delta_mb": 11.9,
+      "shop_n100_v8_heap_mb": 4.47
+    },
+    "90bf182:B1": {
+      "rss_delta_mb": 7.3,
+      "shop_n100_rss_delta_mb": 7.3,
+      "shop_n100_pss_delta_mb": 7.3,
+      "shop_n100_v8_heap_mb": 4.25
+    },
+    "c9d63cc:regions-hello": {
+      "commit": "c9d63cc58414d7d8ebd9ea38157eca9c95e2d37e",
+      "app_from": "c9d63cc58414d7d8ebd9ea38157eca9c95e2d37e",
+      "app": "hello",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 6.35,
+      "threads_per_isolate": 3.02,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.024,
+        "anon rwx (V8 code)": 0.047,
+        "glibc arenas": 1.804,
+        "glibc main heap ([heap])": 0.043,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.083,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.101,
+        "worker binary": 0.206
+      }
+    },
+    "c9d63cc:regions": {
+      "commit": "c9d63cc58414d7d8ebd9ea38157eca9c95e2d37e",
+      "app_from": "c9d63cc58414d7d8ebd9ea38157eca9c95e2d37e",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 7.347,
+      "threads_per_isolate": 3.02,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.04,
+        "anon rwx (V8 code)": 0.047,
+        "glibc arenas": 2.587,
+        "glibc main heap ([heap])": 0.052,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.265,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.105,
+        "worker binary": 0.22
+      }
+    },
+    "c9d63cc:B1": {
+      "rss_delta_mb": 7.35,
+      "shop_n100_rss_delta_mb": 7.35,
+      "shop_n100_pss_delta_mb": 7.35,
+      "shop_n100_v8_heap_mb": 4.25
+    },
+    "dddd743:regions-trim": {
+      "commit": "dddd743b3a079aad6704519623889efc216389c9",
+      "app_from": "dddd743b3a079aad6704519623889efc216389c9",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 7.385,
+      "threads_per_isolate": 0,
+      "per_isolate_mb": {
+        "after_trim": 7.385,
+        "before_trim": 7.322,
+        "trimmed": -0.064
+      }
+    },
+    "dddd743:B1": {
+      "rss_delta_mb": 7.34,
+      "shop_n100_rss_delta_mb": 7.34,
+      "shop_n100_pss_delta_mb": 7.34,
+      "shop_n100_v8_heap_mb": 4.25
+    },
+    "ea3695e:regions-app-1664c60": {
+      "commit": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app_from": "1664c60e917e58776bfb90a2d3aff24d40f4dac5",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 10.077,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.287,
+        "anon rwx (V8 code)": 0.07,
+        "glibc arenas": 3.968,
+        "glibc main heap ([heap])": 0.074,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 4.267,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.103,
+        "worker binary": 0.279
+      }
+    },
+    "ea3695e:regions-hello": {
+      "commit": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app_from": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app": "hello",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 6.641,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.007,
+        "anon rwx (V8 code)": 0.047,
+        "glibc arenas": 1.941,
+        "glibc main heap ([heap])": 0.047,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.202,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.102,
+        "worker binary": 0.263
+      }
+    },
+    "ea3695e:regions-trim": {
+      "commit": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app_from": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 11.924,
+      "threads_per_isolate": 0,
+      "per_isolate_mb": {
+        "after_trim": 11.924,
+        "before_trim": 11.891,
+        "trimmed": -0.036
+      }
+    },
+    "ea3695e:regions": {
+      "commit": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app_from": "ea3695edfd3d36d7b1f42c9500aa1781bceadcb8",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 11.89,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.323,
+        "anon rwx (V8 code)": 0.071,
+        "glibc arenas": 5.338,
+        "glibc main heap ([heap])": 0.08,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 4.663,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.103,
+        "worker binary": 0.281
+      }
+    },
+    "ea3695e:B1": {
+      "rss_delta_mb": 11.89,
+      "shop_n100_rss_delta_mb": 11.89,
+      "shop_n100_pss_delta_mb": 11.89,
+      "shop_n100_v8_heap_mb": 4.47
+    },
+    "f11fadd:regions-hello": {
+      "commit": "f11fadd54db2786613ef8f37048e67d30522aecc",
+      "app_from": "f11fadd54db2786613ef8f37048e67d30522aecc",
+      "app": "hello",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 6.492,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.025,
+        "anon rwx (V8 code)": 0.047,
+        "glibc arenas": 1.87,
+        "glibc main heap ([heap])": 0.058,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.129,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.102,
+        "worker binary": 0.243
+      }
+    },
+    "f11fadd:regions": {
+      "commit": "f11fadd54db2786613ef8f37048e67d30522aecc",
+      "app_from": "f11fadd54db2786613ef8f37048e67d30522aecc",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 9.153,
+      "threads_per_isolate": 3.01,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.189,
+        "anon rwx (V8 code)": 0.066,
+        "glibc arenas": 3.586,
+        "glibc main heap ([heap])": 0.066,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.887,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.102,
+        "worker binary": 0.259
+      }
+    },
+    "f11fadd:B1": {
+      "rss_delta_mb": 9.16,
+      "shop_n100_rss_delta_mb": 9.16,
+      "shop_n100_pss_delta_mb": 9.16,
+      "shop_n100_v8_heap_mb": 4.12
+    },
+    "f673ca8:regions-hello": {
+      "commit": "f673ca8faf8a98e3202b278298d9897c7ca18770",
+      "app_from": "f673ca8faf8a98e3202b278298d9897c7ca18770",
+      "app": "hello",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 6.5,
+      "threads_per_isolate": 3.02,
+      "per_isolate_mb": {
+        "V8 pointer cage": 0.959,
+        "anon rwx (V8 code)": 0.047,
+        "glibc arenas": 1.87,
+        "glibc main heap ([heap])": 0.045,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.195,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.101,
+        "worker binary": 0.25
+      }
+    },
+    "f673ca8:regions": {
+      "commit": "f673ca8faf8a98e3202b278298d9897c7ca18770",
+      "app_from": "f673ca8faf8a98e3202b278298d9897c7ca18770",
+      "app": "shop",
+      "n": 100,
+      "runs": 3,
+      "total_mb": 9.171,
+      "threads_per_isolate": 3.02,
+      "per_isolate_mb": {
+        "V8 pointer cage": 1.216,
+        "anon rwx (V8 code)": 0.066,
+        "glibc arenas": 3.598,
+        "glibc main heap ([heap])": 0.073,
+        "main stack": 0,
+        "other [vdso]": 0,
+        "other [vsyscall]": 0,
+        "other [vvar]": 0,
+        "other [vvar_vclock]": 0,
+        "other anonymous": 3.815,
+        "shared libraries and files": 0.031,
+        "thread stacks (guard page before)": 0.106,
+        "worker binary": 0.27
+      }
+    },
+    "f673ca8:B1": {
+      "rss_delta_mb": 9.17,
+      "shop_n100_rss_delta_mb": 9.17,
+      "shop_n100_pss_delta_mb": 9.17,
+      "shop_n100_v8_heap_mb": 4.13
+    }
+  }
+}

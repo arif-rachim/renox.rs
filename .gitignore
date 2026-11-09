@@ -15,6 +15,11 @@ bench/results/raw/*
 *.heapsnapshot
 perf.data*
 
+# RSS bisect (#457): worktrees, the shared release target and cached workers
+bench/rss-bisect/.wt/
+bench/rss-bisect/.target/
+bench/rss-bisect/.cache/
+
 # SQLite
 *.db
 *.db-wal
