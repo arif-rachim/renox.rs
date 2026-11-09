@@ -6,8 +6,8 @@
 // the `tax_gcc` module (`activate`).
 //
 // Everything of the branch goes through the branch-scoped Db of lib/scope.ts.
-// The two scheduled functions run with no principal and no `db.scoped`: they
-// read across branches and write every row with its own branch_id.
+// The two scheduled functions run as the system principal: they read across
+// branches, then write each branch's rows through `branchDb` (`db.scoped`).
 //
 // A module service that throws inside the caller's transaction rolls it back,
 // so what can fail (the checks, then the module's invoice) comes before the

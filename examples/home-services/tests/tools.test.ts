@@ -201,9 +201,14 @@ describe("create_job", () => {
     expect(r.preview).toMatchObject({ would_create: { customer: "Layla Haddad", site: "Apartment", service: "AC-SERVICE", branch: "dubai" } });
     expect(typeof r.confirmation?.token).toBe("string");
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(jobs);
-    // A confirmation for other arguments does not work (raw: `t.tool` only sends the confirmation of the same call).
-    const other = await rpc(await agentToken(t, dina), "tools/call", { name: "create_job", arguments: args(slot, { service: "AC-REPAIR" }), _meta: { "renox/confirmation": r.confirmation?.token } });
-    expect(other.status).toBeGreaterThanOrEqual(400);
+    // A confirmation for other arguments does not work. Raw, on one agent token: the cell seals the
+    // confirmation over the tool, the arguments and the token, so the replay must change only the arguments.
+    const token = await agentToken(t, dina);
+    const preview = await rpc(token, "tools/call", { name: "create_job", arguments: args(slot) });
+    const sealed = preview.json<{ result: { structuredContent: { confirmation: { token: string } } } }>().result.structuredContent.confirmation.token;
+    const other = await rpc(token, "tools/call", { name: "create_job", arguments: args(slot, { service: "AC-REPAIR" }), _meta: { "renox/confirmation": sealed } });
+    expect(other.status).toBe(409);
+    expect(other.html).toContain("RENOX_TOOL_CONFIRM");
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(jobs);
   });
 
