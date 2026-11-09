@@ -222,10 +222,6 @@ async fn pass(d: &Delivery) -> Option<Option<i64>> {
                 // ops.md 1.5.0 section 17: authz.roles_changed, auth.login
                 // and auth.logout drop the user's cached principal.
                 crate::authz::on_event(&cell.isolate.authz_slot(), &row.name, &row.payload);
-                // #659: auth's failed sign-in, counted once per event.
-                if row.name == "auth.login_failed" {
-                    crate::telemetry::counters::security_event(&cell.key.tenant_id, "login_failed");
-                }
                 // #285: a revoked agent token leaves the MCP cache.
                 cell.mcp.on_event(&row.name, &row.payload);
                 let targets = cell.isolate.event_handlers(&row.name);
@@ -354,6 +350,7 @@ async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option
         let tenant = &cell.key.tenant_id;
         crate::telemetry::counters::security_events(tenant, "fetch_denied", m.fetch_blocked);
         crate::telemetry::counters::security_events(tenant, "db_auth_refused", m.db_auth_refused);
+        crate::telemetry::counters::security_events(tenant, "login_failed", m.login_failed);
         d.meter.record(MeterRecord {
             request_id: ev.request_id(),
             tenant_id: cell.key.tenant_id.clone(),

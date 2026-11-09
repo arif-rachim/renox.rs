@@ -336,17 +336,26 @@ async fn one_page_request_is_one_trace_and_no_secret_reaches_spans_or_metrics() 
 // ---------------------------------------------------------------- #659
 
 const SEC_FN_JS: &str = r#"
+import { auth } from "renox:modules";
 export async function GET({ url, db }) {
   const op = url.searchParams.get("op");
   try {
     if (op === "fetch") await fetch("http://127.0.0.1:9/");
     if (op === "attach") await db.execute("attach database ? as other", ["/tmp/renox-other.db"]);
+    if (op === "login") await auth.fail();
   } catch (e) {
     return Response.json({ code: e.code });
   }
   return Response.json({ code: null });
 }
 export function POST() { return Response.json({ ok: true }); }
+"#;
+
+/// A stand-in for `modules/auth` `login`'s failure path (#659).
+const SEC_AUTH_JS: &str = r#"
+export async function fail(ctx) {
+  await ctx.events.emit("auth.login_failed", { reason: "password", ip_hash: "0123456789abcdef" }, { durable: false });
+}
 "#;
 
 const SEC_PAGE_JS: &str = r#"
@@ -356,7 +365,11 @@ export const actions = { async add() { return { ok: 1 }; } };
 
 fn write_security_artifact(artifacts: &Path) -> String {
     let tmp = scratch("sec-artifact-src");
-    for (id, js) in [("functions/api/sec", SEC_FN_JS), ("pages/sec", SEC_PAGE_JS)] {
+    for (id, js) in [
+        ("functions/api/sec", SEC_FN_JS),
+        ("pages/sec", SEC_PAGE_JS),
+        ("modules/auth/services", SEC_AUTH_JS),
+    ] {
         let p = tmp.join("code").join(format!("{id}.js"));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, js).unwrap();
@@ -377,13 +390,20 @@ fn write_security_artifact(artifacts: &Path) -> String {
     let manifest = serde_json::json!({
         "artifact": { "version": 1 },
         "app": { "name": "security", "timezone": "UTC" },
-        "code": { "format": "esm-dir", "entry": { "functions/api/sec": "functions/api/sec.js", "pages/sec": "pages/sec.js" } },
+        "code": { "format": "esm-dir", "entry": { "functions/api/sec": "functions/api/sec.js", "pages/sec": "pages/sec.js", "modules/auth/services": "modules/auth/services.js" } },
         "routes": [
             { "kind": "function", "method": "GET", "path": "/api/sec", "module": "functions/api/sec", "export": "GET" },
             { "kind": "function", "method": "POST", "path": "/api/sec", "module": "functions/api/sec", "export": "POST" },
             { "kind": "page", "path": "/sec", "module": "pages/sec", "load": true, "actions": ["add"] }
         ],
         "permissions": { "network": [], "secrets": [] },
+        "modules": [{
+            "name": "auth", "version": "1.0.0", "hash": "0".repeat(64), "source": "path:modules/auth",
+            "mount": "/auth", "isolation": "shared", "dependencies": [], "config": {},
+            "permissions": { "tables": "auth__*", "network": [], "secrets": [], "slots": [], "hooks": [] },
+            "approved": { "tables": "auth__*", "network": [], "secrets": [], "slots": [], "hooks": [] },
+            "exports": { "services": ["fail"], "events": { "auth.login_failed": { "type": "object" } } },
+        }],
         "security": { "ratelimit": [
             { "method": "POST", "path": "/api/sec", "requests": 1, "window_s": 60, "key": "ip" }
         ] }
@@ -444,26 +464,6 @@ meter_flush_ms = 50
         { "hostname": "sec.test", "tenant_id": "t_sec", "deployment_hash": hash, "status": "active", "updated_at": 1 }
     ]});
     std::fs::write(&config.routes_file, routes.to_string()).unwrap();
-    // A failed sign-in the auth module emitted before this worker started:
-    // the new cell's outbox delivers it, and the cell counts it.
-    {
-        let dir = config.data_dir.join("t_sec");
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = renox_data::TenantDb::open(dir.join("app.db"), renox_data::DbOptions::default())
-            .unwrap();
-        renox_data::outbox::emit_autocommit(
-            &db,
-            &renox_data::outbox::OutboxEvent {
-                id: "01JBQ3Z7MA0000000000000659".into(),
-                name: "auth.login_failed".into(),
-                payload: r#"{"reason":"password","ip_hash":"0123456789abcdef"}"#.into(),
-                module: "auth".into(),
-                created_at: 1,
-            },
-        )
-        .unwrap();
-        db.close().unwrap();
-    }
     let worker = Worker::start(config).await.unwrap();
     let addr = worker.addr;
 
@@ -471,6 +471,9 @@ meter_flush_ms = 50
     assert!(r.contains("RENOX_FETCH_BLOCKED"), "{r}");
     let r = sec_get(addr, "/api/sec?op=attach").await;
     assert!(r.contains("RENOX_DB_AUTH"), "{r}");
+    // The auth module's failed sign-in, emitted in memory like `login` does.
+    let r = sec_get(addr, "/api/sec?op=login").await;
+    assert!(r.contains(r#""code":null"#), "{r}");
     let r = sec_post(addr, "/sec?/add").await;
     assert!(r.starts_with("HTTP/1.1 403"), "{r}");
     let r = sec_post(addr, "/api/sec").await;

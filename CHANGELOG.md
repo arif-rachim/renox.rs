@@ -15,7 +15,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **Modules**
 
 - `audit` 1.0.0: listens to `mcp.tool_called` and records one `audit__events` row per tool call with `actor_kind = agent`, the client, the tool as `resource_id` and the outcome (`result` and `details.outcome`) (#658).
-- `auth` emits `auth.login_failed { reason: "password" | "unknown_user" | "locked", ip_hash }` on a failed password sign-in (no email, no user id); the cell counts it as `renox_security_events_total{kind="login_failed"}` (#659).
+- `auth` emits `auth.login_failed { reason: "password" | "unknown_user" | "locked", ip_hash }` on a failed password sign-in (no email, no user id), in memory (`durable: false`: a login flood writes nothing to the outbox); the runtime counts it at the emit as `renox_security_events_total{kind="login_failed"}` (#659).
 
 **CLI**
 

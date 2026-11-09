@@ -264,6 +264,15 @@ mod v8_ops {
             ));
         }
         let tx = request_tx(&state, token, tx)?;
+        // #659: a failed sign-in of the `auth` module, counted with the
+        // request (`renox_security_events_total{kind="login_failed"}`). The
+        // module emits it in memory, so a login flood writes nothing.
+        if module == "auth"
+            && name == "auth.login_failed"
+            && let Ok(request) = live_request(&state.borrow(), token)
+        {
+            request.borrow_mut().login_failed += 1;
+        }
         let id = ulid();
         if !durable {
             return Ok(id);

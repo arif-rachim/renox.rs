@@ -80,7 +80,7 @@ export async function load(ctx) {
 | --- | --- |
 | `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" }` |
 | `auth.login` | `{ user_id, at }` |
-| `auth.login_failed` | `{ reason: "password" \| "unknown_user" \| "locked", ip_hash }`: no email, no user id; the cell counts it as `renox_security_events_total{kind="login_failed"}` (#659) |
+| `auth.login_failed` | `{ reason: "password" \| "unknown_user" \| "locked", ip_hash }`: no email, no user id; in memory (no outbox row), and the runtime counts it at the emit as `renox_security_events_total{kind="login_failed"}` (#659) |
 | `auth.password_changed` | `{ user_id, at }` (a reset) |
 | `auth.logout` | `{ user_id, at }`: the cell drops the principal from its cache |
 | `auth.agent_token_revoked` | `{ token_hash, user_id, at }`: the cell drops the token from its `/mcp` cache |

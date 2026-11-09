@@ -122,18 +122,19 @@ fn iteration_limit() {
 }
 
 /// #657 (`docs/23-failure-modes.md`, "Template nested loops / huge
-/// output"): a fuel stop inside a partial names the partial and its line,
-/// not the page that included it.
+/// output"): a fuel stop in a layout names the layout and its line, not the
+/// page that uses it. (A component is inlined into the page at compile
+/// time, so a stop inside one names the page.)
 #[test]
 fn fuel_stop_names_the_innermost_template_and_line() {
     let c = compile_files(&[
         (
-            "partials/grid.html",
-            "<r-props rows=\"any\" cols=\"any\" />\n<table>\n  <tr r-for=\"a in rows\"><td r-for=\"b in cols\">{{ a }}{{ b }}</td></tr>\n</table>",
+            "pages/_layouts/main.html",
+            "<!doctype html><html><body>\n<main><slot /></main>\n<table><tr r-for=\"a in rows\"><td r-for=\"b in cols\">{{ a }}{{ b }}</td></tr></table>\n</body></html>",
         ),
         (
             "pages/index.html",
-            "<h1>grid</h1>\n<x-grid :rows=\"rows\" :cols=\"cols\"></x-grid>",
+            "<r-layout use=\"main\">\n  <h1>grid</h1>\n</r-layout>",
         ),
     ])
     .unwrap();
@@ -149,7 +150,11 @@ fn fuel_stop_names_the_innermost_template_and_line() {
     let RenderError::Fuel(stats) = e else {
         panic!("expected Fuel, got {e:?}");
     };
-    assert_eq!(stats.template.as_deref(), Some("partials/grid"), "{stats:?}");
+    assert_eq!(
+        stats.template.as_deref(),
+        Some("pages/_layouts/main"),
+        "{stats:?}"
+    );
     assert_eq!(stats.line, Some(3), "{stats:?}");
 }
 

@@ -1673,6 +1673,7 @@ impl CellManager {
             "db_auth_refused",
             m.db_auth_refused,
         );
+        crate::telemetry::counters::security_events(&rc.tenant_id, "login_failed", m.login_failed);
         // #295: the request families of `/metrics`.
         self.inner.metrics.request(
             &rc.tenant_id,

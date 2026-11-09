@@ -715,7 +715,10 @@ async fn every_tool_call_is_audited() {
             .to_string()
     };
 
-    let rows = tool_calls(&n, 6).await;
+    // In call order: the outbox may deliver a retried row after a later one,
+    // and this node's request ids are `req_<n>` in arrival order.
+    let mut rows = tool_calls(&n, 6).await;
+    rows.sort_by_key(|r| (r.4.len(), r.4.clone()));
     let got: Vec<(&str, &str, &str, &str)> = rows
         .iter()
         .map(|r| (r.0.as_str(), r.1.as_str(), r.2.as_str(), r.3.as_str()))
