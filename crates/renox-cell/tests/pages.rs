@@ -233,6 +233,14 @@ async fn http(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str
     s.read_to_end(&mut buf).await.unwrap();
     let text = String::from_utf8_lossy(&buf).to_string();
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    // A loader slower than the shell delay streams the page (`ops.md`
+    // section 14, "Streaming the shell"; #161): decode the chunks.
+    let head_lower = head.to_ascii_lowercase();
+    let body = if head_lower.contains("transfer-encoding: chunked") {
+        dechunk(body)
+    } else {
+        body.to_string()
+    };
     let status = head
         .split(' ')
         .nth(1)
@@ -240,8 +248,37 @@ async fn http(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str
         .unwrap_or(0);
     Reply {
         status,
-        head: head.to_ascii_lowercase(),
-        body: body.to_string(),
+        head: head_lower,
+        body,
+    }
+}
+
+/// The body of a `Transfer-Encoding: chunked` response.
+fn dechunk(mut rest: &str) -> String {
+    let mut out = String::new();
+    while let Some((size, after)) = rest.split_once("\r\n") {
+        let size =
+            usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16).unwrap_or(0);
+        if size == 0 || after.len() < size {
+            break;
+        }
+        out.push_str(&after[..size]);
+        rest = after[size..].strip_prefix("\r\n").unwrap_or(&after[size..]);
+    }
+    out
+}
+
+impl Reply {
+    fn streamed(&self) -> bool {
+        self.head.contains("transfer-encoding: chunked")
+    }
+
+    fn request_id(&self) -> String {
+        self.head
+            .lines()
+            .find_map(|l| l.strip_prefix("x-renox-request-id: "))
+            .unwrap_or_default()
+            .to_ascii_uppercase()
     }
 }
 
@@ -389,7 +426,18 @@ async fn shop_pages_render_through_the_full_path() {
     assert!(nf_json.body.starts_with('{'), "{}", nf_json.body);
 
     // Render limit: B13 page (10k x 10k) -> 500 RENOX_RENDER_LIMIT, error page.
-    let evil = http(addr, "GET", "/evil", &[]).await;
+    // A loader slower than the shell delay (a busy machine) streams the
+    // page with 200 already sent and the error page inside the stream
+    // (`ops.md` section 14, "Errors after the shell"; errors.rs covers that
+    // case): ask again until the answer is not streamed.
+    let mut evil = http(addr, "GET", "/evil", &[]).await;
+    for _ in 0..10 {
+        if !evil.streamed() {
+            break;
+        }
+        evil = http(addr, "GET", "/evil", &[]).await;
+    }
+    assert!(!evil.streamed(), "/evil streamed 11 times: {}", evil.head);
     assert_eq!(evil.status, 500);
     assert!(evil.body.contains("RENOX_RENDER_LIMIT"), "{}", evil.body);
     assert!(evil.body.contains("The page could not be rendered."));
@@ -410,7 +458,16 @@ async fn shop_pages_render_through_the_full_path() {
         serde_json::json!(0.0),
         "no tenant code ran"
     );
-    let evil_rec = &record_for(&meters, "GET /evil", 1).await[0];
+    let evil_id = evil.request_id();
+    let evil_rec = &loop {
+        let recs = record_for(&meters, "GET /evil", 1).await;
+        if let Some(r) = recs.into_iter().find(|r| {
+            r["request_id"].as_str().map(str::to_ascii_uppercase) == Some(evil_id.clone())
+        }) {
+            break r;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
     assert_eq!(evil_rec["status"], "render_limit", "{evil_rec}");
     assert_eq!(evil_rec["http_status"], 500);
     let cpu = evil_rec["cpu_ms"].as_f64().unwrap();
