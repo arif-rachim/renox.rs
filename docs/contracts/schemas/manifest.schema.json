@@ -78,7 +78,7 @@
     },
     "entries": {
       "type": "object",
-      "description": "Version 1.2: code.entry id -> { exports, eager }. exports are the module's static export names, recorded by renox build; the worker refuses an artifact whose recorded exports differ from the module's (V23, ops.md 1.4.0 section 11). eager false lets the runtime evaluate a route module on its first request. Absent: every entry is eager and the exports are checked at isolate creation (1.1 behaviour).",
+      "description": "Version 1.2: code.entry id -> { exports, eager }. exports are the module's static export names, recorded by renox build; the worker refuses an artifact whose recorded exports differ from the module's (V23, ops.md 1.4.0 section 11). eager false lets the runtime evaluate a route module on its first request, and (version 1.9) a module entry on the first call into the module; hooks and on (version 1.9) record what a hooks entry fills and handles. Absent: every entry is eager and the exports are checked at isolate creation (1.1 behaviour).",
       "maxProperties": 10000,
       "propertyNames": {
         "$ref": "#/$defs/moduleId"
@@ -983,7 +983,25 @@
         },
         "eager": {
           "type": "boolean",
-          "description": "true: evaluated at isolate creation. false (route modules only): evaluated on the first request that needs it. Default true."
+          "description": "true: evaluated at isolate creation. false: a route module is evaluated on the first request that needs it; (version 1.9) a module's services or hooks entry, or the app's hooks entry, on the first service call, hook run or event that reaches the module (ops.md 1.14.0). A hooks entry may be false only when it records hooks and on (V23). Default true."
+        },
+        "hooks": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/dottedName"
+          },
+          "description": "Version 1.9, hooks entries only: the hook names the entry's hooks export fills, sorted, recorded by renox build (artifact.md section 3, \"Entries\"; V23)."
+        },
+        "on": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/dottedName"
+          },
+          "description": "Version 1.9, hooks entries only: the event names the entry's on export handles, sorted, recorded by renox build (artifact.md section 3, \"Entries\"; V23)."
         }
       }
     },

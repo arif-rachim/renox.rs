@@ -18,6 +18,10 @@ The F1 gate (#37) folded the tar rules of #95 and the bundle rules of #115 into 
 
 The package accepts artifact 1.8, as `docs/contracts/validate.ts` does: the app's own `hooks` code entry is loaded by the bootstrap, so V7 does not ask a route to use it, and V23 keeps it eager like `modules/<name>/hooks`; a `slots[]` filler with `module: "app"` names an app partial (`partials/…`, kind `partial` in `templates`, V18) and needs no `permissions.slots` (V22); **V31** checks the top-level `events` map (keys `^app\.[a-z][a-z0-9_]{0,63}$`, at most 64, every `payload` a schema of the keyword subset). `artifact.version` stays `1`. An app that uses none of the three produces the same 1.7 artifact and is checked as before.
 
+## Artifact 1.9 (#640)
+
+The package follows the 1.9 V23 of `docs/contracts/validate.ts` (ADR D32, `ops.md` 1.14.0). A module's `services` entry may be `eager: false`. A `hooks` entry (`modules/<name>/hooks`, or the app's `hooks`) may be `eager: false` only when it records the `hooks` it fills and the events it handles in `on`; without them it stays eager, as in 1.8. Those lists appear only on `hooks` entries, and a non-empty list needs the matching export. A module's filled hooks must be in its `approved.hooks`.
+
 ## Safe extraction (T1–T8)
 
 `extractTar(stream, { gzip, limits })` reads a tar or gzip tar **as a stream** and applies every cap while it reads. It stops at the first violation, cancels the input, and throws `TarRejected` with `{ rule, path?, reason }`; over the input cap it throws `InputTooLarge` (the API answers 413). It never writes to disk. What it holds is bounded by T2, and a bomb is never read to its end.
