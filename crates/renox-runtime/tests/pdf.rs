@@ -1,4 +1,4 @@
-//! Issue #322: `ctx.pdf` (`docs/contracts/ops.md` 1.7.0 section 24); #578: no images (1.10.1).
+//! Issue #322: `ctx.pdf` (`docs/contracts/ops.md` 1.7.0 section 24); #582: images (1.13.0).
 //! V8-linked for the op; the layout checks need no isolate.
 //!
 //! A bilingual tax invoice (English and Arabic, right-to-left blocks, a
@@ -16,7 +16,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use renox_runtime::ops::pdf::{
-    PdfOptions, TemplateHost, TemplateSlot, html_to_pdf, layout, text_runs,
+    ImageError, ImageFormat, PdfError, PdfImages, PdfOptions, TemplateHost, TemplateSlot,
+    html_to_pdf, html_to_pdf_with, layout, layout_with, text_runs,
 };
 use renox_runtime::{Runtime, RuntimeConfig};
 use support::{body_json, ctx, get, spec, write_artifact};
@@ -176,47 +177,276 @@ async fn ctx_pdf_renders_meters_and_refuses_past_the_page_limit() {
     assert_eq!(v["name"], "PdfLimitError");
 }
 
-/// Issue #578 (`ops.md` 1.10.1 section 24): no image is rendered. An `<img>`
-/// is dropped, whether a data URI or a tenant `/_img` key, at block level or
-/// inside a paragraph; the text around it stays, the render does not fail,
-/// and the PDF holds no image (no `/XObject`, no image item in the layout).
-#[test]
-fn an_img_element_is_dropped_never_rendered_and_never_an_error() {
-    const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-    let html = format!(
-        r#"<html><body>
-  <h1>Visit report</h1>
-  <img src="{PNG}" alt="before photo">
-  <p>Before <img src="/_img/x"> photo: kitchen sink</p>
-  <div><img src="/_img/x?w=320"></div>
-  <p>Signed by Amina at 10:42</p>
-</body></html>"#
-    );
-    let doc = layout(&html, &PdfOptions::default()).unwrap();
-    fn images(frame: &typst::layout::Frame) -> usize {
+// ---------------------------------------------------------------------------
+// Images (#582, `ops.md` 1.13.0 section 24; replaces the 1.10.1 "no image"
+// case of #578).
+
+/// A 1x1 PNG.
+const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+fn image_items(doc: &typst_layout::PagedDocument) -> usize {
+    fn walk(frame: &typst::layout::Frame) -> usize {
         frame
             .items()
             .map(|(_, item)| match item {
-                typst::layout::FrameItem::Group(g) => images(&g.frame),
+                typst::layout::FrameItem::Group(g) => walk(&g.frame),
                 typst::layout::FrameItem::Image(..) => 1,
                 _ => 0,
             })
             .sum()
     }
-    let n: usize = doc.pages().iter().map(|p| images(&p.frame)).sum();
-    assert_eq!(n, 0, "no image item in the layout");
-    let text: String = text_runs(&doc)
+    doc.pages().iter().map(|p| walk(&p.frame)).sum()
+}
+
+fn has_xobject(pdf: &[u8]) -> bool {
+    pdf.windows(b"/XObject".len()).any(|w| w == b"/XObject")
+}
+
+fn text_of(doc: &typst_layout::PagedDocument) -> String {
+    text_runs(doc)
         .into_iter()
         .map(|(t, _)| t)
         .collect::<Vec<_>>()
-        .join(" ");
+        .join(" ")
+}
+
+/// A `w`×`h` photo-like JPEG (a gradient with some texture).
+fn jpeg(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([
+            (x * 255 / w) as u8,
+            (y * 255 / h) as u8,
+            ((x ^ y) & 0xff) as u8,
+        ])
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut out),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+    out
+}
+
+/// A `w`×`h` signature-like PNG (a dark stroke on white).
+fn png(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let on = (y as i64 - (h as i64 / 2 + ((x as f64 / 9.0).sin() * 20.0) as i64)).abs() < 3;
+        if on {
+            image::Rgba([20, 20, 60, 255])
+        } else {
+            image::Rgba([255, 255, 255, 255])
+        }
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .unwrap();
+    out
+}
+
+fn data_uri(mime: &str, bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+/// The tenant's files: what `/_img/<key>?w=` asked, and the bytes it answers.
+#[derive(Default)]
+struct Store {
+    files: std::collections::HashMap<String, (Vec<u8>, ImageFormat)>,
+    asked: std::sync::Mutex<Vec<(String, Option<u32>)>>,
+}
+
+impl PdfImages for Store {
+    fn read_image(
+        &self,
+        key: &str,
+        width: Option<u32>,
+    ) -> Result<(Vec<u8>, ImageFormat), ImageError> {
+        self.asked.lock().unwrap().push((key.into(), width));
+        self.files.get(key).cloned().ok_or(ImageError::NotFound)
+    }
+}
+
+#[test]
+fn a_data_uri_png_renders_and_the_pdf_holds_an_xobject() {
+    let html = format!(
+        r#"<html><body><h1>Logo</h1><img src="{PNG}" width="120" alt="logo"><p>Invoice 42</p></body></html>"#
+    );
+    let doc = layout(&html, &PdfOptions::default()).unwrap();
+    assert_eq!(image_items(&doc), 1);
+    let text = text_of(&doc);
+    assert!(
+        text.contains("Logo") && text.contains("Invoice 42"),
+        "{text}"
+    );
+    let pdf = html_to_pdf(&html, &PdfOptions::default()).unwrap();
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(has_xobject(&pdf), "the PDF holds an XObject");
+}
+
+struct Photos(Arc<Store>);
+
+impl TemplateHost for Photos {
+    fn render(&self, template: &str, _data_json: &str) -> Result<String, String> {
+        if template != "partials/report" {
+            return Err(format!("unknown template {template}"));
+        }
+        Ok(r#"<html><body><h1>Visit report</h1><p>Before: <img src="/_img/photos/before.jpg?w=480"></p></body></html>"#.into())
+    }
+
+    fn images(&self) -> Option<Arc<dyn PdfImages>> {
+        Some(self.0.clone())
+    }
+}
+
+const REPORT_APP: &str = r#"
+export async function GET(ctx) {
+  try {
+    const bytes = await ctx.pdf.render("partials/report", {});
+    const text = new TextDecoder("latin1").decode(bytes);
+    return Response.json({ ok: true, xobject: text.includes("/XObject") });
+  } catch (e) {
+    return Response.json({ ok: false, code: e.code ?? null, name: e.name });
+  }
+}
+"#;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_img_key_comes_through_the_host_at_width_480() {
+    let mut store = Store::default();
+    store.files.insert(
+        "photos/before.jpg".into(),
+        (jpeg(480, 360), ImageFormat::Jpeg),
+    );
+    let store = Arc::new(store);
+    // The layout path, then the op through `TemplateHost::images`.
+    let html = r#"<p>Before: <img src="/_img/photos/before.jpg?w=480"></p><img src="/_img/photos/none.jpg?w=99999">"#;
+    let doc = layout_with(html, &PdfOptions::default(), Some(store.as_ref())).unwrap();
+    assert_eq!(image_items(&doc), 1, "the unknown key is dropped");
+    assert_eq!(
+        *store.asked.lock().unwrap(),
+        vec![
+            ("photos/before.jpg".to_string(), Some(480)),
+            ("photos/none.jpg".to_string(), Some(1600)),
+        ],
+        "w is passed through, at most 1600"
+    );
+    store.asked.lock().unwrap().clear();
+
+    let rt = Runtime::new(RuntimeConfig::default());
+    let manifest = serde_json::json!({
+        "artifact": { "version": 1 },
+        "app": { "name": "reports", "timezone": "Asia/Dubai" },
+        "code": { "format": "esm-dir", "entry": { "functions/f": "functions/f.js" } },
+        "routes": [{ "kind": "function", "method": "GET", "path": "/pdf", "module": "functions/f", "export": "GET" }],
+        "permissions": { "network": [], "secrets": [] },
+    });
+    let m = serde_json::to_vec(&manifest).unwrap();
+    let (dir, hash) = write_artifact(&[
+        ("manifest.json", &m),
+        ("code/functions/f.js", REPORT_APP.as_bytes()),
+    ]);
+    let mut s = spec(
+        &dir,
+        &hash,
+        renox_runtime::limits::Limits {
+            cpu_ms: 5_000,
+            ..renox_runtime::limits::Limits::FREE
+        },
+    );
+    s.templates = Some(TemplateSlot(Arc::new(Photos(store.clone()))));
+    let iso = rt.create_isolate(s).await.unwrap();
+    let out = iso.dispatch(ctx("req_pdf_img_0000001"), get("/pdf")).await;
+    let v = body_json(&out.response);
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["xobject"], true, "{v}");
+    assert_eq!(
+        *store.asked.lock().unwrap(),
+        vec![("photos/before.jpg".to_string(), Some(480))]
+    );
+}
+
+#[test]
+fn fifty_one_images_are_over_the_limit() {
+    let fifty: String = (0..50).map(|_| format!(r#"<img src="{PNG}">"#)).collect();
+    let ok = format!("<html><body>{fifty}</body></html>");
+    assert_eq!(
+        image_items(&layout(&ok, &PdfOptions::default()).unwrap()),
+        50
+    );
+    let over = format!(r#"<html><body>{fifty}<p><img src="{PNG}"></p></body></html>"#);
+    match html_to_pdf(&over, &PdfOptions::default()) {
+        Err(PdfError::Limit(m)) => assert!(m.contains("51 images"), "{m}"),
+        other => panic!("{:?}", other.map(|b| b.len())),
+    }
+}
+
+#[test]
+fn a_3_mib_data_uri_is_over_the_limit() {
+    // 3 MiB once decoded: refused before it is decoded.
+    let big = format!("data:image/png;base64,{}", "A".repeat(4 * 1024 * 1024));
+    let html = format!(r#"<html><body><p>Photo</p><img src="{big}"></body></html>"#);
+    match html_to_pdf(&html, &PdfOptions::default()) {
+        Err(PdfError::Limit(m)) => assert!(m.contains("data URI"), "{m}"),
+        other => panic!("{:?}", other.map(|b| b.len())),
+    }
+}
+
+/// Anything but a `/_img` key or a PNG/JPEG data URI is dropped: the text
+/// around it stays, the render does not fail, and the PDF holds no image.
+#[test]
+fn an_img_from_https_or_any_other_src_is_dropped_silently() {
+    let html = r#"<html><body>
+  <h1>Visit report</h1>
+  <img src="https://example.com/photo.jpg" alt="remote">
+  <p>Before <img src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="> photo: kitchen sink</p>
+  <div><img src="photo.png"><img src="data:image/png;base64,bm90IGEgcG5n"><img src="/_img/x?w=320"></div>
+  <p>Signed by Amina at 10:42</p>
+</body></html>"#;
+    // No host: the `/_img` key is dropped too.
+    let doc = layout(html, &PdfOptions::default()).unwrap();
+    assert_eq!(image_items(&doc), 0, "no image item in the layout");
+    let text = text_of(&doc);
     for word in ["Visit report", "Before", "kitchen sink", "Signed by Amina"] {
         assert!(text.contains(word), "{word} in {text}");
     }
-    let pdf = html_to_pdf(&html, &PdfOptions::default()).unwrap();
+    let pdf = html_to_pdf(html, &PdfOptions::default()).unwrap();
     assert!(pdf.starts_with(b"%PDF-"));
-    assert!(
-        !pdf.windows(b"/XObject".len()).any(|w| w == b"/XObject"),
-        "the PDF holds no XObject"
+    assert!(!has_xobject(&pdf), "the PDF holds no XObject");
+}
+
+/// The Definition of Done of #582: a visit report with two photos (tenant
+/// keys) and a signature (a data URI) renders three images under 1 MB.
+#[test]
+fn a_visit_report_with_two_photos_and_a_signature_has_three_images_under_1_mb() {
+    let mut store = Store::default();
+    for k in ["visits/7/before.jpg", "visits/7/after.jpg"] {
+        store
+            .files
+            .insert(k.into(), (jpeg(800, 600), ImageFormat::Jpeg));
+    }
+    let signature = data_uri("image/png", &png(400, 120));
+    let html = format!(
+        r#"<!doctype html><html lang="en"><body>
+  <h1>Visit report #7</h1>
+  <table><tr><th>Before</th><th>After</th></tr>
+    <tr><td><img src="/_img/visits/7/before.jpg?w=800" width="240"></td><td><img src="/_img/visits/7/after.jpg?w=800" width="240"></td></tr></table>
+  <p>Kitchen sink: replaced the trap and the seal.</p>
+  <p>Customer signature:</p>
+  <img src="{signature}" width="200" alt="signature">
+  <p>Signed by Amina at 10:42</p>
+</body></html>"#
     );
+    let doc = layout_with(&html, &PdfOptions::default(), Some(&store)).unwrap();
+    assert_eq!(image_items(&doc), 3);
+    assert_eq!(doc.pages().len(), 1);
+    let pdf = html_to_pdf_with(&html, &PdfOptions::default(), Some(&store)).unwrap();
+    assert!(has_xobject(&pdf));
+    assert!(pdf.len() < 1024 * 1024, "{} bytes", pdf.len());
+    eprintln!("visit report with three images: {} bytes", pdf.len());
 }

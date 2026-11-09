@@ -230,6 +230,41 @@ fn bound_urls_refuse_script_schemes() {
     assert!(html.contains("href=\"/p/ java"), "{html}");
 }
 
+/// #582 (`ops.md` 1.13.0 section 24): a base64 PNG or JPEG data URL passes
+/// the URL filter on `<img src>` only, for `ctx.pdf` to embed; any other
+/// `data:` URL, and the same URL on another attribute, stays refused.
+#[test]
+fn img_src_lets_png_and_jpeg_data_urls_through_and_nothing_else() {
+    let c = compile_files(&[(
+        "pages/pdf.html",
+        "<img :src=\"png\"><img src=\"{{ jpeg }}\"><img :src=\"svg\"><img :src=\"html\"><a :href=\"png\">a</a><script :src=\"png\"></script>",
+    )])
+    .unwrap();
+    let html = render_page(
+        &renderer(&c),
+        "pages/pdf",
+        json!({
+            "png": "data:image/png;base64,iVBORw0KGgo=",
+            "jpeg": "data:image/jpeg;base64,/9j/4AAQ",
+            "svg": "data:image/svg+xml;base64,PHN2Zz4=",
+            "html": "data:text/html;base64,PHNjcmlwdD4=",
+        }),
+    );
+    assert!(
+        html.contains("<img src=\"data:image/png;base64,iVBORw0KGgo=\">"),
+        "{html}"
+    );
+    assert!(
+        html.contains("<img src=\"data:image/jpeg;base64,/9j/4AAQ\">"),
+        "{html}"
+    );
+    assert_eq!(
+        html.matches("about:invalid#renox-unsafe-url").count(),
+        4,
+        "svg, html, a href, script src: {html}"
+    );
+}
+
 #[test]
 fn components_slots_and_shadowed_names() {
     let c = compile_fixture("component").unwrap();

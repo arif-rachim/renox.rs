@@ -4,6 +4,10 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.11 (unreleased)
 
+**Worker** (in the next worker release, with #633)
+
+- `ctx.pdf.render` embeds images (`ops.md` 1.13.0, section 24): `<img src="/_img/<key>?w=<n>">` (a tenant file by key, private keys included, at most 1600 px, JPEG or PNG, through the `/_img` variant cache) and `data:image/png;base64,` / `data:image/jpeg;base64,` URIs (at most 2 MiB each); at most 50 images and 20 MB of image bytes per document, else `RENOX_PDF_LIMIT`; any other `src` is dropped. The template engine lets these two `data:` types through on `<img src>` only (#582).
+
 **CLI**
 
 - Artifact 1.8: the app's own `hooks.ts` (project root) is the `hooks` code entry (`on` handlers for module events, `hooks` fillers for module hook points); `renox.toml [[slots]]` (`name`, `template = "partials/<x>.html"`, `requires?`, `priority?` 0 to 1000) fills slots as module `app` (after a module's filler of equal priority); `[events."app.<name>"]` (`payload`, `description?`) declares the events the app may emit, written to the manifest as `events`. `renox check` reports a filler whose template is missing or not a partial, a `requires` outside the merged actions, and an event name that is not `app.<name>` or a payload outside the schema keyword subset as errors, a slot no installed module renders and a handled event of a module that is not installed as warnings (#630).
