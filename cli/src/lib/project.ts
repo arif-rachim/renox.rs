@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { EXIT, type ExitCode, CliError, type Where } from "../errors.ts";
-import { type Json, isObject, validate } from "./schema.ts";
+import { type Json, isObject, unsupportedKeywords, validate } from "./schema.ts";
 import type { SecurityConfig } from "../check/security.ts";
 import { renoxTomlSchema } from "./schemas.ts";
 
@@ -19,7 +19,25 @@ export interface ProjectConfig {
   /** Artifact 1.4: `[storage]` and `[ai]` (ops.md 1.7.0 sections 21, 23). */
   storage?: { allowed_types?: string[]; images?: { widths?: number[] } };
   ai?: { mode?: "direct" | "gateway" };
+  /** Artifact 1.8: `[[slots]]`, the app's own slot fillers (partials of the app). */
+  slots?: AppSlot[];
+  /** Artifact 1.8: `[events."app.<name>"]`, the events the app declares and may emit. */
+  events?: Record<string, { payload: Json; description?: string }>;
 }
+
+/** One `[[slots]]` entry of renox.toml (`manifest.md` section 4; `template` is an app partial). */
+export interface AppSlot {
+  name: string;
+  template: string;
+  requires?: string;
+  /** 0 to 1000, default 100. */
+  priority?: number;
+}
+
+const SLOT_NAME = /^[a-z][a-z0-9_]{0,63}(\.[a-z][a-z0-9_]{0,63})+$/u;
+const SLOT_TEMPLATE = /^partials(\/(?!\.\.?(\/|$))[A-Za-z0-9_.-]+)+\.html$/u;
+const EVENT_NAME = /^app\.[a-z][a-z0-9_]{0,63}$/u;
+const ACTION_NAME = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/u;
 
 /** A renox.toml problem: exit 2, except a missing file (exit 1: not in an app folder). */
 export class ConfigError extends CliError {
@@ -98,7 +116,7 @@ function unknownKeys(raw: Record<string, unknown>, lines: string[]): ConfigError
       continue;
     }
     // [modules] keys are module names, checked by src/lib/modules/resolve.ts.
-    if (!isObject(v) || k === "modules") continue;
+    if (!isObject(v) || k === "modules" || k === "events") continue;
     const allowed = SCHEMA_KEYS(props[k] as Json);
     for (const key of Object.keys(v)) {
       if (allowed.includes(key)) continue;
@@ -174,6 +192,8 @@ export function readProject(dir: string): ProjectConfig {
       hint: 'use an IANA time zone name such as "Asia/Dubai", "Europe/London", or "UTC"',
     });
   }
+  const slots = readSlots(c.slots, lines);
+  const events = readEvents(c.events, lines);
   const perms = isObject(c.permissions) ? c.permissions : {};
   return {
     app,
@@ -185,7 +205,70 @@ export function readProject(dir: string): ProjectConfig {
     ...(isObject(c.security) ? { security: c.security as SecurityConfig } : {}),
     ...(isObject(c.storage) ? { storage: c.storage as ProjectConfig["storage"] } : {}),
     ...(isObject(c.ai) ? { ai: c.ai as ProjectConfig["ai"] } : {}),
+    ...(slots.length ? { slots } : {}),
+    ...(events ? { events } : {}),
   };
+}
+
+/** 1-based line of the `index`-th `[[slots]]` header. */
+function slotLine(lines: string[], index: number): number | undefined {
+  let n = -1;
+  for (let i = 0; i < lines.length; i++) if (/^\[\[\s*slots\s*\]\]/u.test((lines[i] as string).trim()) && ++n === index) return i + 1;
+  return undefined;
+}
+
+/** `[[slots]]` (artifact 1.8): the shape of each entry; whether the template exists and `requires` is declared is `renox check`'s. */
+function readSlots(raw: unknown, lines: string[]): AppSlot[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new ConfigError("slots: must be an array of tables ([[slots]])", { hint: 'write [[slots]] with name, template = "partials/<x>.html"' });
+  const errors: ConfigError[] = [];
+  const out: AppSlot[] = [];
+  raw.forEach((item, i) => {
+    const at = slotLine(lines, i);
+    const bad = (message: string, hint?: string): void => void errors.push(new ConfigError(`slots[${i}]: ${message}`, { ...(at ? { line: at } : {}), ...(hint ? { hint } : {}) }));
+    if (!isObject(item)) return bad("must be a table");
+    const allowed = ["name", "template", "requires", "priority"];
+    for (const k of Object.keys(item)) if (!allowed.includes(k)) bad(`unknown key ${JSON.stringify(k)}`, closest(k, allowed) ? `did you mean ${closest(k, allowed)}?` : `[[slots]] takes ${allowed.join(", ")}`);
+    if (typeof item.name !== "string" || !SLOT_NAME.test(item.name)) bad("name must be a dotted slot name such as app.header (lowercase letters, digits, _)");
+    if (typeof item.template !== "string" || !SLOT_TEMPLATE.test(item.template) || item.template.length > 256) bad("template must be a partial of the app, such as partials/banner.html", "the file lives in partials/ and ends in .html");
+    if (item.requires !== undefined && (typeof item.requires !== "string" || !ACTION_NAME.test(item.requires))) bad("requires must be an action name such as orders.read");
+    if (item.priority !== undefined && (typeof item.priority !== "number" || !Number.isInteger(item.priority) || item.priority < 0 || item.priority > 1000)) bad("priority must be an integer from 0 to 1000");
+    if (errors.length === 0) out.push(item as unknown as AppSlot);
+  });
+  if (errors.length) throw combine(errors);
+  if (raw.length > 64) throw new ConfigError("slots: at most 64 [[slots]]");
+  return out;
+}
+
+/** `[events."app.<name>"]` (artifact 1.8). */
+function readEvents(raw: unknown, lines: string[]): ProjectConfig["events"] {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) throw new ConfigError("events: must be a table", { hint: 'write [events."app.<name>"] with payload' });
+  const entries = Object.entries(raw);
+  if (entries.length === 0) return undefined;
+  const errors: ConfigError[] = [];
+  const out: NonNullable<ProjectConfig["events"]> = {};
+  const lineFor = (name: string): number | undefined => lineOf(lines, `events.${JSON.stringify(name)}`) ?? lineOf(lines, `events.${name}`) ?? lineOf(lines, "events");
+  for (const [name, ev] of entries) {
+    const line = lineFor(name);
+    const bad = (message: string, hint?: string): void => void errors.push(new ConfigError(`events.${JSON.stringify(name)}: ${message}`, { ...(line ? { line } : {}), ...(hint ? { hint } : {}) }));
+    if (!EVENT_NAME.test(name)) {
+      bad("an app event is named app.<name> (lowercase letters, digits, _; ^app\\.[a-z][a-z0-9_]{0,63}$)", "module events start with their module's name; only app.* is yours");
+      continue;
+    }
+    if (!isObject(ev)) {
+      bad("must be a table with payload");
+      continue;
+    }
+    for (const k of Object.keys(ev)) if (k !== "payload" && k !== "description") bad(`unknown key ${JSON.stringify(k)}`, "an event takes payload and description");
+    if (!isObject(ev.payload)) bad("payload is required and must be a JSON Schema object", 'payload = { type = "object", properties = { id = { type = "string" } } }');
+    else for (const p of unsupportedKeywords(ev.payload)) bad(`payload ${p}`, "see docs/contracts/validate.ts for the supported JSON Schema keywords");
+    if (ev.description !== undefined && (typeof ev.description !== "string" || ev.description.length > 200)) bad("description must be a string of at most 200 characters");
+    if (isObject(ev.payload)) out[name] = { payload: ev.payload, ...(typeof ev.description === "string" ? { description: ev.description } : {}) };
+  }
+  if (entries.length > 64) errors.push(new ConfigError("events: at most 64 events"));
+  if (errors.length) throw combine(errors);
+  return out;
 }
 
 type JsonLike = { [key: string]: Json };

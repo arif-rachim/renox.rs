@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
-import { discoverFunctions, discoverPages, discoverRealtime, discoverWebhooks, type Route } from "../routes.ts";
+import { discoverAppHooks, discoverFunctions, discoverPages, discoverRealtime, discoverWebhooks, type Route } from "../routes.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
@@ -51,8 +51,10 @@ export interface ModuleParts {
   checksums: Record<string, string>;
   /** Template sources of the modules: `modules/<name>/(pages|partials)/...html`. */
   templates: Record<string, string>;
-  /** The artifact's `slots`, in render order. */
+  /** The artifact's `slots` from the modules, in render order. */
   slots: Record<string, SlotEntry[]>;
+  /** Every module filler with its slot and priority, in render order (the app's join through `mergeSlots`). */
+  fillers: (SlotEntry & { slot: string; priority: number })[];
   /** The manifest's `modules` field. */
   field: JsonObject[];
   /** Override drift: one warning per file, with a unified diff. */
@@ -179,7 +181,7 @@ export function installedModules(project: string): { modules: BuiltModule[]; pro
 export function moduleParts(project: string): ModuleParts {
   const enc = new TextEncoder();
   const { modules, problems } = installedModules(project);
-  const parts: ModuleParts = { modules, entries: [], routes: [], files: new Map(), checksums: {}, templates: {}, slots: {}, field: [], drift: [], problems, tools: [], jobs: [] };
+  const parts: ModuleParts = { modules, entries: [], routes: [], files: new Map(), checksums: {}, templates: {}, slots: {}, fillers: [], field: [], drift: [], problems, tools: [], jobs: [] };
   const fillers: (SlotEntry & { slot: string; priority: number })[] = [];
   for (const { lock, manifest, tree } of modules) {
     const name = lock.name;
@@ -294,11 +296,37 @@ export function moduleParts(project: string): ModuleParts {
     });
   }
   fillers.sort((a, b) => a.priority - b.priority || a.module.localeCompare(b.module, "en"));
+  parts.fillers = fillers;
   for (const f of fillers) {
     (parts.slots[f.slot] ??= []).push({ module: f.module, template: f.template, ...(f.requires !== undefined ? { requires: f.requires } : {}) });
   }
   overrides(project, parts, enc);
   return parts;
+}
+
+/**
+ * The artifact's `slots` with the app's own fillers (artifact 1.8): by
+ * priority (default 100), then module name, the app last on equal priority.
+ */
+export function mergeSlots(
+  moduleFillers: ModuleParts["fillers"],
+  appSlots: readonly { name: string; template: string; requires?: string; priority?: number }[],
+): Record<string, SlotEntry[]> {
+  const all = [
+    ...moduleFillers,
+    ...appSlots.map((s) => ({
+      slot: s.name,
+      module: "app",
+      template: s.template.replace(/\.html$/u, ""),
+      ...(s.requires !== undefined ? { requires: s.requires } : {}),
+      priority: s.priority ?? 100,
+    })),
+  ];
+  // Stable: a module's filler wins a tie against the app's, whatever its name.
+  all.sort((a, b) => a.priority - b.priority || (a.module === "app" ? 1 : 0) - (b.module === "app" ? 1 : 0) || a.module.localeCompare(b.module, "en"));
+  const out: Record<string, SlotEntry[]> = {};
+  for (const f of all) (out[f.slot] ??= []).push({ module: f.module, template: f.template, ...(f.requires !== undefined ? { requires: f.requires } : {}) });
+  return out;
 }
 
 const permissionsJson = (p: ModuleManifest["permissions"]): JsonObject => ({
@@ -528,5 +556,8 @@ export function contractProblems(project: string, modules: BuiltModule[]): Contr
     scan(m, m.tree, rel);
   }
   for (const root of ["functions", "pages", "lib"]) for (const rel of files(join(project, root), "", (n) => CODE.test(n) && !n.endsWith(".d.ts"))) scan(null, project, `${root}/${rel}`);
+  // Artifact 1.8: the app's own hooks.ts.
+  const hooks = discoverAppHooks(project);
+  if (hooks !== undefined) scan(null, project, hooks);
   return out;
 }
