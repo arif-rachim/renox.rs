@@ -42,16 +42,15 @@
   <p r-if="no_photos" id="no-photos">No photos were taken at this visit.</p>
   <r-group r-if="before">
     <p><strong>Before</strong></p>
-    <p r-for="p in before"><img :src="p.src" alt=""> {{ p.caption }}</p>
+    <p r-for="p in before">{{ p.caption }} <span class="muted" dir="ltr">{{ p.file_key }}</span></p>
   </r-group>
   <r-group r-if="after">
     <p><strong>After</strong></p>
-    <p r-for="p in after"><img :src="p.src" alt=""> {{ p.caption }}</p>
+    <p r-for="p in after">{{ p.caption }} <span class="muted" dir="ltr">{{ p.file_key }}</span></p>
   </r-group>
 
   <h2>Customer's signature</h2>
-  <p r-if="signature"><img :src="signature" alt="Signature"></p>
-  <p r-if="signed_by">Signed by {{ signed_by }}</p>
+  <p r-if="signed_by">Signed by {{ signed_by }} at {{ signed_at }}</p>
   <p r-else>Not signed.</p>
   <p class="muted">{{ brand.footer }}</p>
 </body>

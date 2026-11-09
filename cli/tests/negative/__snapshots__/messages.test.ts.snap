@@ -254,7 +254,7 @@ exports[`messages and exit codes new with an unknown template 1`] = `
   "exit": 1,
   "stderr": 
 "renox new: unknown template "react"
-  hint: use --template blank or --template hello"
+  hint: use --template blank, hello, tutorial, home-services"
 ,
 }
 `;

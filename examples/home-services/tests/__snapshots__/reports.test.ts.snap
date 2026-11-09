@@ -9,6 +9,11 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -76,6 +81,11 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -143,6 +153,11 @@ exports[`contract renewals normal case: the Dubai contract ends within 90 days a
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -217,6 +232,11 @@ exports[`outstanding invoices normal case: INV-000001's balance is in the first 
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">

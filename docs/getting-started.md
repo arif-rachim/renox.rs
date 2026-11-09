@@ -199,5 +199,6 @@ The first deploy creates the app under the name in `renox.toml`; the app names a
 - [Modules](10-modules.md): sign-in, organisations, billing and admin as installed modules.
 - [Limits](contracts/ops.md#10-limits-per-tier-and-behaviour-on-limit): what the platform enforces per request and per app.
 - [AI agents and MCP](20-ai-agents-mcp.md): `renox mcp` for coding agents.
+- [Reference app](reference-app.md): a complete bilingual app for a UAE home-services company (`renox new <name> --template home-services`): quotations, jobs, visits with photos, tax invoices and contracts, built from the official modules.
 
 To work on the platform itself from a clone of the repository instead: `git clone https://github.com/arif-rachim/renox.rs && cd renox.rs && bun install && bun cli/scripts/fetch-worker.ts`, then run the CLI as `bun cli/src/main.ts`.

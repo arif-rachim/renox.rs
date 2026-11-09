@@ -32,6 +32,7 @@ import authorization from "../../docs/11-authorization.md" with { type: "text" }
 import developerExperience from "../../docs/12-developer-experience.md" with { type: "text" };
 import glossary from "../../docs/17-glossary.md" with { type: "text" };
 import agents from "../../docs/20-ai-agents-mcp.md" with { type: "text" };
+import referenceApp from "../../docs/reference-app.md" with { type: "text" };
 import cli from "../../cli/README.md" with { type: "text" };
 import sdk from "../../sdk/README.md" with { type: "text" };
 // A declaration file imported as text: the bundler reads it as text, tsc sees a .d.ts.
@@ -93,6 +94,7 @@ export const PUBLISHED: readonly Page[] = [
   { path: "docs/10-modules.md", slug: "modules", group: "Guides", label: "Modules", markdown: modules },
   { path: "docs/11-authorization.md", slug: "authorization", group: "Guides", label: "Authorization", markdown: authorization },
   { path: "docs/20-ai-agents-mcp.md", slug: "ai-agents-mcp", group: "Guides", label: "AI agents and MCP", markdown: agents },
+  { path: "docs/reference-app.md", slug: "reference-app", group: "Guides", label: "Reference app", markdown: referenceApp },
   { path: "cli/README.md", slug: "cli", group: "Reference", label: "CLI", markdown: cli },
   { path: "sdk/README.md", slug: "sdk", group: "Reference", label: "SDK", markdown: sdk },
   { path: "docs/contracts/ctx.d.ts", slug: "ctx", group: "Reference", label: "ctx types", markdown: ctxPage },

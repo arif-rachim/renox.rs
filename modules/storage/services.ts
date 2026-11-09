@@ -10,3 +10,5 @@ export const remove = (ctx: Ctx, owner: unknown, name: unknown) => core.remove(c
 export const link = (ctx: Ctx, owner: unknown, name: unknown, ttl: unknown) => core.link(ctx, owner, name, ttl);
 export const quota = (ctx: Ctx, owner: unknown) => core.quota(ctx, owner);
 export const sanitizeSvg = (_ctx: Ctx, text: unknown) => (typeof text === "string" ? core.sanitizeSvg(text) : null);
+/** A signed URL for one browser PUT of at most `maxBytes` (capped at max_upload_bytes), within the owner's quota; never SVG. */
+export const uploadUrl = (ctx: Ctx, owner: unknown, name: unknown, opts?: { contentType?: unknown; maxBytes?: unknown; public?: unknown }) => core.uploadUrl(ctx, owner, name, opts ?? {});

@@ -9,6 +9,11 @@ exports[`the job list is the branch's own filters by status, technician and day:
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">

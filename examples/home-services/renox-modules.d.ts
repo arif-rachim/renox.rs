@@ -1,4 +1,4 @@
-// The part of `renox:modules` the app uses so far: auth's currentUser, i18n's
+// The part of `renox:modules` the app uses so far: auth's currentUser, storage's signed uploads, i18n's
 // detectLocale, notifications' badge and notify, whatsapp's templates and inbox, email's
 // raw send, tax_gcc's invoices, reports' csv, twofa's step-up, org's switcher and gcc's validators.
 // Later sub-issues add what they call.
@@ -32,6 +32,13 @@ declare module "renox:modules" {
     creditNote(invoice: string, lines: unknown[] | undefined, reason: string): Promise<unknown>;
     invoice(number: string): Promise<unknown | null>;
   };
+  /** The storage module: a folder per owner under `storage/<owner>/`; signed uploads, links and listings (the app's own `ctx.storage` is confined to `app/`). */
+  export const storage: {
+    /** A signed URL for one browser PUT into the owner's folder; `maxBytes` is capped at the module's `max_upload_bytes`; never SVG. */
+    uploadUrl(owner: string, name: string, options: { contentType: string; maxBytes: number; public?: boolean }): Promise<{ url: string; expires_at: number; max_bytes: number; key: string }>;
+    list(owner: string, options?: { limit?: number; cursor?: string | null }): Promise<{ items: { key: string; bytes: number; content_type: string; sha256: string; width: number | null; height: number | null; public: boolean; created_at: number }[]; next_cursor: string | null }>;
+    link(owner: string, name: string, ttlSeconds: number): Promise<{ url: string; expires_at: number }>;
+  };
   /** The reports module: the app's own reports are exported through `csv` (amounts stay in the rows' units). */
   export const reports: {
     /** Rows as RFC 4180 CSV with a UTF-8 BOM and a formula guard; `headers` orders the columns. */
@@ -59,7 +66,7 @@ declare module "renox:modules" {
   };
   export const audit: {
     /** The trail, newest first (needs `audit.read`): the module's rows merged with the platform's decisions on sensitive actions. */
-    query(filter?: { actor?: string; action?: string; since?: number; until?: number; platform?: boolean; limit?: number; cursor?: string }): Promise<{ events: { id: string; at: number; kind?: string; actor_kind?: string; actor_id?: string; actor?: string; action: string; result: string; resource_type?: string; resource_id?: string; details?: unknown }[]; next: string | null }>;
+    query(filter?: { actor?: string; action?: string; since?: number; until?: number; platform?: boolean; limit?: number; cursor?: string }): Promise<{ events: { id: string; at: number; kind?: string; actor_kind?: string; actor_id?: string; action: string; result: string; resource_type?: string; resource_id?: string; details?: unknown }[]; next: string | null }>;
     record(event: { action: string; actor: { kind: "user" | "agent" | "system"; id: string; client?: string }; resource?: { type: string; id?: string }; result?: "ok" | "denied" | "failed"; details?: Record<string, unknown>; request_id?: string }): Promise<{ id: string }>;
   };
   /** A free start of a day: `start` and `end` are unix milliseconds, `staff` the booking staff id (here: the technician's user id). */

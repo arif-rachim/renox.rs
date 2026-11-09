@@ -42,16 +42,15 @@
   <p r-if="no_photos" id="no-photos">لم تُلتقط أي صور في هذه الزيارة.</p>
   <r-group r-if="before">
     <p><strong>قبل</strong></p>
-    <p r-for="p in before"><img :src="p.src" alt=""> {{ p.caption }}</p>
+    <p r-for="p in before">{{ p.caption }} <span class="muted" dir="ltr">{{ p.file_key }}</span></p>
   </r-group>
   <r-group r-if="after">
     <p><strong>بعد</strong></p>
-    <p r-for="p in after"><img :src="p.src" alt=""> {{ p.caption }}</p>
+    <p r-for="p in after">{{ p.caption }} <span class="muted" dir="ltr">{{ p.file_key }}</span></p>
   </r-group>
 
   <h2>توقيع العميل</h2>
-  <p r-if="signature"><img :src="signature" alt="التوقيع"></p>
-  <p r-if="signed_by">وقّع: {{ signed_by }}</p>
+  <p r-if="signed_by">وقّع: {{ signed_by }} في <span dir="ltr">{{ signed_at }}</span></p>
   <p r-else>غير موقّع.</p>
   <p class="muted">{{ brand.footer }}</p>
 </body>

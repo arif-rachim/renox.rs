@@ -27,11 +27,11 @@ export const GET: Handler = async (ctx) => {
   if (visit.checkout_at === null) return plain(409, "The visit is not finished: there is no report yet.");
   const asked = ctx.url.searchParams.get("lang");
   const lang = asked === "ar" || asked === "en" ? asked : undefined;
-  // `?format=json`: what the template is given (the signature as a flag, not its bytes).
+  // `?format=json`: what the template is given.
   if (ctx.url.searchParams.get("format") === "json") {
     const r = await reportData(ctx, visit.id, lang);
     if (r === null) return plain(404, "Visit not found");
-    return new Response(JSON.stringify({ ...r.data, signature: r.data.signature !== null }), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+    return new Response(JSON.stringify(r.data), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
   }
   const report = await buildReport(ctx, visit.id, lang);
   if (report === null) return plain(404, "Visit not found");

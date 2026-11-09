@@ -217,6 +217,16 @@ describe("a dispatcher creates, sends and the customer approves", () => {
 });
 
 describe("the customer's link", () => {
+  test("every open approval link of the seed opens its quotation (the tokens the seed's comment names)", async () => {
+    for (const [n, id] of [["2", "qt_seed_02"], ["3", "qt_seed_03"]] as const) {
+      const page = await customer.page(`/l/approve/demo-q00000${n}-${"x".repeat(30)}`);
+      expect(page.status).toBe(200);
+      expect(page.html).toContain(`Q-00000${n}`);
+      expect(page.html).toContain("Reject");
+      expect(rows(`select status from app__quotes where id = '${id}'`)).toEqual([{ status: "sent" }]);
+    }
+  });
+
   test("error case: a tampered or unknown token is a 404, on the page and on the action", async () => {
     const tampered = `${SENT_TOKEN.slice(0, -1)}y`;
     expect((await customer.page(`/l/approve/${tampered}`)).status).toBe(404);
