@@ -7,6 +7,8 @@
 // The fake key is assembled at run time (no scanner-shaped string in the repo).
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { contentHash, sha256Hex } from "@renox/artifact-validate";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { assertScoped, createApp_, harness, type Harness, tenant } from "./helpers.ts";
@@ -81,5 +83,35 @@ describe("hygiene rules on upload", () => {
     const files = withPublic({ "app.js": `const stripe = "${FAKE_STRIPE}"; // renox-allow-secret: revoked fixture\n` });
     expect((await upload(h, token, "hello", files)).status).toBe(201);
     expect(h.store.objects.has(`artifacts/${contentHash(files)}.tar`)).toBe(true);
+  });
+});
+
+// Artifact 1.8 (#629, #638): the app's `hooks` entry, `module: "app"` slot
+// fillers and the `events` map pass the upload validation, not only renox build.
+describe("artifact 1.8 on upload", () => {
+  const readTree = (dir: string, prefix = ""): Map<string, Uint8Array> => {
+    const out = new Map<string, Uint8Array>();
+    for (const d of readdirSync(join(dir, prefix), { withFileTypes: true })) {
+      const rel = prefix === "" ? d.name : `${prefix}/${d.name}`;
+      if (d.isDirectory()) for (const [k, v] of readTree(dir, rel)) out.set(k, v);
+      else out.set(rel, new Uint8Array(readFileSync(join(dir, rel))));
+    }
+    return out;
+  };
+
+  test("the app-events-artifact example is validated, not rejected", async () => {
+    const group = new URL("../../../docs/contracts/examples/artifact/app-events-artifact/", import.meta.url).pathname;
+    const hash = readdirSync(group).find((n) => /^[0-9a-f]{64}$/u.test(n)) as string;
+    const files = readTree(join(group, hash));
+    expect(contentHash(files)).toBe(hash);
+    const h = await harness();
+    const token = await tenant(h, "t_clinic");
+    await createApp_(h, token, "clinic");
+    const res = await upload(h, token, "clinic", files);
+    const body = (await res.json()) as { state?: string; violations?: unknown; error?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(res.status).toBe(201);
+    expect(body).toMatchObject({ app: "clinic", hash, state: "validated", violations: null });
+    expect(h.store.objects.has(`artifacts/${hash}.tar`)).toBe(true);
   });
 });

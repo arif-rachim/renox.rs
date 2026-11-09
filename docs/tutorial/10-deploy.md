@@ -118,5 +118,6 @@ The platform MCP has `deploy`, `rollback`, `get_logs`, `list_deployments` and `a
 
 - Replace `modules/outbox` with the `email` module (`renox add email`, from CLI 0.1.4 it delivers invitations too); add `2fa` (`renox add 2fa`) for owners; add `audit` to record who removed what.
 - [Modules](../10-modules.md), [Authorization](../11-authorization.md), [Fragments and realtime](../09-htmx-realtime.md) and [App model](../07-app-model.md) go deeper into what you used here.
+- To react to a module's events, fill its hook points or slots, or emit events of your own, the app has `hooks.ts` and `renox.toml [[slots]]` and `[events]`: [App model](../07-app-model.md#events-and-hooks), "Events and hooks", "Slots" and "App events".
 
 **Checkpoint:** [`examples/tutorial/step-10`](../../examples/tutorial/step-10/), the finished app.

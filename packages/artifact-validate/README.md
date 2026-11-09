@@ -4,7 +4,7 @@ One implementation of the artifact rules, shared by the CLI (`renox check`, `ren
 
 | Rules | Source | Code |
 | --- | --- | --- |
-| V1–V30 (the artifact tree; V17–V22 are the modules of artifact 1.1, #227; V23 the `entries` of 1.2; V24–V27 the policies, actions, feeds and schedules of 1.3, #304; V28–V29 the webhooks, storage, AI and SBOM of 1.4; V30 an app with no code, 1.6, #494) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
+| V1–V30 (the artifact tree; V17–V22 are the modules of artifact 1.1, #227; V23 the `entries` of 1.2; V24–V27 the policies, actions, feeds and schedules of 1.3, #304; V28–V29 the webhooks, storage, AI and SBOM of 1.4; V30 an app with no code, 1.6, #494; V31 the app's `events` of 1.8, #638) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
 | T1–T8 (the upload tarball) | [`docs/contracts/deploy-api.md`](../../docs/contracts/deploy-api.md) section 4 | `src/tar.ts` |
 | H1 forbidden files, H2 secrets (bundle hygiene, #115) | `docs/05-tenant-lifecycle.md` "Bundle hygiene"; `docs/24-threat-model.md` sections B and C | `src/hygiene.ts`, `src/secrets.ts` |
 
@@ -13,6 +13,14 @@ The F1 gate (#37) folded the tar rules of #95 and the bundle rules of #115 into 
 ## Routes without a path (artifact 1.3, #304)
 
 `tool` and `job` routes have no `path` (a tool is reached through `/mcp`, a job by the scheduler), so V8 (route conflicts), V21 (mounts and the reserved `/mcp` paths) and the V16 rate-limit lookup skip them. What they carry instead is checked by the schema (V3: a tool needs `name`, `module`, `input` and `action`; a job `name`, `module` and `schedule`) and by the contract's rules: **V23** (a tool module exports `default`, a job module `run` and `schedule`), **V25** (tool names unique across the app and its modules, the tool's `action` in the merged action set, its `input` in the keyword subset) and **V27** (a five-field cron `schedule` with numbers only, an IANA `tz`, job names unique per owner). `ws` and `sse` routes keep a path and answer `GET`. A module named `app`, `renox` or `authz` is refused with V17 and the reason `is reserved (MF1)`, as `renox check` refuses it with MF1 (`cli/src/lib/modules/manifest.ts`).
+
+## Artifact 1.8 (#629, #638)
+
+The package accepts artifact 1.8, as `docs/contracts/validate.ts` does: the app's own `hooks` code entry is loaded by the bootstrap, so V7 does not ask a route to use it, and V23 keeps it eager like `modules/<name>/hooks`; a `slots[]` filler with `module: "app"` names an app partial (`partials/…`, kind `partial` in `templates`, V18) and needs no `permissions.slots` (V22); **V31** checks the top-level `events` map (keys `^app\.[a-z][a-z0-9_]{0,63}$`, at most 64, every `payload` a schema of the keyword subset). `artifact.version` stays `1`. An app that uses none of the three produces the same 1.7 artifact and is checked as before.
+
+## Artifact 1.9 (#640)
+
+The package follows the 1.9 V23 of `docs/contracts/validate.ts` (ADR D32, `ops.md` 1.13.0). A module's `services` entry may be `eager: false`. A `hooks` entry (`modules/<name>/hooks`, or the app's `hooks`) may be `eager: false` only when it records the `hooks` it fills and the events it handles in `on`; without them it stays eager, as in 1.8. Those lists appear only on `hooks` entries, and a non-empty list needs the matching export. A module's filled hooks must be in its `approved.hooks`.
 
 ## Safe extraction (T1–T8)
 
