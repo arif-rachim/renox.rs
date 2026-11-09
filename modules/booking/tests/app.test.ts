@@ -78,4 +78,11 @@ describe.skipIf(!worker)("booking in an app", () => {
     while (e !== null && e.event !== null && e.event !== "change") e = await s.next(3000);
     expect(e?.data).toContain("booking__bookings");
   });
+
+  test("the seed runs twice without error and leaves one set of hours (#572)", async () => {
+    const admin = t.as("adel");
+    expect((await admin.request("POST", "/api/seed")).status).toBe(200);
+    expect((await admin.request("POST", "/api/seed")).status).toBe(200);
+    expect(t.db.query("select weekday from booking__hours where staff_id = 'sara' and weekday is not null")).toHaveLength(7);
+  });
 });

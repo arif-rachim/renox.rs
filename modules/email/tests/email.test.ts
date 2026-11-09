@@ -9,7 +9,7 @@ import * as core from "../lib/core.ts";
 
 function ctx(fetchFn: core.FetchFn, config: core.EmailCtx["config"] = { provider: "resend", from: "shop@hello.ae" }) {
   const db = new Database(":memory:");
-  for (const f of ["001_init.sql", "002_templates.sql", "003_reputation.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
+  for (const f of ["001_init.sql", "002_templates.sql", "003_reputation.sql", "004_from_name.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
   const emitted: unknown[] = [];
   const c: core.EmailCtx = {
     db: {
@@ -199,4 +199,34 @@ test("complaints above the threshold pause this tenant's sending and say why; re
   expect(reputation.dailyCap(Date.now() - 2 * day)).toBe(200);
   expect(reputation.dailyCap(Date.now() - 10 * day)).toBe(2000);
   expect(reputation.dailyCap(Date.now() - 40 * day)).toBeNull();
+});
+
+// #611: a display name on the sender.
+test("from_name: config name, per-message override, escaping, validation, bare address", async () => {
+  const froms: unknown[] = [];
+  const f: core.FetchFn = async (_u, init) => (froms.push(JSON.parse(String(init?.body)).from), Response.json({ id: "re_n" }));
+  const send = async (cfg: core.EmailCtx["config"], extra: { from_name?: unknown } = {}) => {
+    const { c } = ctx(f, cfg);
+    const r = await core.sendRaw(c, { to: "x@y.ae", subject: "Hi", text: "Body", ...extra });
+    await core.deliverQueued(c, r.id as string);
+  };
+  await send({ provider: "resend", from: "no-reply@acme.test", from_name: "Acme" });
+  await send({ provider: "resend", from: "no-reply@acme.test", from_name: "Acme" }, { from_name: "FixIt Services" });
+  await send({ provider: "resend", from: "no-reply@acme.test" }, { from_name: 'Say "Hi" \\ Co' });
+  await send({ provider: "resend", from: "no-reply@acme.test" });
+  expect(froms).toEqual(['"Acme" <no-reply@acme.test>', '"FixIt Services" <no-reply@acme.test>', '"Say \\"Hi\\" \\\\ Co" <no-reply@acme.test>', "no-reply@acme.test"]);
+  const { c } = ctx(f);
+  for (const bad of ["a<b", "a>b", "a\nb", "x".repeat(81)]) await expect(core.sendRaw(c, { to: "x@y.ae", subject: "Hi", text: "B", from_name: bad })).rejects.toMatchObject({ code: "INVALID" });
+  const seen: RequestInit[] = [];
+  const s = ctx(async (_u, init) => (seen.push(init as RequestInit), Response.json({ MessageId: "s1" })), { provider: "ses", from: "no-reply@acme.test", from_name: "Acme" });
+  const m = await core.sendRaw(s.c, { to: "x@y.ae", subject: "Hi", text: "B" });
+  await core.deliverQueued(s.c, m.id as string);
+  expect(JSON.parse(String(seen[0]?.body)).FromEmailAddress).toBe('"Acme" <no-reply@acme.test>');
+  // A config name that breaks the rule fails the message as not configured; it does not throw (which the outbox would retry).
+  const calls: unknown[] = [];
+  const b = ctx(async (u) => (calls.push(u), Response.json({ id: "re_b" })), { provider: "resend", from: "no-reply@acme.test", from_name: "Bad <name>" });
+  const bm = await core.sendRaw(b.c, { to: "x@y.ae", subject: "Hi", text: "B" });
+  await core.deliverQueued(b.c, bm.id as string);
+  expect(calls).toHaveLength(0);
+  expect(await core.status(b.c, bm.id as string)).toMatchObject({ status: "failed", error: "not_configured" });
 });

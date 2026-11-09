@@ -12,7 +12,7 @@
       <li r-for="s in scopes"><code>{{ s.scope }}</code>: <r-group r-if="s.all"><r-t key="auth.consent.scope_all" /></r-group><r-group r-else><r-t key="auth.consent.scope_tool" :tool="s.tool" /></r-group></li>
     </ul>
     <x-form action="allow">
-      <input r-for="f in fields" type="hidden" :name="f.name" :value="f.value">
+      <input r-for="f in fields" type="hidden" :name="f.name" :value="f.value"><input r-if="org_single" type="hidden" name="org_id" :value="org_single"><label r-if="org_choice" id="org"><r-t key="auth.consent.org" /> <select name="org_id"><option r-for="o in orgs" :value="o.id">{{ o.name }}</option></select></label>
       <button type="submit" id="allow"><r-t key="auth.consent.allow" /></button>
     </x-form>
     <x-form action="deny">

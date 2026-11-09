@@ -92,7 +92,8 @@ All durable: written in the transaction of the request, delivered after it commi
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
 | `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, next?, resume }`) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
-| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org`. Keys outside the platform's user attributes are dropped |
+| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
+| `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
 | `auth.send_sms` | Declared for F7 (`{ to, text }`) | Nothing fills it yet |
 | `auth.agent_audit` | An agent was connected or disconnected (`{ action: "connect" \| "revoke", user_id, client_name, scopes, at }`) | Write an audit row (the `audit` library, #288). Never carries the token |
@@ -184,13 +185,16 @@ auth is the OAuth 2.1 authorization server for the app's `/mcp` (`docs/20-ai-age
 - Registration: `POST <mount>/oauth/register` (RFC 7591). Public clients only (`token_endpoint_auth_method: "none"`). Redirect URIs must be `https`, or `http` on loopback.
 - Authorization: `GET <mount>/oauth/authorize`. PKCE S256 is required. A signed-out user goes to the login page first.
 - Consent: `<mount>/oauth/consent` lists the client, the user, where it returns, and each scope (`tools:*` or `tools:<name>`), with Allow and Deny. It runs no script of its own and cannot be framed.
+- The organisation (#590): the page runs the hook `auth.agent_orgs`, which org fills with the user's organisations. With two or more, the user picks one (`<select name="org_id">`). With one, it is that one, with no choice. With none, there is none. Allow refuses an `org_id` outside the list (422). The code stores the choice and the token copies it (`org_id`).
 - Codes: one minute, single use, stored hashed. A failed exchange also burns the code.
 - Token: `POST <mount>/oauth/token` returns `renox_agt_<64 hex>`, valid one hour, with no refresh token. Only its SHA-256 is stored (`auth__agent_tokens`).
 - Revoking: the account page's "Connected agents" lists each live token with its client, scopes and last use. "Disconnect" revokes one and emits `auth.agent_token_revoked`, and the cell refuses the token from then on.
+- What `verifyAgentToken` returns (#590): `{ principal: { id, attrs, roles }, scopes, client: { name } }`. The principal is built as for a session. `attrs` holds `email_verified`, `phone_verified`, `created_at`, and what the `auth.principal` hook's fillers add. The hook runs with `agent: true` and the token's `org_id`, and org sets `org` to it while the user is still a member. Only the platform's user attributes are kept, and `mfa_verified` is always false. `roles` are the user's role assignments, `[{ role, scope_type, scope_id }]`. The cell drops the user's cached tokens on `authz.roles_changed` and `auth.principal_changed`.
 
-Proof: `tests/oauth.test.ts`:
+Proof: `tests/oauth.test.ts` and `tests/agents.test.ts`:
 
 - the full flow;
+- the principal of a token: the hook's attributes, the roles, and the organisation with none, one or two (the select, 422 outside the list, gone once the user leaves it);
 - a wrong verifier and a reused code;
 - a narrowed scope;
 - deny;

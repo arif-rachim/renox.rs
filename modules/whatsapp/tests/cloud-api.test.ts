@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import * as api from "../lib/cloud-api.ts";
-import { deliverQueued, receive, sendCode, type WaCtx } from "../lib/core.ts";
+import { deliverQueued, outbox, receive, sendCode, sendOtp, sendTemplate, type WaCtx } from "../lib/core.ts";
 import * as otp from "../lib/otp.ts";
 
 const CFG: api.ApiConfig = { token: "tok", phoneId: "1234567890", version: "v21.0" };
@@ -61,6 +61,12 @@ describe("cloud api", () => {
       type: "template",
       template: { name: "order_shipped", language: { code: "en" }, components: [{ type: "body", parameters: [{ type: "text", text: "#42" }, { type: "text", text: "Tuesday" }] }] },
     });
+  });
+
+  test("api_host changes the URL of sendText", async () => {
+    const f = fakeApi();
+    await api.sendText(f.fetch, { ...CFG, host: "https://fake.example.test" }, "+971501234567", "hi");
+    expect(f.calls[0]?.url).toBe("https://fake.example.test/v21.0/1234567890/messages");
   });
 
   test("5xx, 429 and a network failure are retried; a 4xx is final", async () => {
@@ -148,5 +154,37 @@ describe("the send handler", () => {
     await deliverQueued(ctx, id);
     expect((f.calls[0]?.body as { text: { body: string } }).text.body).toContain("482913");
     expect(ctx.sqlite.query("select body, status from whatsapp__messages where id = ?").get(id)).toEqual({ body: "", status: "sent" });
+  });
+});
+
+describe("sandbox", () => {
+  const sandboxCtx = (f: ReturnType<typeof fakeApi>, secrets: WaCtx["secrets"] = {}) => ({ ...fakeCtx(f.fetch), secrets, config: { sandbox: true } });
+
+  test("sendTemplate: sent without a call, the rendered template in the body, no secrets needed", async () => {
+    const f = fakeApi();
+    const ctx = sandboxCtx(f);
+    const { id } = await sendTemplate(ctx, "+971501234567", "order_shipped", ["#42"], "en");
+    expect(await deliverQueued(ctx, id)).toEqual({ ok: true, waId: `sandbox-${id}` });
+    const row = ctx.sqlite.query("select status, wa_id, body, error from whatsapp__messages where id = ?").get(id) as { status: string; wa_id: string; body: string; error: null };
+    expect(row).toMatchObject({ status: "sent", wa_id: `sandbox-${id}`, error: null });
+    expect(JSON.parse(row.body)).toEqual({ name: "order_shipped", language: "en", components: [{ type: "body", parameters: [{ type: "text", text: "#42" }] }] });
+    expect(f.calls).toHaveLength(0);
+    expect(await outbox(ctx)).toEqual([expect.objectContaining({ id, status: "sent", direction: "out", kind: "template" })]);
+  });
+
+  test("sendOtp records its row too, without the code", async () => {
+    const f = fakeApi();
+    const ctx = sandboxCtx(f, { WHATSAPP_APP_SECRET: "s3cret" });
+    await sendOtp(ctx, "+971501234567");
+    const id = (ctx.sqlite.query("select id from whatsapp__messages where kind = 'otp'").get() as { id: string }).id;
+    await deliverQueued(ctx, id);
+    expect(ctx.sqlite.query("select status, body from whatsapp__messages where id = ?").get(id)).toEqual({ status: "sent", body: "" });
+    expect(f.calls).toHaveLength(0);
+  });
+
+  test("sandbox off: unchanged, a missing config still fails the row", async () => {
+    const ctx = { ...fakeCtx(fakeApi().fetch), secrets: {}, config: {} };
+    const { id } = await sendTemplate(ctx, "+971501234567", "order_shipped", [], "en");
+    expect(await deliverQueued(ctx, id)).toMatchObject({ ok: false, error: "not_configured" });
   });
 });

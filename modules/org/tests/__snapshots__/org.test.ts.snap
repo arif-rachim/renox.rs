@@ -82,6 +82,10 @@ exports[`org switcher and members page per role: owner, admin, member, non-membe
       </select>
       <button type="submit">Invite</button>
     </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Organisation name <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">Save</button>
+    </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>Default language
         <select name="locale">
@@ -170,6 +174,10 @@ exports[`org switcher and members page per role: owner, admin, member, non-membe
         
       </select>
       <button type="submit">Invite</button>
+    </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Organisation name <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">Save</button>
     </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>Default language
@@ -338,6 +346,10 @@ exports[`org Arabic (#244): the members page is rtl; the organisation's default 
       </select>
       <button type="submit">دعوة</button>
     </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اسم المؤسسة <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">حفظ</button>
+    </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>اللغة الافتراضية
         <select name="locale">
@@ -424,6 +436,10 @@ exports[`org in both digit sets (#266): the members page with ar-u-nu-arab and w
       </select>
       <button type="submit">دعوة</button>
     </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اسم المؤسسة <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">حفظ</button>
+    </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>اللغة الافتراضية
         <select name="locale">
@@ -509,6 +525,10 @@ exports[`org in both digit sets (#266): the members page with ar-u-nu-arab and w
         <option value="owner">مالك</option>
       </select>
       <button type="submit">دعوة</button>
+    </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اسم المؤسسة <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">حفظ</button>
     </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>اللغة الافتراضية

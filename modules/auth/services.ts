@@ -39,7 +39,7 @@ export async function currentUser(ctx: AuthCtx): Promise<User | null> {
 }
 
 /** The user attributes the platform's Cedar schema knows (renox-authz USER_ATTRS); a filler's other keys are dropped. */
-const PRINCIPAL_ATTRS = ["created_at", "email_verified", "mfa_verified", "org", "phone_verified"] as const;
+const PRINCIPAL_ATTRS = agents.PRINCIPAL_ATTRS;
 
 /**
  * The request's principal (ops.md 1.5.0 section 17, "Principal"): the cell
@@ -86,7 +86,11 @@ export async function requestPasswordReset(ctx: AuthCtx & { url: URL }, input: {
 /**
  * The cell's check of an agent token on `/mcp` (#286; ops.md 1.5.0 section
  * 19): `{ principal, scopes, client }` for a live `renox_agt_` token, else
- * null (unknown, expired, revoked).
+ * null (unknown, expired, revoked). #590: `principal` is `{ id, attrs,
+ * roles }` as for a session: `attrs` from the `auth.principal` hook (run
+ * with `agent: true` and the token's `org_id`; `org` is the organisation
+ * picked at consent while the user is still a member; `mfa_verified`
+ * false), `roles` the user's role assignments `{ role, scope_type, scope_id }`.
  */
 export async function verifyAgentToken(ctx: AuthCtx, token: string): Promise<agents.VerifiedAgent | null> {
   return agents.verify(ctx, String(token ?? ""));

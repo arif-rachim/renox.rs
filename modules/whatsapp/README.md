@@ -40,6 +40,8 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `sends_per_minute` | 60 | Outgoing messages per minute for the tenant; past it, the send services reject |
 | `otp_template` | `""` | An approved authentication template with one parameter, the code. When empty, codes go as plain text, which works only inside a 24-hour window |
 | `otp_language` | `en` | That template's language |
+| `sandbox` | `false` | Development and tests: record each message as sent, call no API, need no secrets (see "Sandbox") |
+| `api_host` | `https://graph.facebook.com` | Tests only: a fake Cloud API, an `https://` origin. `[permissions] network` stays `graph.facebook.com`, so another host works only where the app's network allow-list includes it (`renox test`, `renox dev`) |
 
 ## Services
 
@@ -51,6 +53,7 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `verifyOtp(phone, code)` | `{ ok }`. A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. A wrong, expired, used or exhausted code, an unknown phone and a malformed code all give `{ ok: false }` |
 | `linkPhone(userId, phone)` | `{ ok }`. Makes the phone the user's WhatsApp contact, but only within 10 minutes after `verifyOtp` succeeded for it |
 | `inbox({ phone?, direction?, limit? })` | Messages newest first. An OTP's body shows as `[otp]` |
+| `outbox(limit?)` | Outgoing messages newest first, read-only, with status and body. An OTP's body shows as `[otp]` |
 | `chatLink(phone, text)` | `{ url }`, a `wa.me` link with a prefilled message |
 
 Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.
@@ -68,6 +71,19 @@ Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.
 - `whatsapp__otp` keeps an HMAC of the code (keyed with `WHATSAPP_APP_SECRET`), never the code.
 - The queued message carries the code sealed with AES-GCM under a key derived from the same secret.
 - Its body is cleared once the message is sent or fails.
+
+## Sandbox
+
+With `sandbox = true` an app uses the module exactly as in production while nothing leaves the host.
+
+- Each queued message is marked `sent` by the outbox handler with `wa_id = sandbox-<id>`, and the Cloud API is not called. No `WHATSAPP_*` secret is needed.
+- A template keeps its rendered form in `body`: `{ "name", "language", "components" }` as JSON, the same components the Cloud API would receive. A text keeps its text. An OTP's body is cleared, as for a real send.
+- Read what would have been sent with `whatsapp.outbox(limit?)` (an app's dev page or test), or `inbox({ direction: "out" })`.
+- `sendOtp` works without `WHATSAPP_APP_SECRET`, but the code is never delivered, so a sandbox app cannot complete `verifyOtp` unless a test plants the code.
+
+```toml
+whatsapp = { version = "^1.1", mount = "/whatsapp", config = { sandbox = true } }
+```
 
 ## Webhook
 

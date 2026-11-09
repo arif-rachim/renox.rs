@@ -16,7 +16,7 @@ export interface WaCtx {
   db: Db;
   fetch: api.FetchFn;
   secrets: Record<string, string | undefined>;
-  config: { api_version?: string; sends_per_minute?: number; otp_template?: string; otp_language?: string };
+  config: { sandbox?: boolean; api_host?: string; api_version?: string; sends_per_minute?: number; otp_template?: string; otp_language?: string };
   events: { emit(name: string, payload: unknown): Promise<void> };
   log: { info(msg: string, fields?: Record<string, unknown>): void; warn(msg: string, fields?: Record<string, unknown>): void };
 }
@@ -48,6 +48,8 @@ function phoneOf(v: unknown): string {
 
 function appSecret(ctx: WaCtx): string {
   const s = ctx.secrets.WHATSAPP_APP_SECRET;
+  // A sandbox app needs no secrets: nothing is sent, so a fixed stand-in keys the OTP hash.
+  if (!s && ctx.config.sandbox === true) return "sandbox-no-secret";
   if (!s) throw new WaError("WHATSAPP_APP_SECRET is not set", "NOT_CONFIGURED");
   return s;
 }
@@ -152,11 +154,18 @@ export async function inbox(ctx: WaCtx, filter: { phone?: string; direction?: "i
   return rows.map((r) => (r.kind === "otp" ? { ...r, body: "[otp]" } : r));
 }
 
+/** Outgoing rows newest first, with status and body (an OTP's body shows as `[otp]`): what a sandbox app would have sent. */
+export function outbox(ctx: WaCtx, limit?: number): Promise<InboxRow[]> {
+  return inbox(ctx, { direction: "out", limit });
+}
+
 function apiConfig(ctx: WaCtx): api.ApiConfig | null {
   const token = ctx.secrets.WHATSAPP_TOKEN;
   const phoneId = ctx.secrets.WHATSAPP_PHONE_ID;
   if (!token || !phoneId) return null;
-  return { token, phoneId, version: ctx.config.api_version ?? "v21.0" };
+  const host = ctx.config.api_host || api.API_HOST;
+  if (!/^https:\/\/[^/\s?#@]+$/u.test(host)) return null;
+  return { token, phoneId, version: ctx.config.api_version ?? "v21.0", host };
 }
 
 /**
@@ -168,8 +177,19 @@ function apiConfig(ctx: WaCtx): api.ApiConfig | null {
 export async function deliverQueued(ctx: WaCtx, messageId: string): Promise<api.SendResult | null> {
   const m = await ctx.db.queryOne<{ id: string; kind: string; phone: string; body: string; status: string }>("select id, kind, phone, body, status from whatsapp__messages where id = ? and direction = 'out'", [messageId]);
   if (m === null || m.status !== "queued") return null;
-  const cfg = apiConfig(ctx);
   const t = Date.now();
+  if (ctx.config.sandbox === true) {
+    // Sandbox: nothing leaves the host. The row is recorded as sent; a template keeps its rendered form, an OTP its code out of the row.
+    let body = m.body;
+    if (m.kind === "template") {
+      const tpl = JSON.parse(m.body) as { name: string; language: string; params: string[] };
+      const components = tpl.params.length ? [{ type: "body", parameters: tpl.params.map((text) => ({ type: "text", text })) }] : [];
+      body = JSON.stringify({ name: tpl.name, language: tpl.language, components });
+    } else if (m.kind === "otp") body = "";
+    await ctx.db.execute("update whatsapp__messages set status = 'sent', wa_id = ?, error = null, body = ?, attempts = attempts + 1, updated_at = ? where id = ?", [`sandbox-${m.id}`, body, t, m.id]);
+    return { ok: true, waId: `sandbox-${m.id}` };
+  }
+  const cfg = apiConfig(ctx);
   const fail = async (error: string) => {
     await ctx.db.execute("update whatsapp__messages set status = 'failed', error = ?, body = case kind when 'otp' then '' else body end, attempts = attempts + 1, updated_at = ? where id = ?", [error, t, m.id]);
   };

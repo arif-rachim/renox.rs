@@ -17,6 +17,8 @@ function ctx() {
     insert into booking__hours (staff_id, day, open_min, close_min) values ('sara', '2026-11-12', 1200, 1290), ('omar', '2026-11-12', 0, 0);`);
   // #334 F67-B: deposits, the window, staff users, reminders, the live-booking index (after the seed's positional inserts).
   db.exec(readFileSync(join(import.meta.dir, "../migrations/002_deposits_reminders_staff.sql"), "utf8"));
+  // #572: one hours row per staff member and weekday or day (after the seed's inserts).
+  db.exec(readFileSync(join(import.meta.dir, "../migrations/003_hours_unique.sql"), "utf8"));
   const emitted: unknown[] = [];
   const c: core.BookingCtx = {
     db: {
@@ -28,7 +30,7 @@ function ctx() {
     events: { emit: async (_n, p) => void emitted.push(p) },
     utcOffsetMinutes: 240,
   };
-  return { c, emitted };
+  return { c, emitted, db };
 }
 
 const local = (day: string, hh: number, mm = 0) => core.midnight(day, 240) + (hh * 60 + mm) * 60_000;
@@ -48,6 +50,34 @@ test("a Thursday: Sara 09:00-11:00, Omar 10:00-11:00, 30 min + 15 min buffer on 
   // A Ramadan evening for Sara, Omar off.
   const r = await core.slots(c, "cut", "2026-11-12", {}, now);
   expect(r.map((x) => `${hm(x.start)} ${x.staff}`)).toEqual(["20:00 sara", "20:30 sara", "21:00 sara"]);
+});
+
+test("setHours twice leaves one row and the same slots; null closes the day (#572)", async () => {
+  const { c, db } = ctx();
+  const now = local("2026-11-05", 0);
+  const before = (await core.slots(c, "cut", "2026-11-05", {}, now)).map((x) => `${hm(x.start)} ${x.staff}`);
+  await core.setHours(c, "sara", 4, 540, 660);
+  await core.setHours(c, "sara", 4, 540, 660);
+  expect(db.query("select * from booking__hours where staff_id = 'sara' and weekday = 4").all()).toHaveLength(1);
+  expect((await core.slots(c, "cut", "2026-11-05", {}, now)).map((x) => `${hm(x.start)} ${x.staff}`)).toEqual(before);
+  await core.setHours(c, "sara", 4, 600, 660);
+  expect(db.query("select open_min from booking__hours where staff_id = 'sara' and weekday = 4").all()).toEqual([{ open_min: 600 }]);
+  await core.setHours(c, "sara", "2026-11-12", 1200, 1260);
+  await core.setHours(c, "sara", "2026-11-12", 1200, 1260);
+  expect(db.query("select * from booking__hours where staff_id = 'sara' and day = '2026-11-12'").all()).toHaveLength(1);
+  await core.setHours(c, "sara", 4, null);
+  expect(db.query("select * from booking__hours where staff_id = 'sara' and weekday = 4").all()).toHaveLength(0);
+  expect((await core.slots(c, "cut", "2026-11-05", { staff: "sara" }, now))).toEqual([]);
+});
+
+test("the 003 migration keeps the newest of duplicated hours (#572)", () => {
+  const db = new Database(":memory:");
+  db.exec(readFileSync(join(import.meta.dir, "../migrations/001_init.sql"), "utf8"));
+  db.exec(`insert into booking__staff values ('sara', 'Sara');
+    insert into booking__hours (staff_id, weekday, open_min, close_min) values ('sara', 4, 540, 660), ('sara', 4, 600, 700);
+    insert into booking__hours (staff_id, day, open_min, close_min) values ('sara', '2026-11-12', 1, 2), ('sara', '2026-11-12', 3, 4);`);
+  db.exec(readFileSync(join(import.meta.dir, "../migrations/003_hours_unique.sql"), "utf8"));
+  expect(db.query("select weekday, day, open_min from booking__hours order by open_min").all()).toEqual([{ weekday: null, day: "2026-11-12", open_min: 3 }, { weekday: 4, day: null, open_min: 600 }]);
 });
 
 test("hold, confirm, no double booking, an expired hold frees the slot", async () => {

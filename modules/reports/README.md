@@ -42,7 +42,17 @@ The CSV has a UTF-8 BOM, so Excel opens Arabic text correctly. A cell that start
 
 `jobs/nightly.ts` runs at 03:00 UTC. It does the same as the `nightly(now_ms)` service, which can also be called directly:
 - keeps yesterday's sales and cash totals in `reports__snapshots`;
-- when `email_to` is set, sends them as CSV through `email.sendRaw`.
+- sends them as CSV through `email.sendRaw` to the addresses of the `reports.nightly_to` hook, else to `email_to`; with neither, no mail is sent.
+
+### Nightly summary: where it goes
+
+`reports.nightly_to` is a hook point (`args = { to: string[] }`). An app (or a module) fills it from `hooks.ts` with `permissions.hooks = ["reports.nightly_to"]` and pushes its addresses onto `args.to`, for example the one a back-office setting holds. When `to` ends up non-empty the summary goes there (one mail per address); otherwise it goes to `email_to`. The CSV stays in the body; there are no attachments.
+
+## Services
+
+| Service | What it does |
+| --- | --- |
+| `xlsx(sheet, rows)` | Rows (`string \| number \| null` cells) as a one-sheet `.xlsx`, returned as bytes. Numbers stay numbers and strings are never formulas. `sheet` is 1 to 31 characters without `[ ] : * ? / \`; at most 100,000 cells; anything else is a `ValidationError` |
 
 ## Not built
 

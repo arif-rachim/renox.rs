@@ -47,6 +47,7 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 | `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }` |
 | `revokeInvite({ org, invite })` | Withdraw a pending invitation |
 | `acceptInvite(token)` | Join as the signed-in user. The invitation works once, before it expires, and only for the email it was sent to |
+| `rename({ org, name })` | Rename the organisation (admin or owner; 1 to 80 characters, `{ error }` otherwise). The slug stays. Emits `org.renamed` |
 | `setRole({ org, user, role })`, `removeMember({ org, user })` | See the roles above. `removeMember` with your own id means leaving |
 | `switcher(next?)` | The data of the switcher partial, for a page's `load` |
 
@@ -93,6 +94,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.created` | `{ org_id, user_id, at }` | event |
 | `org.member_added` | `{ org_id, user_id, role, at }` | event: at creation (the owner) and on every accepted invitation |
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
+| `org.renamed` | `{ org_id, name }` | event: an admin or owner renamed the organisation; the slug stays |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
 | `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
 
@@ -105,6 +107,15 @@ A member sees a select of their organisations, labelled with their role in each.
 - `confirm = true`: the first call is a preview, rolled back, that returns a confirmation token. The agent repeats the call with that token to send the invitation.
 
 `tests/tools.test.ts` drives it end to end with an agent token from auth's OAuth flow.
+
+## The organisation of an agent token
+
+org fills two of auth's hooks for agents (#590):
+
+- `auth.agent_orgs`: the user's organisations, for the consent page. With two or more, the user picks the one the agent acts in; with one, it is that one.
+- `auth.principal` with `agent: true`: `org` is the token's `org_id` while the user is still a member of it, and is left unset otherwise. A session's principal is unchanged: `org` is its active organisation.
+
+Removing a member emits `auth.principal_changed`, so the cell drops the user's cached tokens. `tests/tools.test.ts` covers one organisation, two, a choice outside the list, and a removal.
 
 ## Tables and views
 

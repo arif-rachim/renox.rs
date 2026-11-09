@@ -14,9 +14,9 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 
 [[module]]
 name = "auth"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "b6b1aaba1da4cb3ca6c3604806fa2ac1da3332fe199b2fb4a8b9a027de4cd411"
+hash = "5ee2604452fa8537667958e965c1e4137d78bc62f6909e473aae07531060f986"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -25,14 +25,14 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 
 [[module]]
 name = "org"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "7504cf39710d2c852f40d93f458e8e823c212a661908462dbda58d9fec15d70f"
+hash = "c03739685cf87f6d6a88a06d1ef50f9b65c79f854ee79d54b6c2a2c6287a111c"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/org", invite_days = 7 }
-approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
+approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal", "auth.agent_orgs"] }
 
 [[module]]
 name = "outbox"

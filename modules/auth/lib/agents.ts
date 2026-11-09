@@ -11,9 +11,50 @@
 //
 // An agent token is `renox_agt_` + 32 random bytes (hex). `verifyAgentToken`
 // answers `{ principal, scopes, client }` for the cell (#285), which caches
-// it for 60 s and drops it on `auth.agent_token_revoked`.
+// it for 60 s and drops it on `auth.agent_token_revoked`, and a user's
+// tokens on `authz.roles_changed` and `auth.principal_changed` (#590).
+//
+// #590: the principal is the user's as for a session: the same attributes,
+// extended by the `auth.principal` hook (with `agent: true` and the token's
+// `org_id`, the organisation picked at consent from the `auth.agent_orgs`
+// hook's list), and the user's role assignments; `mfa_verified` is false.
 
 import { type AuthCtx, randomHex, sha256Hex, type User } from "./core.ts";
+
+/** The user attributes the platform's Cedar schema knows (renox-authz USER_ATTRS); a filler's other keys are dropped. */
+export const PRINCIPAL_ATTRS = ["created_at", "email_verified", "mfa_verified", "org", "phone_verified"] as const;
+
+/** One organisation an agent may act in, from the `auth.agent_orgs` hook's fillers (org). */
+export interface AgentOrg {
+  id: string;
+  name: string;
+}
+
+/** The user's organisations: the `auth.agent_orgs` hook (`{ user_id, orgs }`, fillers append `{ id, name }`); empty without a filler. */
+export async function agentOrgs(ctx: AuthCtx, userId: string): Promise<AgentOrg[]> {
+  const args = { user_id: userId, orgs: [] as AgentOrg[] };
+  await ctx.hooks.run("auth.agent_orgs", args);
+  const out: AgentOrg[] = [];
+  for (const o of Array.isArray(args.orgs) ? args.orgs : []) {
+    if (o === null || typeof o !== "object" || typeof o.id !== "string" || o.id === "") continue;
+    if (out.some((x) => x.id === o.id)) continue;
+    out.push({ id: o.id, name: typeof o.name === "string" && o.name !== "" ? o.name : o.id });
+  }
+  return out;
+}
+
+/**
+ * The organisation of an Allow (#590): `chosen` must be one of `orgs`;
+ * without a choice, the only one, or none when there is none. Null (the
+ * page answers 422) for a choice not in the list, or no choice among two
+ * or more.
+ */
+export function pickOrg(orgs: AgentOrg[], chosen: string | null): { org_id: string | null } | null {
+  if (chosen !== null && chosen !== "") return orgs.some((o) => o.id === chosen) ? { org_id: chosen } : null;
+  if (orgs.length === 0) return { org_id: null };
+  if (orgs.length === 1) return { org_id: (orgs[0] as AgentOrg).id };
+  return null;
+}
 
 export const TOKEN_PREFIX = "renox_agt_";
 export const ACCESS_TTL_SECONDS = 3600;
@@ -130,12 +171,12 @@ export async function checkAuthorize(ctx: AuthCtx, q: URLSearchParams): Promise<
   return { client: c, redirect_uri, state: q.get("state"), code_challenge: challenge, scopes };
 }
 
-/** Allow: a single-use code for `user`, valid 60 s; returns the client's redirect with `code` and `state`. */
-export async function issueCode(ctx: AuthCtx, user: User, r: AuthorizeRequest): Promise<string> {
+/** Allow: a single-use code for `user` acting in `orgId` (#590; the caller checked it), valid 60 s; returns the client's redirect with `code` and `state`. */
+export async function issueCode(ctx: AuthCtx, user: User, r: AuthorizeRequest, orgId: string | null = null): Promise<string> {
   const code = randomHex(32);
   await ctx.db.execute(
-    "insert into auth__oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, scopes, expires_at) values (?, ?, ?, ?, ?, ?, ?)",
-    [await sha256Hex(code), r.client.client_id, user.id, r.redirect_uri, r.code_challenge, JSON.stringify(r.scopes), now() + CODE_TTL_SECONDS],
+    "insert into auth__oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, scopes, expires_at, org_id) values (?, ?, ?, ?, ?, ?, ?, ?)",
+    [await sha256Hex(code), r.client.client_id, user.id, r.redirect_uri, r.code_challenge, JSON.stringify(r.scopes), now() + CODE_TTL_SECONDS, orgId],
   );
   const u = new URL(r.redirect_uri);
   u.searchParams.set("code", code);
@@ -174,8 +215,8 @@ export async function exchange(ctx: AuthCtx, f: URLSearchParams): Promise<TokenR
   const t = now();
   const used = await ctx.db.execute("update auth__oauth_codes set used_at = ? where code_hash = ? and used_at is null and expires_at > ?", [t, hash, t]);
   if (used.changes !== 1) return bad("invalid_grant", "the code is invalid, expired, or used");
-  const row = await ctx.db.queryOne<{ client_id: string; user_id: string; redirect_uri: string; code_challenge: string; scopes: string }>(
-    "select client_id, user_id, redirect_uri, code_challenge, scopes from auth__oauth_codes where code_hash = ?",
+  const row = await ctx.db.queryOne<{ client_id: string; user_id: string; redirect_uri: string; code_challenge: string; scopes: string; org_id: string | null }>(
+    "select client_id, user_id, redirect_uri, code_challenge, scopes, org_id from auth__oauth_codes where code_hash = ?",
     [hash],
   );
   if (row === null || row.client_id !== f.get("client_id") || row.redirect_uri !== f.get("redirect_uri")) return bad("invalid_grant", "the code does not match the client or redirect_uri");
@@ -183,36 +224,69 @@ export async function exchange(ctx: AuthCtx, f: URLSearchParams): Promise<TokenR
   const c = await client(ctx, row.client_id);
   const token = `${TOKEN_PREFIX}${randomHex(32)}`;
   await ctx.db.execute(
-    "insert into auth__agent_tokens (id, token_hash, user_id, client_id, client_name, scopes, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-    [`agt_${randomHex(12)}`, await sha256Hex(token), row.user_id, row.client_id, c?.client_name ?? "agent", row.scopes, t, t + ACCESS_TTL_SECONDS],
+    "insert into auth__agent_tokens (id, token_hash, user_id, client_id, client_name, scopes, created_at, expires_at, org_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [`agt_${randomHex(12)}`, await sha256Hex(token), row.user_id, row.client_id, c?.client_name ?? "agent", row.scopes, t, t + ACCESS_TTL_SECONDS, row.org_id],
   );
   const scopes = JSON.parse(row.scopes) as string[];
   await ctx.hooks.run("auth.agent_audit", { action: "connect", user_id: row.user_id, client_name: c?.client_name ?? "agent", scopes, at: t });
   return { access_token: token, token_type: "Bearer", expires_in: ACCESS_TTL_SECONDS, scope: scopes.join(" ") };
 }
 
+/** One of the user's role assignments (`renox__role_assignments`), as the principal carries it. */
+export interface AgentRole {
+  role: string;
+  scope_type: string;
+  scope_id: string | null;
+}
+
 /** What the cell needs for one token (ops.md section 19). */
 export interface VerifiedAgent {
-  principal: { id: string; attrs: Record<string, unknown> };
+  principal: { id: string; attrs: Record<string, unknown>; roles: AgentRole[] };
   scopes: string[];
   client: { name: string };
 }
 
-/** The token's user, scopes and client, or null (unknown, expired, revoked, or a deleted user). Updates `last_used_at`. */
+type RolesCtx = AuthCtx & { authz?: { roles?: { list(userId: string): Promise<{ role: string; scope_type: string; scope_id: string | null }[]> } } };
+
+/**
+ * The token's user, scopes and client, or null (unknown, expired, revoked,
+ * or a deleted user). Updates `last_used_at`. The principal is built as
+ * for a session (`services.ts` `principal`): the `auth.principal` hook runs
+ * with `agent: true` and the token's `org_id` (org sets `org` while the
+ * user is still a member), only the platform's user attributes are kept,
+ * `mfa_verified` is false; `roles` are the user's role assignments.
+ */
 export async function verify(ctx: AuthCtx, token: string): Promise<VerifiedAgent | null> {
   if (typeof token !== "string" || !token.startsWith(TOKEN_PREFIX) || token.length !== TOKEN_PREFIX.length + 64) return null;
   const hash = await sha256Hex(token);
   const t = now();
-  const row = await ctx.db.queryOne<{ id: string; user_id: string; client_name: string; scopes: string; email_verified_at: number | null }>(
-    `select a.id, a.user_id, a.client_name, a.scopes, u.email_verified_at
+  const row = await ctx.db.queryOne<{
+    id: string;
+    user_id: string;
+    client_name: string;
+    scopes: string;
+    org_id: string | null;
+    email_verified_at: number | null;
+    phone_verified_at: number | null;
+    created_at: number;
+  }>(
+    `select a.id, a.user_id, a.client_name, a.scopes, a.org_id, u.email_verified_at, u.phone_verified_at, u.created_at
        from auth__agent_tokens a join auth__users u on u.id = a.user_id
       where a.token_hash = ? and a.revoked_at is null and a.expires_at > ?`,
     [hash, t],
   );
   if (row === null) return null;
   await ctx.db.execute("update auth__agent_tokens set last_used_at = ? where id = ?", [t, row.id]);
+  const p = { id: row.user_id, attrs: { email_verified: row.email_verified_at !== null, phone_verified: row.phone_verified_at !== null, created_at: row.created_at } as Record<string, unknown> };
+  await ctx.hooks.run("auth.principal", { principal: p, agent: true, org_id: row.org_id });
+  const attrs: Record<string, unknown> = {};
+  for (const k of PRINCIPAL_ATTRS) if (p.attrs[k] !== undefined) attrs[k] = p.attrs[k];
+  // No second factor for an agent token, whatever a filler set.
+  attrs.mfa_verified = false;
+  const assigned = (await (ctx as RolesCtx).authz?.roles?.list(row.user_id)) ?? [];
+  const roles = assigned.map((r) => ({ role: r.role, scope_type: r.scope_type, scope_id: r.scope_id ?? null }));
   return {
-    principal: { id: row.user_id, attrs: { email_verified: row.email_verified_at !== null, mfa_verified: false } },
+    principal: { id: row.user_id, attrs, roles },
     scopes: JSON.parse(row.scopes) as string[],
     client: { name: row.client_name },
   };

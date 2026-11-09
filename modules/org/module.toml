@@ -1,6 +1,6 @@
 [module]
 name = "org"
-version = "1.0.0"
+version = "1.1.0"
 description = "Organisations, memberships with roles, invitations, and the active organisation of a session"
 
 [dependencies]
@@ -14,8 +14,9 @@ invite_days = { type = "int", min = 1, max = 30, default = 7, description = "An 
 [permissions]
 tables = "org__*"
 slots = ["app.header", "admin.sidebar"]
-# #292: `org` on the principal (the session's active organisation).
-hooks = ["auth.principal"]
+# #292: `org` on the principal (the session's active organisation, or an
+# agent token's organisation); #590: the organisations an agent may act in.
+hooks = ["auth.principal", "auth.agent_orgs"]
 
 [imports]
 services = ["auth.currentSession", "auth.loginUrl", "auth.refreshPrincipal", "i18n.detectLocale"]
@@ -37,6 +38,7 @@ acceptInvite = "Accept an invitation as the signed-in user (once, before it expi
 setRole = "Change a member's role (admin or owner; only an owner grants or removes owner): { org, user, role } -> { ok } or { error }"
 removeMember = "Remove a member, or leave (any member for themselves); the last owner stays: { org, user } -> { ok } or { error }"
 setOrgLocale = "Set the organisation's default locale (admin or owner): { org, locale } (null clears it) -> { ok } or { error }"
+rename = "Rename the organisation (admin or owner); the slug stays: { org, name } (1 to 80 characters) -> { ok } or { error }"
 switcher = "What the switcher partial renders, for a page's load: (next?) -> { orgs, current, action, ... } or null"
 
 [exports.events."org.created"]
@@ -50,6 +52,10 @@ description = "A user joined an organisation (as its creator or through an invit
 [exports.events."org.member_removed"]
 payload = { type = "object", required = ["org_id", "user_id", "by", "at"], additionalProperties = false, properties = { org_id = { type = "string" }, user_id = { type = "string" }, by = { type = "string" }, at = { type = "integer" } } }
 description = "A member was removed or left (by = who did it)"
+
+[exports.events."org.renamed"]
+payload = { type = "object", required = ["org_id", "name"], additionalProperties = false, properties = { org_id = { type = "string" }, name = { type = "string" } } }
+description = "An organisation was renamed (name is the new name; the slug does not change)"
 
 [exports.hooks."org.before_invite"]
 args = { type = "object", required = ["org_id", "email", "role", "invited_by"], properties = { org_id = { type = "string" }, email = { type = "string" }, role = { type = "string" }, invited_by = { type = "string" } } }

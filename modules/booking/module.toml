@@ -1,6 +1,6 @@
 [module]
 name = "booking"
-version = "1.0.0"
+version = "1.0.1"
 description = "Appointments: services, staff, weekly and seasonal hours, slots in the tenant's time zone, holds, deposits through billing, reminders, the staff's live calendar"
 
 [dependencies]
@@ -32,7 +32,7 @@ confirm = "Confirm a held booking: (id) -> booking; schedules the 24 h and 2 h r
 cancel = "Cancel a booking: (id) -> boolean; emits booking.cancelled with whether the deposit is retained"
 addService = "Define a service: ({ id, name, minutes, buffer?, deposit_fils?, cancel_hours? }) (booking.manage)"
 addStaff = "Define a staff member: ({ id, name, user_id?, services }) (booking.manage)"
-setHours = "Opening hours: (staff, weekday 0-6 or YYYY-MM-DD, open_min, close_min) (booking.manage)"
+setHours = "Opening hours: (staff, weekday 0-6 or YYYY-MM-DD, open_min, close_min) replaces that day's hours; open_min null deletes them (closed) (booking.manage)"
 noShow = "Mark a confirmed booking whose start has passed as a no-show: (id) -> boolean"
 
 [exports.events."booking.confirmed"]

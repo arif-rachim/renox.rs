@@ -1,6 +1,6 @@
 [module]
 name = "twofa"
-version = "1.0.0"
+version = "1.0.1"
 description = "Two-step verification: TOTP, passkeys and recovery codes after the password, mfa_verified on the principal, step-up for sensitive actions"
 
 [dependencies]

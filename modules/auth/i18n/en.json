@@ -62,7 +62,8 @@
       "allow": "Allow",
       "deny": "Deny",
       "scope_all": "every tool of this app, as you",
-      "scope_tool": "the tool {tool}, as you"
+      "scope_tool": "the tool {tool}, as you",
+      "org": "Organisation the agent acts in"
     },
     "phone": {
       "title": "Sign in with your phone",

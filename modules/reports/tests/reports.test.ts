@@ -1,6 +1,6 @@
 // The reports module (#333): daily sales from tax_gcc documents, CSV with
 // formula injection neutralised, and the accounting import files.
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 
 import * as core from "../lib/core.ts";
 
@@ -41,4 +41,50 @@ test("accounting import files name each system's columns and tax codes", () => {
   expect(core.accounting("quickbooks", docs)).toContain("SR 5%");
   expect(core.accounting("zoho", docs)).toContain("100987654300003");
   expect(() => core.accounting("sage", docs)).toThrow("system");
+});
+
+// The nightly report: where the mail goes (the hook, else email_to, else nowhere).
+const sent: { to: string; subject: string }[] = [];
+mock.module("renox:modules", () => ({ tax_gcc: { documents: async () => [] }, auth: {}, i18n: {}, email: { sendRaw: async (m: { to: string; subject: string }) => void sent.push(m) } }));
+const { nightly } = await import("../jobs/nightly.ts");
+
+async function nightlyCtx(email_to: string, fill?: string[]) {
+  const { Database } = await import("bun:sqlite");
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const db = new Database(":memory:");
+  db.exec(readFileSync(join(import.meta.dir, "../migrations/001_init.sql"), "utf8"));
+  return {
+    db: {
+      async query<T>(sql: string, p: unknown[] = []) { return db.query(sql).all(...(p as never[])) as T[]; },
+      async execute(sql: string, p: unknown[] = []) { return { changes: db.query(sql).run(...(p as never[])).changes }; },
+    },
+    config: { email_to },
+    hooks: fill === undefined ? undefined : { run: async (_n: string, args: { to: string[] }) => { args.to.push(...fill); return { halt: false }; } },
+    snapshot: () => db.query("select day, sent_to from reports__snapshots").all(),
+  };
+}
+
+test("nightly: a filler of reports.nightly_to wins; else email_to; with neither no mail, the snapshot kept", async () => {
+  const now = Date.UTC(2026, 9, 31, 3);
+  sent.length = 0;
+  const a = await nightlyCtx("owner@x.test", ["accounts@x.test"]);
+  expect(await nightly(a, now)).toEqual({ day: "2026-10-30", sent_to: "accounts@x.test" });
+  expect(sent.map((m) => m.to)).toEqual(["accounts@x.test"]);
+  expect(a.snapshot()).toEqual([{ day: "2026-10-30", sent_to: "accounts@x.test" }]);
+
+  sent.length = 0;
+  const b = await nightlyCtx("owner@x.test", []);
+  expect(await nightly(b, now)).toEqual({ day: "2026-10-30", sent_to: "owner@x.test" });
+  expect(sent.map((m) => m.to)).toEqual(["owner@x.test"]);
+
+  sent.length = 0;
+  const c = await nightlyCtx("owner@x.test");
+  expect((await nightly(c, now)).sent_to).toBe("owner@x.test");
+
+  sent.length = 0;
+  const d = await nightlyCtx("", []);
+  expect(await nightly(d, now)).toEqual({ day: "2026-10-30", sent_to: null });
+  expect(sent).toEqual([]);
+  expect(d.snapshot()).toEqual([{ day: "2026-10-30", sent_to: null }]);
 });
