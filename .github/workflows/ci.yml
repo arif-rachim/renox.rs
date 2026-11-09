@@ -520,9 +520,13 @@ jobs:
             source="built by the rust job of this run from $GITHUB_SHA"
           else
             # Only push runs on main: a pull request (a fork's included) can
-            # never supply the binary.
+            # never supply the binary. Completed runs, not only green ones:
+            # the artifact is uploaded only when the rust job built and tested
+            # the worker, and a run that is red elsewhere (a ts test) still
+            # carries the newest worker; taking the last fully green run
+            # instead tested PRs with a worker older than main's crates.
             source=""
-            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=30" \
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=30" \
               --jq '.workflow_runs[] | select(.head_repository.id == .repository.id) | "\(.id) \(.head_sha)"')
             while read -r id sha; do
               [[ -n "$id" ]] || continue
