@@ -31,6 +31,7 @@ const customerAr = t.as("customer-ar"); // the language sticks to a browser, so 
 // The seed has no technician: add one (the dispatcher's row with another id and the technician role).
 {
   const db = new Database(t.dbFile);
+  db.exec("pragma busy_timeout = 5000");
   db.run("insert into auth__users (id, email, display_name, password_hash, email_verified_at, created_at, updated_at) select 'u_dxb_tech', 'tech.dubai@fixit.example', 'Tariq Technician', password_hash, email_verified_at, created_at, updated_at from auth__users where id = 'u_dxb_dispatcher'");
   db.run("insert into org__members (org_id, user_id, role, created_at) values ('org_dubai', 'u_dxb_tech', 'member', 1793000000)");
   db.run("insert into renox__role_assignments (user_id, role, scope_type, scope_id, granted_by, at) values ('u_dxb_tech', 'technician', 'global', '', 'test', 1793000000000)");
@@ -248,6 +249,7 @@ describe("the customer's link", () => {
 
   test("a link whose quotation date has passed expires the quotation on the next read", async () => {
     const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
     db.run("update app__quotes set valid_until = 1700000000 where id = 'qt_seed_05'");
     db.run("update app__quotes set status = 'sent', approved_at = null where id = 'qt_seed_05'");
     db.close();

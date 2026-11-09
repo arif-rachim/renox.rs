@@ -181,10 +181,8 @@ import f175 from "./tests/outbox.ts.tpl" with { type: "text" };
 import f176 from "./tests/pwa.test.ts.tpl" with { type: "text" };
 import f177 from "./tests/quotes.test.ts.tpl" with { type: "text" };
 import f178 from "./tests/reports.test.ts.tpl" with { type: "text" };
-import f179 from "./tests/run-job.ts.tpl" with { type: "text" };
-import f180 from "./tests/setup.ts.tpl" with { type: "text" };
-import f181 from "./tests/tools.test.ts.tpl" with { type: "text" };
-import f182 from "./tests/visits.test.ts.tpl" with { type: "text" };
+import f179 from "./tests/tools.test.ts.tpl" with { type: "text" };
+import f180 from "./tests/visits.test.ts.tpl" with { type: "text" };
 
 export const HOME_SERVICES: Readonly<Record<string, string>> = {
   ".env.test": f0,
@@ -366,10 +364,8 @@ export const HOME_SERVICES: Readonly<Record<string, string>> = {
   "tests/pwa.test.ts": f176,
   "tests/quotes.test.ts": f177,
   "tests/reports.test.ts": f178,
-  "tests/run-job.ts": f179,
-  "tests/setup.ts": f180,
-  "tests/tools.test.ts": f181,
-  "tests/visits.test.ts": f182,
+  "tests/tools.test.ts": f179,
+  "tests/visits.test.ts": f180,
 };
 
 export const HOME_SERVICES_BINARY: readonly string[] = [

@@ -3,7 +3,7 @@
 // the jobs due in the next 14 days once, the renewals job reminds the customer
 // 30 days before the end and expires the contract the day after, and the
 // contract has an EN and AR PDF. Runs on the local worker with the seed's users
-// (password below); the jobs run through the worker's outbox (tests/run-job.ts).
+// (password below); the jobs run through the worker's outbox (t.job).
 // The seed has two active contracts: AMC-000001 (Dubai, Marina Heights) and
 // AMC-000002 (Sharjah), every next visit more than 14 days away.
 import { Database } from "bun:sqlite";
@@ -13,7 +13,6 @@ import { app, snapshot } from "@renoxium/sdk/test";
 
 import { addDays, nextVisit, visitDays, yearEnd } from "../lib/contract-dates";
 import { outboxOf } from "./outbox";
-import { runJob } from "./run-job";
 
 setDefaultTimeout(60_000);
 const t = await app();
@@ -208,7 +207,7 @@ describe("create and activate", () => {
 
   test("the visits job: the two items (12 and 4 a year) make their jobs due in 14 days, once", async () => {
     // The contract started in three days, so both items are due now: two jobs.
-    await runJob(t, "amc-visits");
+    await t.job("amc-visits");
     const jobs = visitJobs(id);
     expect(jobs).toHaveLength(2);
     expect(jobs.map((j) => j.due_on)).toEqual([addDays(today(), 3), addDays(today(), 3)]);
@@ -226,7 +225,7 @@ describe("create and activate", () => {
     expect(rows("select count(*) as n from app__contract_jobs where contract_id in ('ct_seed_01', 'ct_seed_02')")[0]?.n).toBe(0);
     const total = rows("select count(*) as n from app__jobs")[0]?.n;
     // Idempotent: a second run makes nothing.
-    await runJob(t, "amc-visits");
+    await t.job("amc-visits");
     expect(visitJobs(id)).toHaveLength(2);
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(total);
   });
@@ -235,11 +234,11 @@ describe("create and activate", () => {
     const [a, b] = itemRows(id);
     // The next visit of the 12-a-year item falls in 20 days: not yet.
     rw((db) => db.run("update app__contract_items set next_visit_on = ? where id = ?", [addDays(today(), 20), a?.id as number]));
-    await runJob(t, "amc-visits");
+    await t.job("amc-visits");
     expect(visitJobs(id)).toHaveLength(2);
     // The job did not run for 40 days: one visit due today, then the grid goes on after today.
     rw((db) => db.run("update app__contract_items set next_visit_on = ? where id = ?", [addDays(today(), -40), b?.id as number]));
-    await runJob(t, "amc-visits");
+    await t.job("amc-visits");
     const late = visitJobs(id).filter((j) => j.item_id === b?.id);
     expect(late.map((j) => j.due_on)).toEqual([today(), addDays(today(), 3)]);
     expect(String(itemRows(id)[1]?.next_visit_on) > today()).toBe(true);
@@ -250,11 +249,11 @@ describe("one visit a year", () => {
   test("edge case: exactly one job in the whole year", async () => {
     const id = await create(dispatcher, form({ starts_on: today(), price: "0", customer_id: "cu_dxb_04" }, [{ site: "st_dxb_04a", service: serviceId("AMC-VISIT"), visits: "1" }]));
     expect((await dispatcher.action(`/contracts/${id}`, "activate", {})).status).toBe(303);
-    await runJob(t, "amc-visits");
+    await t.job("amc-visits");
     expect(visitJobs(id)).toHaveLength(1);
     const end = String(contractRow(id).ends_on);
     expect(String(itemRows(id)[0]?.next_visit_on) > end).toBe(true);
-    await runJob(t, "amc-visits");
+    await t.job("amc-visits");
     expect(visitJobs(id)).toHaveLength(1);
     // Even with the clock at the last day of the term, no second visit is due.
     expect(visitDays(today(), end, 1)).toEqual([today()]);
@@ -267,7 +266,7 @@ describe("renewals", () => {
 
   test("normal case: a contract that ends in 30 days is announced once", async () => {
     rw((db) => db.run("update app__contracts set ends_on = ? where id = 'ct_seed_01'", [addDays(today(), 30)]));
-    await runJob(t, "amc-renewals");
+    await t.job("amc-renewals");
     expect(reminders()).toHaveLength(1);
     expect(reminders()[0]?.template).toBe("amc_renewal");
     // Marina Heights has a phone: the reminder is the WhatsApp template (the module's outbox), not an email.
@@ -279,12 +278,12 @@ describe("renewals", () => {
     expect(staff()).toEqual([{ category: "contracts", title: `Contract AMC-000001 ends on ${addDays(today(), 30)}`, link: "/contracts/ct_seed_01" }]);
     expect(contractRow("ct_seed_01").renewal_notified_on).toBe(today());
     // The same day again: nothing is repeated.
-    await runJob(t, "amc-renewals");
+    await t.job("amc-renewals");
     expect(reminders()).toHaveLength(1);
     expect(staff()).toHaveLength(1);
     // The next day the contract ends in 29 days: it does not repeat either.
     rw((db) => db.run("update app__contracts set ends_on = ? where id = 'ct_seed_01'", [addDays(today(), 29)]));
-    await runJob(t, "amc-renewals");
+    await t.job("amc-renewals");
     expect(reminders()).toHaveLength(1);
     expect(contractRow("ct_seed_01").status).toBe("active");
   });
@@ -295,7 +294,7 @@ describe("renewals", () => {
 
   test("the day after the end the contract is expired, and an expired contract can be renewed once", async () => {
     rw((db) => db.run("update app__contracts set ends_on = ? where id = 'ct_seed_01'", [addDays(today(), -1)]));
-    await runJob(t, "amc-renewals");
+    await t.job("amc-renewals");
     expect(contractRow("ct_seed_01").status).toBe("expired");
     expect(rows("select action from audit__events where action = 'contract.expire' and resource_id = 'ct_seed_01'")).toHaveLength(1);
     // Renewing copies the contract for the next year as a draft that starts the day after.
