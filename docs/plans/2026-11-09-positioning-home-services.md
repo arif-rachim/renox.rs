@@ -152,7 +152,7 @@ Renoxium stays the platform's name and the company. Its site speaks to developer
 | # | Item | Why it blocks the page |
 | --- | --- | --- |
 | 1 | **The brand name.** Three directions: descriptive English (the trade in the name); an Arabic root that an English speaker can say, for example a word for maintenance or care (check `.ae` and `.com` availability and the UAE trademark register before falling in love); a neutral coined word with an Arabic wordmark. Must read well on an Arabic PDF and in a WhatsApp message | The hero, the domain, the PDFs, the WhatsApp sender name |
-| 2 | **Export and self-host as a feature**: `renox export` (app, SQLite file, stored files, module versions) and a tested guide to run `renox-worker` on a VPS; file the issues | The ownership guarantee cannot be printed before it exists |
+| 2 | **Export and self-host as a feature**: `renox export` (app, SQLite file, stored files, module versions) and a tested guide to run `renox-worker` on a VPS. Filed 2026-11-09 as epic #668 with #669 (contract), #670 (node), #671 (API), #673 (CLI), #674 (guide and e2e test) | The ownership guarantee cannot be printed before it exists |
 | 3 | **The ChatGPT and Claude connector scope**: a narrow set of safe tools for the owner's tier (services, texts, branches, flows, reports) versus full code access for developers; which store or directory to list in | Theme B's proof transcript, and the "what the AI may not change" sentence |
 | 4 | **Per-branch pricing and an annual option** | The price section |
 | 5 | **The pilot offer**: how many companies, what the written exit says, who does the one-hour setup | The ask |
