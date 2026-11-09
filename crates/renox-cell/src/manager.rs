@@ -391,6 +391,45 @@ impl CellManager {
         handle.call(renox_data::outbox::stats).await.ok()?.ok()
     }
 
+    /// Write a platform event (module `renox`, like `authz.roles_changed`)
+    /// to the tenant's outbox from the cell (#658: `mcp.tool_called`).
+    pub(crate) async fn emit_platform_event(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        payload: String,
+    ) -> Result<(), String> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()
+            .ok_or("no database")?;
+        let handle = slot
+            .lock()
+            .await
+            .handle
+            .clone()
+            .ok_or("no database")?;
+        let ev = renox_data::outbox::OutboxEvent {
+            id: renox_runtime::ops::events::ulid(),
+            name: name.to_string(),
+            payload,
+            module: renox_data::PLATFORM_MODULE.into(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+        };
+        handle
+            .call(move |db| renox_data::outbox::emit_autocommit(db, &ev))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
+    }
+
     /// Statement counters of a tenant's open database (tests: the outbox
     /// worker does not poll an idle tenant).
     pub async fn db_stats(&self, tenant_id: &str) -> Option<renox_data::DbStats> {

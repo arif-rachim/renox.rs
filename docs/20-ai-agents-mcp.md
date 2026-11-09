@@ -46,7 +46,7 @@ Task templates with the right context preloaded: `add-module`, `debug-failing-de
 
 - OAuth 2.1 tokens with **per-tool scopes**: `apps:read`, `apps:write`, `deploy:write`, `logs:read`, `db:read`, `db:write`, `modules:write`, `secrets:none` (secrets are never readable through MCP; only names and versions). Default grant for an agent: read scopes + `deploy:write`.
 - Destructive tools (`rollback`, `db_execute`, `delete_app`, `upgrade_module`) return a **plan plus a confirmation token**; execution requires a second call with that token. In the local stdio server, the confirmation is shown to the human in the terminal.
-- Every call is audit-logged with actor type `agent`, the client name, and the model if reported.
+- Every call is audit-logged with actor type `agent`, the client name, and the model if reported (the platform MCP: `control/api/src/mcp/server.ts`, one `audit` row per call, whatever the outcome; the App MCP: the `mcp.tool_called` event and the `audit` module row, section 2, "Attribution", #658).
 - Tokens are short-lived; the local server inherits the developer's CLI login.
 
 ## 2. App MCP: every tenant application can be an MCP server
@@ -126,7 +126,7 @@ const reply = await ctx.ai.chat({
 | Over-privileged agents | Per-tool scopes, read-only defaults, two-step confirmation for destructive tools, short-lived tokens, per-app grants |
 | Secret leakage | Secrets are never serialized through MCP; logs and errors are redacted before leaving the cell |
 | Quota exhaustion by runaway agents | Rate limits and metering per token; alerts to the tenant owner; automatic token suspension on anomalies |
-| Attribution | Audit log distinguishes human and agent actors with client name and model; tenants can list and revoke agent tokens in the dashboard |
+| Attribution | Audit log distinguishes human and agent actors with client name and model; tenants can list and revoke agent tokens in the dashboard. Every `tools/call` that passed the token check (allowed, forbidden, invalid input, failed, preview, rate limited) emits the platform event `mcp.tool_called` (`ops.md` section 15.4) and writes one `RENOX_TOOL_CALL` line to the tenant log; the `audit` module records it as an `audit__events` row with `actor_kind = agent`, the client, the tool and the outcome. Proof: `every_tool_call_is_audited` in `crates/renox-cell/tests/mcp.rs`; `modules/audit/tests/audit.test.ts` (#658) |
 | Data exfiltration via tools | Output size caps; resources are policy-filtered; `db_export` requires a dedicated scope |
 
 ## 6. Build phases

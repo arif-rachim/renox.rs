@@ -88,6 +88,18 @@ permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"job.up
 when { principal has org && principal.org == resource.org };
 "#;
 
+// #658: the app's own `hooks` entry stores each `mcp.tool_called` event, so
+// the test reads what the outbox delivered (the `audit` module does the same
+// in `modules/audit/hooks.ts`).
+const HOOKS: &str = r#"
+export const on = {
+  "mcp.tool_called": async (ctx, e) => {
+    const p = e.payload;
+    await ctx.db.execute("insert into app__calls (tool, user_id, client, outcome, request_id, at) values (?, ?, ?, ?, ?, ?)", [p.tool, p.agent_user_id, p.client, p.outcome, p.request_id, p.at]);
+  },
+};
+"#;
+
 fn tool(name: &str, run: &str, action: &str, confirm: bool) -> String {
     format!(
         "export default {{ name: {name:?}, description: \"t\", action: {action:?}, confirm: {confirm}, input: {{}}, async run(ctx) {{ {run} }} }};\n"
@@ -128,6 +140,7 @@ fn artifact(store: &Path, with_auth: bool, dispatch: bool) -> String {
         .iter()
         .map(|(n, run, a, c)| (format!("functions/tools/{n}"), tool(n, run, a, *c)))
         .collect();
+    code.push(("hooks".into(), HOOKS.into()));
     code.push((
         "functions/health".into(),
         "export const GET = () => new Response('ok');\n".into(),
@@ -145,7 +158,7 @@ fn artifact(store: &Path, with_auth: bool, dispatch: bool) -> String {
         std::fs::write(p, src).unwrap();
     }
     let mut app_sql =
-        "create table app__notes (text text);\ninsert into app__notes values ('a'), ('b');\n"
+        "create table app__notes (text text);\ncreate table app__calls (tool text, user_id text, client text, outcome text, request_id text, at integer);\ninsert into app__notes values ('a'), ('b');\n"
             .to_string();
     if dispatch {
         app_sql.push_str("create table app__jobs (id text primary key, org text);\ninsert into app__jobs values ('j1', 'o_1'), ('j2', 'o_2');\n");
@@ -235,6 +248,7 @@ struct Node {
     hash: String,
     records: Records,
     logs: Arc<MemoryLogSink>,
+    data: PathBuf,
 }
 
 fn node(with_auth: bool) -> Node {
@@ -295,6 +309,7 @@ fn node_with(with_auth: bool, dispatch: bool) -> Node {
         hash,
         records,
         logs,
+        data,
     }
 }
 
@@ -601,6 +616,132 @@ async fn the_confirm_flow() {
         (replay.status, error_code(&replay)),
         (409, "RENOX_TOOL_CONFIRM")
     );
+}
+
+/// The `mcp.tool_called` rows the app's hook stored, `(tool, user, client,
+/// outcome, request_id)`, once at least `n` are there.
+async fn tool_calls(n: &Node, want: usize) -> Vec<(String, String, String, String, String)> {
+    use renox_data::{DbOptions, TenantDb, Value};
+    let text = |r: &renox_data::Row, c: &str| match r.get(c) {
+        Some(Value::Text(s)) => s.clone(),
+        _ => String::new(),
+    };
+    let t0 = Instant::now();
+    loop {
+        let db = TenantDb::open(n.data.join("t_mcp").join("app.db"), DbOptions::default()).unwrap();
+        let rows: Vec<_> = db
+            .query(
+                "select tool, user_id, client, outcome, request_id from app__calls order by rowid",
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    text(r, "tool"),
+                    text(r, "user_id"),
+                    text(r, "client"),
+                    text(r, "outcome"),
+                    text(r, "request_id"),
+                )
+            })
+            .collect();
+        drop(db);
+        if rows.len() >= want || t0.elapsed() > Duration::from_secs(10) {
+            return rows;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+/// #658 (`docs/20-ai-agents-mcp.md` section 5, `docs/24-threat-model.md`
+/// "tool call by an agent"): every `tools/call` that passed the token check
+/// emits `mcp.tool_called` (preview, confirmed, forbidden by Cedar, by scope,
+/// invalid input) and writes one `RENOX_TOOL_CALL` tenant log line; a call
+/// without a valid bearer and a call to an unknown tool leave nothing.
+#[tokio::test]
+async fn every_tool_call_is_audited() {
+    let n = node(true);
+    let preview = n
+        .call("tok_full", "delete_notes", serde_json::json!({}))
+        .await;
+    let token = preview.body["result"]["structuredContent"]["confirmation"]["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let confirmed = n
+        .rpc(
+            Some("tok_full"),
+            "tools/call",
+            serde_json::json!({ "name": "delete_notes", "arguments": {}, "_meta": { "renox/confirmation": token } }),
+        )
+        .await;
+    assert_eq!(confirmed.status, 200, "{}", confirmed.body);
+    let cedar = n.call("tok_full", "purge", serde_json::json!({})).await;
+    assert_eq!(error_code(&cedar), "RENOX_FORBIDDEN");
+    let scope = n
+        .call("tok_limited", "delete_notes", serde_json::json!({}))
+        .await;
+    assert_eq!(error_code(&scope), "RENOX_TOOL_SCOPE");
+    let bad = n
+        .call("tok_full", "list_notes", serde_json::json!({ "limit": 0 }))
+        .await;
+    assert_eq!(error_code(&bad), "RENOX_TOOL_INPUT");
+    // Nothing to audit: no bearer, an invalid one, an unknown tool.
+    let no_token = n
+        .rpc(
+            None,
+            "tools/call",
+            serde_json::json!({ "name": "list_notes", "arguments": {} }),
+        )
+        .await;
+    assert_eq!(no_token.status, 401);
+    let invalid = n
+        .call("tok_nobody", "list_notes", serde_json::json!({}))
+        .await;
+    assert_eq!(invalid.status, 401);
+    let unknown = n.call("tok_full", "no_such_tool", serde_json::json!({})).await;
+    assert_eq!(unknown.body["error"]["code"], -32602);
+    let ok = n.call("tok_full", "list_notes", serde_json::json!({})).await;
+    assert_eq!(ok.status, 200);
+    let rid = |r: &Reply| r.headers["x-renox-request-id"].to_str().unwrap().to_string();
+
+    let rows = tool_calls(&n, 6).await;
+    let got: Vec<(&str, &str, &str, &str)> = rows
+        .iter()
+        .map(|r| (r.0.as_str(), r.1.as_str(), r.2.as_str(), r.3.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("delete_notes", "u_alice", "test-agent", "preview"),
+            ("delete_notes", "u_alice", "test-agent", "ok"),
+            ("purge", "u_alice", "test-agent", "forbidden"),
+            ("delete_notes", "u_bob", "test-agent", "forbidden"),
+            ("list_notes", "u_alice", "test-agent", "input"),
+            ("list_notes", "u_alice", "test-agent", "ok"),
+        ],
+        "{rows:?}"
+    );
+    assert_eq!(rows[0].4, rid(&preview));
+    assert_eq!(rows[1].4, rid(&confirmed));
+    assert_eq!(rows[2].4, rid(&cedar));
+    assert_eq!(rows[5].4, rid(&ok));
+    // The tenant log: one line per call, no arguments.
+    let lines: Vec<_> = n
+        .logs
+        .lines()
+        .into_iter()
+        .filter(|l| l.fields.get("code").and_then(|c| c.as_str()) == Some("RENOX_TOOL_CALL"))
+        .collect();
+    assert_eq!(lines.len(), 6, "{lines:?}");
+    let first = &lines[0];
+    assert_eq!(first.level, "info");
+    assert_eq!(first.request_id.as_deref(), Some(rid(&preview).as_str()));
+    assert_eq!(first.fields["tool"], "delete_notes");
+    assert_eq!(first.fields["client"], "test-agent");
+    assert_eq!(first.fields["outcome"], "preview");
+    assert_eq!(first.fields["request_id"], rid(&preview).as_str());
 }
 
 /// A `confirm` tool whose preview returns an error object gets a tool error

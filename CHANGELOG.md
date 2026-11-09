@@ -10,6 +10,12 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 - `ctx.pdf.render` embeds images (`ops.md` 1.13.0, section 24): `<img src="/_img/<key>?w=<n>">` (a tenant file by key, private keys included, at most 1600 px, JPEG or PNG, through the `/_img` variant cache) and `data:image/png;base64,` / `data:image/jpeg;base64,` URIs (at most 2 MiB each); at most 50 images and 20 MB of image bytes per document, else `RENOX_PDF_LIMIT`; any other `src` is dropped. The template engine lets these two `data:` types through on `<img src>` only (#582).
 
 - A template that runs out of fuel, iterations or output now logs the innermost template and the line (`RENOX_RENDER_LIMIT` carries `template` and `line`; `RenderStats` has `template` and `line`), and `renox dev`'s overlay shows them, as `docs/23-failure-modes.md` promises (#657).
+- Every App MCP `tools/call` that passed the token check is audited (`docs/20`, `docs/24`; `ops.md` section 15.4, "Platform events"): one `RENOX_TOOL_CALL` tenant log line (`tool`, `client`, `outcome`, `request_id`) and the durable platform event `mcp.tool_called` with `outcome` `preview`, `ok`, `forbidden` (scope or Cedar), `input`, `rate_limited` or `failed`. A missing or invalid bearer and an unknown tool leave nothing (#658).
+
+**Modules**
+
+- `audit` 1.0.0: listens to `mcp.tool_called` and records one `audit__events` row per tool call with `actor_kind = agent`, the client, the tool as `resource_id` and the outcome (`result` and `details.outcome`) (#658).
+
 **CLI**
 
 - Artifact 1.8: the app's own `hooks.ts` (project root) is the `hooks` code entry (`on` handlers for module events, `hooks` fillers for module hook points); `renox.toml [[slots]]` (`name`, `template = "partials/<x>.html"`, `requires?`, `priority?` 0 to 1000) fills slots as module `app` (after a module's filler of equal priority); `[events."app.<name>"]` (`payload`, `description?`) declares the events the app may emit, written to the manifest as `events`. `renox check` reports a filler whose template is missing or not a partial, a `requires` outside the merged actions, and an event name that is not `app.<name>` or a payload outside the schema keyword subset as errors, a slot no installed module renders and a handled event of a module that is not installed as warnings (#630).

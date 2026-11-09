@@ -9,7 +9,9 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 import { app, ServiceError, type TestApp } from "../../../sdk/src/test.ts";
+import { toolCallRow } from "../lib/mcp.ts";
 import { isSecretKey, redact } from "../lib/redact.ts";
+import { validate } from "../services.ts";
 
 const MODULE = join(import.meta.dir, "..");
 const worker = process.env.RENOX_TEST_SPEC ?? process.env.RENOX_WORKER_PATH;
@@ -41,6 +43,33 @@ describe("redaction", () => {
     expect(["password", "apiKey", "API_KEY", "access_token", "client_secret", "Authorization", "cookie", "otp", "cardNumber", "tokenHash"].every(isSecretKey)).toBe(true);
     expect(["footprint", "title", "org_id", "role", "keyboard", "passage_count"].some(isSecretKey)).toBe(false);
     expect(redact({ a: { b: [{ password: "x", ok: 1 }] }, note: "the password is x" })).toEqual({ a: { b: [{ password: "[redacted]", ok: 1 }] }, note: "the password is x" });
+  });
+});
+
+describe("mcp.tool_called (#658)", () => {
+  const payload = { tool: "delete_notes", agent_user_id: "u_alice", client: "Claude Desktop", outcome: "ok", request_id: "req_1", at: 1 };
+
+  test("the handler's row: actor kind agent, the client, the tool, the outcome, the request", () => {
+    const row = toolCallRow("mcp.tool_called", payload);
+    expect(row).toEqual({
+      action: "mcp.tool_called",
+      actor: { kind: "agent", id: "u_alice", client: "Claude Desktop" },
+      resource: { type: "mcp:Tool", id: "delete_notes" },
+      result: "ok",
+      details: { tool: "delete_notes", outcome: "ok", at: 1 },
+      request_id: "req_1",
+    });
+    // The row passes the same validation `record` applies.
+    expect(() => validate(row)).not.toThrow();
+  });
+
+  test("outcomes map onto the table's three results; the exact outcome stays in details", () => {
+    const of = (outcome: string) => toolCallRow("mcp.tool_called", { ...payload, outcome });
+    expect(["preview", "ok", "forbidden", "rate_limited", "input", "failed"].map((o) => of(o)?.result)).toEqual(["ok", "ok", "denied", "denied", "failed", "failed"]);
+    expect(of("preview")?.details).toMatchObject({ outcome: "preview" });
+    // No tool or no user: nothing to record.
+    expect(toolCallRow("mcp.tool_called", { ...payload, tool: "" })).toBeNull();
+    expect(toolCallRow("mcp.tool_called", { ...payload, agent_user_id: undefined })).toBeNull();
   });
 });
 

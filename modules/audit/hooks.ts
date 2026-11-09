@@ -4,6 +4,7 @@
 // are redacted like any other details (`auth.agent_token_revoked` carries
 // a token hash, which is stored as "[redacted]").
 
+import { toolCallRow } from "./lib/mcp.ts";
 import { record, type AuditInput } from "./services.ts";
 
 interface Event {
@@ -37,6 +38,9 @@ function rowOf(e: Event): AuditInput | null {
       const by = str(p.by) ?? user;
       return by ? { action: e.name, actor: { kind: "user", id: by }, resource: { type: "org:Org", id: str(p.org_id) }, details: p } : null;
     }
+    case "mcp.tool_called":
+      // An App MCP tools/call (#658): actor kind agent, the client, the outcome.
+      return toolCallRow(e.name, p);
     default:
       return null;
   }
@@ -55,4 +59,5 @@ export const on = {
   "org.created": listen,
   "org.member_added": listen,
   "org.member_removed": listen,
+  "mcp.tool_called": listen,
 };
