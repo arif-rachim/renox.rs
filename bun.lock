@@ -14,7 +14,7 @@
     },
     "cli": {
       "name": "@renox/cli",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "bin": {
         "renox": "./src/main.ts",
       },
@@ -105,7 +105,7 @@
     },
     "sdk": {
       "name": "@renoxium/sdk",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "devDependencies": {
         "drizzle-orm": "0.45.4",
         "kysely": "0.29.6",
