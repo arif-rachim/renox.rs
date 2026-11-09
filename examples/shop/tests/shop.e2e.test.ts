@@ -44,6 +44,7 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "GET /auth/oauth/:provider/callback",
     "GET /auth/oauth/:provider/start",
     "GET /auth/oauth/authorize",
+    "JOB checkouts",
     "JOB nightly",
     "JOB prune",
     "PAGE /",
