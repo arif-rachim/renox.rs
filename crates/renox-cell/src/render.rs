@@ -973,7 +973,10 @@ pub type SharedPages = Arc<PageRenderer>;
 
 /// `ctx.pdf`'s renderer for one deployment (#322; ops.md 1.7.0 section 24):
 /// its templates, rendered like pages, then converted by the runtime.
-struct PdfTemplates(PageRenderer);
+/// `ctx.pdf` and `ctx.render` (#322) on the deployment's page renderer:
+/// the same `Arc` as the cell's pages, so the templates are compiled once
+/// per deployment, not once for pages and again for documents (#641).
+struct PdfTemplates(Arc<PageRenderer>);
 
 use renox_runtime::ops::pdf::TemplateError;
 
@@ -1016,19 +1019,15 @@ fn wall_now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// `authz` is the deployment's slot: `ctx.render` answers `r-can` from it.
+/// The template slot of `ctx.pdf` and `ctx.render`: the deployment's page
+/// renderer itself (#641; it already answers `r-can` from the deployment's
+/// authz slot). `None` for an artifact without templates.
 pub fn pdf_templates(
-    artifact_dir: &Path,
-    authz: Option<renox_runtime::ops::authz::AuthzSlot>,
+    pages: Option<&Arc<PageRenderer>>,
 ) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
-    let raw = std::fs::read(artifact_dir.join("manifest.json")).ok()?;
-    let manifest: Manifest = serde_json::from_slice(&raw).ok()?;
-    let mut renderer = PageRenderer::load(artifact_dir, &manifest, "", None).ok()??;
-    if let Some(slot) = authz {
-        renderer = renderer.with_authz(slot);
-    }
-    Some(renox_runtime::ops::pdf::TemplateSlot(std::sync::Arc::new(
-        PdfTemplates(renderer),
+    let pages = pages?.clone();
+    Some(renox_runtime::ops::pdf::TemplateSlot(Arc::new(
+        PdfTemplates(pages),
     )))
 }
 

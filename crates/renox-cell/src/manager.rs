@@ -561,6 +561,22 @@ impl CellManager {
             .count()
     }
 
+    /// The holders of the page renderer of `key`'s live cell (#641): the
+    /// cell's pages, its realtime hub and the isolate's template slot
+    /// (`ctx.pdf`, `ctx.render`) share one `Arc`, so a deployment compiles
+    /// its templates once. `None` without a live cell or without templates.
+    pub fn page_renderer_holders(&self, key: &CellKey) -> Option<usize> {
+        let slot = self
+            .inner
+            .cells
+            .lock()
+            .expect("cells lock")
+            .get(key)?
+            .clone();
+        let cell = slot.get()?;
+        cell.web.pages.as_ref().map(Arc::strong_count)
+    }
+
     pub fn cells_created(&self) -> u64 {
         self.inner
             .created
@@ -805,6 +821,10 @@ impl CellManager {
             // One slot for the isolate, the page renderer and `ctx.render`'s
             // renderer, so `r-can` in a fragment sees the same policies.
             let authz_slot = renox_runtime::ops::authz::new_slot();
+            // #641: the templates are compiled once per deployment; the
+            // pages, realtime fragments and `ctx.pdf`/`ctx.render` share it.
+            let pages =
+                load_renderer(&artifact_dir, &key.deployment_hash, authz_slot.clone()).await?;
             let spec = IsolateSpec {
                 tenant_id: key.tenant_id.clone(),
                 deployment_hash: key.deployment_hash.clone(),
@@ -815,7 +835,7 @@ impl CellManager {
                 max_isolates: max_isolates(tier_name),
                 storage: Some(renox_runtime::StorageSlot(cell_storage.clone())),
                 ai: self.inner.ai.lock().expect("ai lock").clone(),
-                templates: crate::render::pdf_templates(&artifact_dir, Some(authz_slot.clone())),
+                templates: crate::render::pdf_templates(pages.as_ref()),
                 authz: Some(renox_runtime::SharedAuthz(authz_slot)),
             };
             let prepare_db = async {
@@ -837,7 +857,7 @@ impl CellManager {
                     match crate::authz::build(&artifact_dir, &db, config).await {
                         Ok(state) => {
                             *isolate.authz_slot().write().expect("authz slot") = Some(state);
-                            Ok(isolate)
+                            Ok((isolate, pages))
                         }
                         Err(reason) => {
                             isolate.terminate();
@@ -857,7 +877,7 @@ impl CellManager {
             }
         }
         .await;
-        let isolate = match result {
+        let (isolate, pages) = match result {
             Ok(i) => i,
             Err(e) => {
                 self.inner
@@ -870,14 +890,7 @@ impl CellManager {
             }
         };
         let keys = SessionKeys::new(self.inner.config.platform_key.tenant_key(&key.tenant_id));
-        let web = match load_pages(
-            &artifact_dir,
-            &key.deployment_hash,
-            keys,
-            isolate.authz_slot(),
-        )
-        .await
-        {
+        let web = match load_pages(&artifact_dir, keys, isolate.authz_slot(), pages).await {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
@@ -2169,15 +2182,15 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
     }
 }
 
-/// The deployment's page renderer, from `manifest.json` and `templates/`.
-/// Also the page guard (sessions, CSRF) when the deployment has page routes,
-/// and the per-route buckets of `security.ratelimit` (#47).
-async fn load_pages(
+/// The deployment's page renderer, from `manifest.json` and `templates/`,
+/// answering `r-can` from `authz`. Built once per deployment (#641): the
+/// cell's pages, its realtime fragments and the isolate's template slot
+/// (`ctx.pdf`, `ctx.render`) share this `Arc`. `None` without templates.
+async fn load_renderer(
     artifact_dir: &Path,
     deployment_hash: &str,
-    keys: SessionKeys,
     authz: renox_runtime::ops::authz::AuthzSlot,
-) -> Result<WebLayer, CellError> {
+) -> Result<Option<Arc<PageRenderer>>, CellError> {
     let dir = artifact_dir.to_path_buf();
     let hash = deployment_hash.to_string();
     tokio::task::spawn_blocking(move || {
@@ -2190,6 +2203,33 @@ async fn load_pages(
             .and_then(|j| DeploymentInfo::parse(j).ok())
             .is_none_or(|i| i.client_events)
             .then(renox_gateway::client_script::script_src);
+        let manifest: renox_runtime::manifest::Manifest =
+            serde_json::from_slice(&raw).map_err(|e| ("V14", format!("V3: manifest.json: {e}")))?;
+        Ok::<_, (&'static str, String)>(
+            PageRenderer::load(&dir, &manifest, &hash, client_script)
+                .map_err(|e| ("V14", e))?
+                .map(|p| Arc::new(p.with_authz(authz))),
+        )
+    })
+    .await
+    .map_err(|e| ("V14", e.to_string()))
+    .and_then(|r| r)
+    .map_err(|(rule, reason)| CellError::Artifact(ArtifactError::Invalid { rule, reason }))
+}
+
+/// The deployment's web layer around its page renderer (`pages`, from
+/// [`load_renderer`]): the page guard (sessions, CSRF) when the deployment
+/// has page routes, and the per-route buckets of `security.ratelimit` (#47).
+async fn load_pages(
+    artifact_dir: &Path,
+    keys: SessionKeys,
+    authz: renox_runtime::ops::authz::AuthzSlot,
+    pages: Option<Arc<PageRenderer>>,
+) -> Result<WebLayer, CellError> {
+    let dir = artifact_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let raw = std::fs::read(dir.join("manifest.json"))
+            .map_err(|_| ("V14", "V3: manifest.json cannot be read".to_string()))?;
         let manifest: renox_runtime::manifest::Manifest = serde_json::from_slice(&raw)
             .map_err(|e| ("V14", format!("V3: manifest.json: {e}")))?;
         let guard = PageGuard::new(&manifest.routes, keys);
@@ -2199,9 +2239,6 @@ async fn load_pages(
             None => SecurityConfig::default(),
         };
         let buckets = RouteBuckets::new(&manifest.routes, &security.ratelimit);
-        let pages = PageRenderer::load(&dir, &manifest, &hash, client_script)
-            .map_err(|e| ("V14", e))?
-            .map(|p| p.with_authz(authz.clone()));
         // #280: a template naming an action the merged action set lacks is
         // refused at prepare (`RENOX_POLICY_INVALID`, V25).
         let engine = authz
@@ -2221,7 +2258,7 @@ async fn load_pages(
             ));
         }
         Ok::<_, (&'static str, String)>(WebLayer {
-            pages: pages.map(Arc::new),
+            pages,
             guard,
             buckets,
             // `SameSite=None` only when CORS with credentials is enabled
