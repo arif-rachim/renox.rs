@@ -157,11 +157,87 @@ Renoxium stays the platform's name and the company. Its site speaks to developer
 | 4 | **Per-branch pricing and an annual option** | The price section |
 | 5 | **The pilot offer**: how many companies, what the written exit says, who does the one-hour setup | The ask |
 | 6 | **The Arabic hero** after the native-speaker review | The RTL page |
+| 7 | **Market size**: the number of licensed home-services, MEP-maintenance, cleaning and facility-management companies in the UAE, by emirate (DED and free-zone registers, Dubai Pulse) | The first question a judge or an investor asks (section 14.6); the proof plan's sample |
+
+## 14. From the YES Academy session on value proposition and business model (Prof. Roy Sembel, 2026-10-17)
+
+The owner attended the session; its transcript and chat are in the owner's Drive. Most of it confirms sections 1 to 11 (the one-paragraph value proposition is Moore's template, the milkshake is Jobs-to-be-Done, "focus plus differentiation" is our Porter position). Five tools from it were missing here and are added below. One observation from the chat first: the value proposition the owner wrote there for TapMeja, the QR-ordering product, already carried the same differentiator ("installed under your own brand and domain, the customer data stays yours, start with no money down"). **Yours** is therefore not one vertical's angle but the Renoxium-level differentiator that every product brand repeats, which supports the three-layer naming of the owner decisions.
+
+### 14.1 VRIO test of our assets
+
+Valuable, Rare, hard to Imitate, Organized to exploit: an asset gives a sustainable advantage only when all four hold.
+
+| Asset | Valuable | Rare | Hard to imitate | Organized to exploit | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| Cheap hosting, low price | yes | no | no | yes | Never the headline; a price war we would win on cost and lose on positioning |
+| The complete app and the 16 modules | yes | somewhat | **no**: Apache-2.0 (D29), anyone can run the same code | yes | Table stakes, not the moat; the moat is upkeep, operations and the registry (D29's own reasoning) |
+| Local fit (FTA invoices, Arabic and RTL, +971, WhatsApp, Hijri) | yes | yes among global tools | within a year for a local player | yes | A real but temporary lead; keep moving (e-invoicing 2027) |
+| **Ownership plus "change it with your own AI"** | yes | **yes** | **yes**: a SaaS incumbent's business model forbids it, an agency's revenue depends on the opposite | **not yet**: no export button, no self-host guide, no ChatGPT or Claude connector | The one sustainable advantage, and the O is the gap (open items 2 and 3) |
+| Customer community and operational data (the running companies, their requests, their numbers) | yes | yes once it exists | yes | not yet | The long-term moat, as `docs/01-business.md` already says; Prof. Sembel's advice to the owner for TapMeja was the same: build the owners' community and let partners into the ecosystem |
+
+### 14.2 Price as three choices, not one number (The Economist experiment)
+
+A price is always compared, so AED 299 alone has no context. Three plans, the middle one recommended, the cheapest one a deliberate comparison point:
+
+| Plan | Price a month | What changes | Role |
+| --- | --- | --- | --- |
+| Basic | AED 149 | One branch, the complete app, no AI changes (the app as shipped), email support | The anchor that makes the recommended plan obviously better value |
+| **Recommended** | **AED 299** | Branches, changes through the owner's own ChatGPT or Claude, WhatsApp support, compliance updates | The plan to sell (section 10) |
+| Done for you | AED 499 | Everything above, plus changes made by us or a partner agency, priority support, quarterly review | Catches the owner who wants a vendor, and prices the agency channel |
+
+Floor and ceiling: the floor is near zero on hosting and real on support hours; the ceiling is one quotation not lost or one AMC renewal caught a month, either of which pays AED 299. This is value-based pricing, and the session's warning applies: it must be proven in the pilots, not assumed.
+
+### 14.3 Lifetime value and acquisition cost, with the assumptions written down
+
+| Input | Assumption | Note |
+| --- | --- | --- |
+| Price | AED 299 a month | section 10 |
+| Gross margin | about AED 250 a month | hosting is a rounding error; support hours are the cost |
+| Customer lifetime | 24 months (about 4 % monthly churn) | unknown; the pilots measure it |
+| Lifetime value | about AED 6,000 | 250 × 24 |
+| Healthy LTV to CAC | 3 to 1 | the session's rule of thumb |
+| **Allowed acquisition cost** | **at most AED 2,000 per company** | about ten founder hours of concierge onboarding, or one referral fee |
+| Payback | about 8 months | 2,000 ÷ 250 |
+
+Reading: hand onboarding (D31) is economically sound at this price as long as churn stays near 4 % a month and onboarding stays under ten hours. Both are measured in the pilots (section 11).
+
+### 14.4 The left side of the business model canvas
+
+Sections 1 to 10 fill the right side (segments, value proposition, channels in part, revenue). The session's rule for the left side: key activities are insourced and done very well; everything else goes to partners.
+
+| Block | Content |
+| --- | --- |
+| **Key activities (never outsourced)** | Upkeep of the modules that must stay right (auth, invoices, VAT, e-invoicing, backups, security); onboarding of the first ten companies by the founder; the switch interviews and the monthly numbers per company |
+| **Key resources** | The platform and the modules; the reference app; the brand per vertical; the customer community and operational data; the Apache-2.0 trust argument |
+| **Key partners** | Agencies as implementers and the "done for you" tier; an Accredited Service Provider for e-invoicing (#331); the WhatsApp Business provider; Cloudflare; PSPs when payments return (#516); the ILUNI UAE, YES and Indonesian, Filipino and Indian diaspora networks as the first channel |
+| **Channels** | Awareness: direct visits per industrial area with a phone demo, the diaspora networks, one comparison page per alternative. Evaluation: the one-hour setup with the company's own data, FixIt as the demo. Purchase: a WhatsApp quotation and e-signature. Delivery: on-site onboarding, Excel import, one hour of staff training. After-sales: WhatsApp support in GST hours, a monthly report (quotes sent, days to invoice, AMC renewals due). Referral partners: AC and spare-parts suppliers, F&B and FM accountants |
+| **Customer relationships** | Personal assistance for the first ten, then self-service plus the owner's own AI; a WhatsApp group per company; an owners' community for tips, feature requests and referrals |
+| **Cost structure** | Founder and support hours (the dominant cost); `node-small` and Cloudflare; WhatsApp message fees; the e-invoicing provider; a native Arabic reviewer; no sales team |
+
+Channel insight from the owner's own TapMeja canvas: the entry segment there was Asian-diaspora restaurants, and many maintenance and cleaning companies in the UAE are Indonesian-, Filipino- or Indian-owned. The first five pilots are cheapest to find through those networks, not through advertising.
+
+### 14.5 The biggest assumption, and this week's test
+
+**Assumption:** a business owner *wants* to change the app through their own AI, rather than only wanting it done for them. If it is wrong, theme B survives ("yours") but "change it with your ChatGPT" drops from the headline to a feature for the operations manager, and the "done for you" plan becomes the main one.
+
+**Test, this week, with five owners:** show one real change made through AI (for example the parts-warranty line on the quotation PDF, in Arabic too), then ask who in their company would do this, how often, and what they would pay for the right to. Record the answers verbatim.
+
+### 14.6 The skeptical investor (the session's second prompt, answered here)
+
+Three biggest weaknesses of this model, and the data to collect:
+
+1. **Self-modification demand is unproven** (14.5). Data: the five answers above; later, the share of pilot companies that make at least one AI change a month.
+2. **Concierge support at AED 299 is unmeasured.** Data: support and onboarding hours per company per month in the pilots; the churn after month three.
+3. **Open code and a bus factor of one.** A competitor can run the same engine (D29); the moat must be operations, compliance upkeep and the community, not code. Data: time from a regulation change to a shipped module update; the number of owners in the community; the reference customers who say why they stay.
+
+The questions Prof. Sembel put to the owner about TapMeja apply unchanged here: market size (open item 7), data security and privacy (theme C and the DPA), direct competitors with the same ownership angle (none found on 2026-11-09; re-check quarterly), and how a one-person company earns the perception of quality (the open repository, the status page, the first named reference).
 
 ## Sources used for this canvas
 
 Competitor positioning and pain points, 2026-11-09: State of JS 2024 and 2025 meta-framework pain lists (2024.stateofjs.com, 2025.stateofjs.com); HN "Why is Vercel so expensive?" (news.ycombinator.com/item?id=39898391) and "Next.js 15.1 is unusable outside of Vercel" (item?id=44255911); InfoQ on the Cara.app Vercel bill (infoq.com/news/2024/06/vercel-serverless-scale-expenses); UpGuard on exposed Supabase databases (upguard.com/blog/everything-everywhere-systemic-data-exposure-in-supabase-apps); Heroku's "An Update on Heroku" (heroku.com/blog/an-update-on-heroku) and the HN thread (item?id=46913903); DHH, "The One Person Framework" (world.hey.com/dhh/the-one-person-framework-711e6318) and "Rails 8: No PaaS Required" (rubyonrails.org/2024/11/7/rails-8-no-paas-required); Wasp, "Why we don't have a Laravel for JavaScript yet" (dev.to/wasp); the hero pages of Vercel, Netlify, Laravel Cloud, Fly.io, Render, Supabase, Convex, PocketBase, Coolify, Cloudflare Workers, Heroku, Rails, Laravel, Astro and htmx.
 
 UAE market: Pemo SME Spend Index via communicateonline.me ("UAE SME spending on AI rises fivefold"); UAE e-invoicing timelines (middleeastbriefing.com, abmagazine.accaglobal.com, fiscal-requirements.com); agency and freelance rates (squashapps.com, gmtasoftware.com, twine.net, ptolemay.com); SME counts (wam.ae, thenationalnews.com); `docs/21-uae-gcc-strategy.md`.
+
+YES Academy 2026 (ILUNI UI Chapter UAE), session 2, "Value Proposition and Business Model", Prof. Roy Sembel (IPMI International Business School), 2026-10-17: the recording's transcript and chat in the owner's Drive. Frameworks used from it: the value proposition canvas and business model canvas (Osterwalder), VRIO (Barney), Porter's generic strategies, the six revenue models, floor-anchor-ceiling pricing, the decoy experiment (Ariely's account of The Economist), LTV to CAC at 3 to 1, and the eight-item YES business proposal.
 
 Frameworks: April Dunford, "Positioning" and "A guide to advanced B2B positioning" on Lenny's Newsletter, "A product positioning exercise" (aprildunford.com); Bob Moesta, the four forces (jobstobedone.org/the-four-forces); Geoffrey Moore's positioning template (as reproduced by Shortform); Andy Raskin, "The greatest sales deck I've ever seen" (Medium); Jason Cohen, "One benefit" and "Worse, but unique" (longform.asmartbear.com); Emily Kramer, MKT1 positioning guide (newsletter.mkt1.co/p/positioning-guide); Wes Kao, "Spiky point of view" (weskao.com); Rahul Vohra, the Superhuman PMF engine (First Round Review); PostHog, comparison content guide (posthog.com/blog/comparison-content-guide); Plausible vs Google Analytics (plausible.io/vs-google-analytics); Linear, "Switch" (linear.app/switch); Alex Hormozi, the value equation (as summarized on Medium and SuperSummary); Jeroen Coelen, "For the love of god, don't start with why" (doctormarket.fit).
