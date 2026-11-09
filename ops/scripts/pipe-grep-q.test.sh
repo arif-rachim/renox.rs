@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression test for #569: under `set -o pipefail`, `producer | grep -q X`
 # fails when grep -q exits on the first match while the producer is still
-# writing (the producer gets SIGPIPE, status 141), although X was found.
+# writing (the producer gets SIGPIPE, status 141, or EPIPE where SIGPIPE is
+# ignored), although X was found.
 # Step 10 of single-host-e2e.test.sh flaked this way on `pg_restore --list`.
 # Proves: the hazard is real (a deterministic producer that writes after the
 # match makes `| grep -q` fail and `| grep X >/dev/null` pass), and
@@ -16,7 +17,9 @@ fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 
 # A producer that writes the match, waits until grep has read it, then keeps
 # writing far more than a pipe buffer holds.
-producer() { echo 'TABLE public tenants'; sleep 0.3; head -c 1048576 /dev/zero | tr '\0' 'x'; echo; }
+# Its write errors go to /dev/null: where SIGPIPE is ignored (the Actions runner) the writer
+# gets EPIPE, says so on stderr and exits 1 instead of dying with 141; either way it fails.
+producer() { { echo 'TABLE public tenants'; sleep 0.3; head -c 1048576 /dev/zero | tr '\0' 'x'; echo; } 2>/dev/null; }
 
 status=0
 producer | grep -q 'TABLE public tenants' || status=$?
