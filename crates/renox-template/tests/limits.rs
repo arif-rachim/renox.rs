@@ -88,6 +88,9 @@ fn iteration_limit() {
         .unwrap_err();
     assert!(matches!(e, RenderError::Iterations(_)), "{e:?}");
     assert!(e.is_limit());
+    // #657: the stop names the template and the line of the loop.
+    assert_eq!(e.stats().template.as_deref(), Some("pages/index"));
+    assert_eq!(e.stats().line, Some(1));
     // Nested loops count all iterations together.
     let c = compile_fixture("evil-nested-loops").unwrap();
     let r = Renderer::new(c.sources()).unwrap();
@@ -118,6 +121,38 @@ fn iteration_limit() {
     );
 }
 
+/// #657 (`docs/23-failure-modes.md`, "Template nested loops / huge
+/// output"): a fuel stop inside a partial names the partial and its line,
+/// not the page that included it.
+#[test]
+fn fuel_stop_names_the_innermost_template_and_line() {
+    let c = compile_files(&[
+        (
+            "partials/grid.html",
+            "<r-props rows=\"any\" cols=\"any\" />\n<table>\n  <tr r-for=\"a in rows\"><td r-for=\"b in cols\">{{ a }}{{ b }}</td></tr>\n</table>",
+        ),
+        (
+            "pages/index.html",
+            "<h1>grid</h1>\n<x-grid :rows=\"rows\" :cols=\"cols\"></x-grid>",
+        ),
+    ])
+    .unwrap();
+    let r = Renderer::new(c.sources()).unwrap();
+    let e = r
+        .render(
+            RenderTarget::Page("pages/index"),
+            nested_loops_data(10_000),
+            &RenderContext::default(),
+            &RenderLimits::DEFAULT,
+        )
+        .unwrap_err();
+    let RenderError::Fuel(stats) = e else {
+        panic!("expected Fuel, got {e:?}");
+    };
+    assert_eq!(stats.template.as_deref(), Some("partials/grid"), "{stats:?}");
+    assert_eq!(stats.line, Some(3), "{stats:?}");
+}
+
 /// Output size limit: output past the limit stops the render.
 #[test]
 fn output_size_limit() {
@@ -139,8 +174,9 @@ fn output_size_limit() {
         panic!("expected OutputSize, got {e:?}");
     };
     assert!(stats.fuel_used > 0, "fuel seen at the last loop start");
-    assert_eq!(stats.template.as_deref(), Some("pages/index"));
-    assert!(stats.line.is_some_and(|l| l > 0), "{stats:?}");
+    // No location here: minijinja replaces a writer's error, and the line
+    // it carried, with its own `WriteFailure` (#657 follow-up); the cell
+    // logs the page id instead.
     // Fragments are capped too.
     let shop = compile_fixture("shop").unwrap();
     let r = Renderer::new(shop.sources()).unwrap();

@@ -2028,7 +2028,7 @@ report(unused.length === 0, "errors.md has no F1 code that ops.md and docs/23-fa
 
 // ops.md section 13 table: | `CODE` | thrown|response|both | ...
 const kinds = new Map<string, string>();
-for (const m of opsText.matchAll(/^\| `(RENOX_[A-Z0-9_]+)` \| (thrown|response|both) \|/gmu)) {
+for (const m of opsText.matchAll(/^\| `(RENOX_[A-Z0-9_]+)` \| (thrown|response|both|log) \|/gmu)) {
   const [, code, kind] = m as unknown as [string, string, string];
   kinds.set(code, kind);
 }

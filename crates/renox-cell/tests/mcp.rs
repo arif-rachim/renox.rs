@@ -700,11 +700,20 @@ async fn every_tool_call_is_audited() {
         .call("tok_nobody", "list_notes", serde_json::json!({}))
         .await;
     assert_eq!(invalid.status, 401);
-    let unknown = n.call("tok_full", "no_such_tool", serde_json::json!({})).await;
+    let unknown = n
+        .call("tok_full", "no_such_tool", serde_json::json!({}))
+        .await;
     assert_eq!(unknown.body["error"]["code"], -32602);
-    let ok = n.call("tok_full", "list_notes", serde_json::json!({})).await;
+    let ok = n
+        .call("tok_full", "list_notes", serde_json::json!({}))
+        .await;
     assert_eq!(ok.status, 200);
-    let rid = |r: &Reply| r.headers["x-renox-request-id"].to_str().unwrap().to_string();
+    let rid = |r: &Reply| {
+        r.headers["x-renox-request-id"]
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
 
     let rows = tool_calls(&n, 6).await;
     let got: Vec<(&str, &str, &str, &str)> = rows

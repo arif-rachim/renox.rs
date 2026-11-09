@@ -407,12 +407,7 @@ impl CellManager {
             .get(tenant_id)
             .cloned()
             .ok_or("no database")?;
-        let handle = slot
-            .lock()
-            .await
-            .handle
-            .clone()
-            .ok_or("no database")?;
+        let handle = slot.lock().await.handle.clone().ok_or("no database")?;
         let ev = renox_data::outbox::OutboxEvent {
             id: renox_runtime::ops::events::ulid(),
             name: name.to_string(),
