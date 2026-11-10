@@ -91,6 +91,8 @@ const {
   ErrorPrototype,
   JSONStringify,
   ObjectDefineProperty,
+  ObjectDefineProperties,
+  ObjectGetOwnPropertyDescriptors,
   ObjectFreeze,
   ObjectKeys,
   ObjectGetOwnPropertyDescriptor,
@@ -1789,7 +1791,12 @@ function newRequestState(base) {
     ctxOf(m) {
       let c = cache.get(m);
       if (c === undefined) {
-        c = ObjectFreeze({ ...st.base, ...moduleFields(m) });
+        // The descriptors, not the values: a lazy field of `base` (the
+        // realtime run's `req`, `url`, `headers`, #680) stays a getter.
+        c = ObjectDefineProperties({}, ObjectGetOwnPropertyDescriptors(st.base));
+        const fields = moduleFields(m);
+        for (const k of new SafeArrayIterator(ObjectKeys(fields))) c[k] = fields[k];
+        c = ObjectFreeze(c);
         cache.set(m, c);
       }
       return c;
@@ -2282,12 +2289,22 @@ function dispatchRealtime(handler, token, url, headers, body, params, owner, rt)
       }
       const h = handlers?.[rt.phase];
       if (typeof h !== "function") return { kind: KIND_REALTIME, result: "no_handler" };
-      const req = new (requestMod().Request)(url, { method: "GET", headers });
+      // #680: the Request and the URL are built when the handler reads
+      // them, once per run; most `open` and `message` handlers never do.
+      let req;
+      let parsed;
+      const reqOf = () => (req ??= new (requestMod().Request)(url, { method: "GET", headers }));
       const base = {
-        req,
-        url: new (urlMod().URL)(url),
+        get req() {
+          return reqOf();
+        },
+        get url() {
+          return (parsed ??= new (urlMod().URL)(url));
+        },
         params: ObjectFreeze(params),
-        headers: req.headers,
+        get headers() {
+          return reqOf().headers;
+        },
         principal,
         deadline: requestDeadline,
         session: ObjectFreeze({ id: rt.session }),
