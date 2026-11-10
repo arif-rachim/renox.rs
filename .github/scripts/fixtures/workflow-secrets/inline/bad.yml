@@ -1,0 +1,9 @@
+name: inline
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        run: |
+          npm publish --token ${{ secrets.NPM_TOKEN }}

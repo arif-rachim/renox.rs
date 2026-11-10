@@ -1,0 +1,12 @@
+name: set-x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        env:
+          TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -x
+          npm publish
