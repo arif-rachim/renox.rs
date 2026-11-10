@@ -739,5 +739,9 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: psql -h localhost -U renox -d renox_harness -c 'create database renox_test'
+      # The template tests of #689 (signup.test.ts, mcp.test.ts) build an app,
+      # which needs renox-worker: the pinned release, checked against its
+      # sha256 (cli/src/worker/verify.ts), into cli/bin/ where workerPath finds it.
+      - run: bun cli/scripts/fetch-worker.ts
       - run: bun test
         working-directory: control/api

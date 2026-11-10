@@ -1,0 +1,18 @@
+<r-layout use="home">
+  <r-group slot="title">Thank you · Renoxium</r-group>
+  <section class="thanks" aria-labelledby="thanks-title">
+    <r-group r-if="state == 'confirmed'">
+      <h1 id="thanks-title">You are on the list.</h1>
+      <p>We will write to you when the ChatGPT and Claude connector is ready. Until then, we set your app up with you on WhatsApp.</p>
+    </r-group>
+    <r-group r-else-if="state == 'invalid'">
+      <h1 id="thanks-title">This link no longer works.</h1>
+      <p>It was already used, or it is more than seven days old. Join the list again from the home page and we send a new one.</p>
+    </r-group>
+    <r-group r-else>
+      <h1 id="thanks-title">Check your mail.</h1>
+      <p>We sent you a link. Open it within seven days to confirm your place on the list.</p>
+    </r-group>
+    <p class="actions"><a class="button" href="/">Back to the home page</a> <a class="button" :href="links.whatsapp">Write to us on WhatsApp</a></p>
+  </section>
+</r-layout>

@@ -3713,6 +3713,117 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
 
+  /v1/waitlist:
+    post:
+      operationId: joinWaitlist
+      tags: [onboarding]
+      summary: Join one of the site's waitlists; sends a confirmation mail (section 21, 0.10)
+      description: >-
+        Double opt-in. Takes the site's form (`application/x-www-form-urlencoded`, same fields;
+        other fields ignored, `cf-turnstile-response` counts as `captcha_token`) or JSON. Never
+        reads a cookie or a session. A caller whose `Accept` prefers `text/html` gets a 303 to
+        `return_to` when its origin is the site's (`CONTROL_SITE_URL`), otherwise to the site's
+        root; any other caller gets 202 `check_email`. The answer is the same for a new, a known,
+        a confirmed and a rate-suppressed address (no enumeration); a repeat re-sends the mail at
+        most once an hour. Refused: a disposable domain, a bad field, a missing or failed CAPTCHA
+        token when one is configured (400), more than 3 joins per IP per hour (429).
+      security: []
+      x-renox-audit: waitlistJoin (the SHA-256 of the address, the list; never the address)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_RATE_LIMITED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, interest]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                interest: { enum: [connector, email] }
+                locale: { type: string, maxLength: 16 }
+                captcha_token: { type: string, minLength: 1, maxLength: 4096 }
+                return_to: { type: string, maxLength: 2048 }
+            examples:
+              connector: { value: { email: "founder@hello.ae", interest: connector, locale: en, return_to: "https://renoxium.com/thanks?list=connector" } }
+            x-renox-invalid-examples:
+              nolist: { value: { email: "founder@hello.ae", interest: newsletter }, x-expect: enum }
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [email, interest]
+              properties:
+                email: { type: string }
+                interest: { enum: [connector, email] }
+                locale: { type: string }
+                captcha_token: { type: string }
+                return_to: { type: string }
+            examples:
+              connector: { value: "email=founder%40hello.ae&interest=connector&locale=en&return_to=https%3A%2F%2Frenoxium.com%2Fthanks%3Flist%3Dconnector" }
+      responses:
+        "202":
+          description: A confirmation mail is on its way, if the address can still be confirmed (the same answer otherwise).
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [status], properties: { status: { const: check_email } } }
+              examples:
+                sent: { value: { status: check_email } }
+        "303":
+          description: "For a browser form post (`Accept: text/html`); `Location` is the `return_to` on the site's origin or the site's root."
+          headers:
+            Location: { schema: { type: string } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/waitlist/confirm:
+    get:
+      operationId: confirmWaitlist
+      tags: [onboarding]
+      summary: The link of the confirmation mail (section 21, 0.10)
+      description: >-
+        Confirms the address on its list: one use, 7 days after the mail was sent. Always a 303 to
+        the site: `/thanks?confirmed=1&list=<list>`, or `/thanks?confirmed=0` for an unknown,
+        malformed, used or expired token.
+      security: []
+      x-renox-audit: waitlistConfirm (the outcome, the list)
+      x-renox-redirect-only: true
+      x-renox-errors: []
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string, pattern: "^[a-z2-7]{32}$" } }
+      responses:
+        "303":
+          description: To `<site origin>/thanks?confirmed=1` or `confirmed=0`.
+          headers:
+            Location: { schema: { type: string } }
+
+  /v1/ops/waitlist:
+    get:
+      operationId: exportWaitlist
+      tags: [ops]
+      summary: The confirmed waitlist rows as CSV (section 21, 0.10; operator)
+      description: >-
+        Header `email,interest,locale,confirmed_at` (`confirmed_at` ISO 8601 UTC), confirmed rows
+        only, oldest first; `interest` filters one list. Audited as a read of operator data.
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:read
+      x-renox-audit: waitlistExport (operator, number of rows, the list; a read)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE]
+      parameters:
+        - { name: interest, in: query, required: false, schema: { enum: [connector, email] } }
+        - { name: format, in: query, required: false, schema: { enum: [csv] } }
+      responses:
+        "200":
+          description: The CSV.
+          content:
+            text/csv:
+              schema: { type: string }
+              examples:
+                confirmed: { value: "email,interest,locale,confirmed_at\r\nfounder@hello.ae,connector,en,2026-11-10T09:30:00.000Z\r\n" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
   /v1/apps/from-template:
     post:
       operationId: createAppFromTemplate

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><slot name="title">Renoxium</slot></title>
+  <meta name="description" content="Own your business software the way you own your shop. Tell the ChatGPT or Claude you already use about your company; it builds your app from finished parts and changes it whenever you ask.">
+  <link rel="stylesheet" href="/renox-ui.css">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body class="home">
+  <!-- The landing page's own top bar and footer (copy deck, "Top bar" and "Footer"); the docs keep layouts/main.html. -->
+  <header class="home-top">
+    <a class="brand" href="/">Renoxium</a>
+    <nav class="home-links" aria-label="Site">
+      <a href="/#how-it-works">How it works</a>
+      <a href="/#developers">For developers</a>
+      <a href="/#price">Pricing</a>
+    </nav>
+    <a class="button" href="https://dashboard.renoxium.com/signin">Sign in</a>
+  </header>
+  <main><slot /></main>
+  <footer class="home-footer">
+    <span class="brand">Renoxium</span>
+    <nav aria-label="Footer">
+      <a href="/#how-it-works">How it works</a>
+      <a href="/#developers">For developers</a>
+      <a href="/pricing">Pricing</a>
+      <a href="https://github.com/arif-rachim/renox.rs#status">Status</a>
+      <a href="https://github.com/arif-rachim/renox.rs">GitHub</a>
+      <a href="/legal/dpa">Privacy</a>
+      <a href="/legal/dpa">DPA</a>
+    </nav>
+    <span class="muted">© 2026 Renoxium</span>
+  </footer>
+</body>
+</html>

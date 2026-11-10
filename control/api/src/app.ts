@@ -42,6 +42,7 @@ import { registerBilling } from "./billing/routes.ts";
 import { registerTemplates } from "./signup/templates.ts";
 import { registerAiGateway } from "./ai/gateway.ts";
 import { registerAbuse } from "./abuse/routes.ts";
+import { registerWaitlist } from "./waitlist/routes.ts";
 
 /** Seconds a client waits before retrying after an object-store failure (#402). */
 export const UPSTREAM_RETRY_AFTER_S = 5;
@@ -141,6 +142,6 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
     await next();
   });
 
-  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerMfa, registerTeam, registerDomains, registerMcp, registerBackups, registerBackupActions, registerErasure, registerBreakGlass, registerWellKnown, registerOps, registerPlatformTenant, registerOpsMetrics, registerRegistry, registerBilling, registerTemplates, registerAiGateway, registerAbuse, ...modules]) register(app, deps);
+  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerMfa, registerTeam, registerDomains, registerMcp, registerBackups, registerBackupActions, registerErasure, registerBreakGlass, registerWellKnown, registerOps, registerPlatformTenant, registerOpsMetrics, registerRegistry, registerBilling, registerTemplates, registerAiGateway, registerAbuse, registerWaitlist, ...modules]) register(app, deps);
   return app;
 }

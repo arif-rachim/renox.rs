@@ -75,6 +75,23 @@ export const sendOwnerTransfer = (deps: Deps, to: string, tenantId: string): Pro
     text: `The owner of ${tenantId} asked to make you the owner. Sign in, switch to ${tenantId}, and accept within 7 days at ${base(deps)}. Until you accept nothing changes.`,
   });
 
+/**
+ * #691: the confirmation of a waitlist sign-up from the site. `url` is the API's confirm link; `list` is
+ * `connector` or `email`. English, or Arabic for `locale` `ar`.
+ */
+export const sendWaitlistConfirm = (deps: Deps, to: string, url: string, list: "connector" | "email", locale: "en" | "ar"): Promise<void> => {
+  const ar = locale === "ar";
+  const name = ar ? (list === "connector" ? "موصّل Renoxium" : "البريد من Renoxium") : list === "connector" ? "the Renoxium connector" : "Renoxium email";
+  return send(deps, {
+    to,
+    kind: "waitlist_confirm",
+    subject: ar ? "أكّد عنوان بريدك لقائمة الانتظار" : "Confirm your address for the waitlist",
+    text: ar
+      ? `طلب أحدهم إضافة هذا العنوان إلى قائمة انتظار ${name}. افتح هذا الرابط خلال 7 أيام للتأكيد. يعمل مرة واحدة:\n\n${url}\n\nإن لم تطلب ذلك فتجاهل هذه الرسالة ولن يحدث شيء.`
+      : `Someone asked to add this address to the waitlist for ${name}. Open this link within 7 days to confirm. It works once:\n\n${url}\n\nIf this was not you, ignore this message and nothing happens.`,
+  });
+};
+
 /** The email address of `userId` (a user's own row, not tenant data). */
 export async function emailOf(deps: Deps, userId: string): Promise<string | null> {
   const rows = await crossTenant(deps.db, "a user's own email address").query<{ email: string }>("select email from users where id = $1", [userId]);
