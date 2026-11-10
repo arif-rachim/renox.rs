@@ -97,7 +97,8 @@ export const on = {{
       await ctx.db.execute("insert into {module}__seen (event_id, attempt) values (?, ?)", [JSON.stringify(out), e.attempt]);
       return;
     }}
-    if (e.payload.invoice_id === "spin") {{ const t = Date.now(); while (Date.now() - t < 200) {{}} }}
+    // Spin until the CPU limit kills it: a wall-clock exit lets a descheduled handler finish under the limit (#665).
+    if (e.payload.invoice_id === "spin") {{ for (;;) {{}} }}
     await ctx.db.execute("insert into {module}__seen (event_id, attempt) values (?, ?)", [e.id, e.attempt]);
   }},
 }};
