@@ -3223,6 +3223,21 @@ The back office at `/admin` holds the branding settings, the branches, the users
 
 The PDFs (quotation, visit report, invoice, statement, contract) are `ctx.pdf` templates under `partials/pdf/`; the PDF engine renders text only, so photos are listed by caption and the signature by the signer's name.
 
+## Arabic and right-to-left
+
+Every page is audited in Arabic. The typeface is Noto Sans Arabic (SIL Open Font License), the Arabic subset in weights 400 and 700, copied unchanged from the npm package `@fontsource/noto-sans-arabic` into `public/fonts/` and served from the app's own origin, because the content security policy allows no CDN; `app.css` names the package version and the SHA-256 of each file, and `tests/typography.test.ts` compares them with `node_modules`. The layout preloads the regular weight only on an Arabic page, and `unicode-range` keeps the files from loading when a page holds no Arabic. In Arabic the line height is 1.8 (1.5 in headings), there is no italic, no letter spacing and no upper-casing, and digits stay Western. `app.css` uses logical properties only, so the layout mirrors with `dir="rtl"`; a table wider than a phone scrolls inside its own focusable box. Job, quote, invoice and contract numbers, phones, TRNs, Makani numbers and email addresses sit in an element with `dir="ltr"`, and names and notes typed by users take `dir="auto"` from the template engine. In `i18n/ar.json` a placeholder inside a sentence is wrapped in the Unicode isolates so that a Latin code does not reorder the sentence.
+
+`bun bench/lighthouse/rtl-audit.ts` opens every route under `pages/` with `?lang=ar` at 390 and 1280 px and fails when a page scrolls sideways, is not `lang="ar" dir="rtl"` or does not use the Arabic face; `--screens` rewrites the twelve screenshots of the six key pages (the board, a job, the technician's list and visit, a customer, an invoice). The platform's own error pages (`pages/_404.html`, `pages/_error.html`) are rendered with the default locale and ignore `?lang`, so they stay English.
+
+| Page | 390 px | 1280 px |
+| --- | --- | --- |
+| Dispatch board | [dispatch-390.png](reference-app/screens/ar/dispatch-390.png) | [dispatch-1280.png](reference-app/screens/ar/dispatch-1280.png) |
+| A job | [job-390.png](reference-app/screens/ar/job-390.png) | [job-1280.png](reference-app/screens/ar/job-1280.png) |
+| The technician's day (`/me`) | [me-390.png](reference-app/screens/ar/me-390.png) | [me-1280.png](reference-app/screens/ar/me-1280.png) |
+| A visit (`/me/visits/<id>`) | [visit-390.png](reference-app/screens/ar/visit-390.png) | [visit-1280.png](reference-app/screens/ar/visit-1280.png) |
+| A customer | [customer-390.png](reference-app/screens/ar/customer-390.png) | [customer-1280.png](reference-app/screens/ar/customer-1280.png) |
+| An invoice | [invoice-390.png](reference-app/screens/ar/invoice-390.png) | [invoice-1280.png](reference-app/screens/ar/invoice-1280.png) |
+
 ## Adapt it for a client
 
 - **Branding.** Name (English and Arabic), colour, logo, PDF footers, the sender name of emails and the accounts email are settings, edited at `/admin/settings` (stored in `app__settings`); no template, PDF or message hard-codes them. The installed phone app takes its name and colour from the same settings.

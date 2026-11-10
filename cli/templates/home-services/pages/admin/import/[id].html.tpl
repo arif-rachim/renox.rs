@@ -13,7 +13,7 @@
     <dt><r-t key="backoffice.import.total.exists" /></dt><dd dir="ltr" id="total-exists">{{ imp.exists }}</dd>
     <dt><r-t key="backoffice.import.total.errors" /></dt><dd dir="ltr" id="total-errors">{{ imp.errors }}</dd>
   </dl>
-  <table id="import-errors" r-if="error_rows">
+  <div class="table-scroll" tabindex="0" r-if="error_rows"><table id="import-errors">
     <caption class="visually-hidden"><r-t key="backoffice.import.report" /></caption>
     <thead><tr><th scope="col"><r-t key="backoffice.import.err_row" /></th><th scope="col"><r-t key="backoffice.import.err_column" /></th><th scope="col"><r-t key="backoffice.import.err_message" /></th></tr></thead>
     <tbody>
@@ -23,7 +23,7 @@
         <td>{{ ('import.err.' ~ e.code) | t }}</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
   <p r-if="truncated"><small class="muted"><r-t key="backoffice.import.truncated" /></small></p>
   <section r-if="can_commit">
     <x-form action="commit" class="inline" id="commit-form"><button type="submit" class="btn-brand"><r-t key="backoffice.import.commit" :n="imp.to_write" /></button></x-form>

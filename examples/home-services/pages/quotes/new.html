@@ -21,7 +21,7 @@
       <p class="notice" id="ai-done" r-if="ai_state == 'on' && drafted > 0"><r-t key="quotes.ai.done" /></p>
     </section>
     <h2><r-t key="quotes.lines" /></h2>
-    <table id="lines">
+    <div class="table-scroll" tabindex="0"><table id="lines">
     <caption class="visually-hidden"><r-t key="quotes.lines" /></caption>
       <thead><tr><th scope="col"><r-t key="quotes.f.service" /></th><th scope="col"><r-t key="quotes.f.desc" /></th><th scope="col"><r-t key="quotes.f.qty" /></th><th scope="col"><r-t key="quotes.f.price" /></th></tr></thead>
       <tbody>
@@ -35,7 +35,7 @@
           <td><input :name="'price_' ~ r.i" :aria-label="('quotes.f.price' | t) ~ ', ' ~ ('problem.line' | t) ~ ' ' ~ (r.i + 1)" :value="r.price" size="9" dir="ltr" inputmode="decimal" :placeholder="'quotes.f.price_default' | t" :id="'f-price_' ~ r.i" :aria-invalid="'true' if errors['price_' ~ r.i] else 'false'" :aria-describedby="'err-price_' ~ r.i if errors['price_' ~ r.i] else ''"></td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <p><label><r-t key="quotes.f.notes" /> <textarea name="notes" rows="3" maxlength="1000" id="f-notes" :aria-invalid="'true' if errors.notes else 'false'" :aria-describedby="'err-notes' if errors.notes else ''">{{ v.notes }}</textarea></label></p>
     <p><button type="submit" class="btn-brand"><r-t key="quotes.create" /></button> <a href="/quotes"><r-t key="customers.cancel" /></a></p>
   </x-form>

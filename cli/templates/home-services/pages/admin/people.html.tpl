@@ -5,7 +5,7 @@
   <p class="notice" id="saved-invited" r-if="saved == 'invited'"><r-t key="backoffice.users.invited" /></p>
   <p class="notice" id="saved-role" r-if="saved == 'role'"><r-t key="backoffice.users.role_set" /></p>
   <p class="notice" id="saved-removed" r-if="saved == 'removed'"><r-t key="backoffice.users.removed" /></p>
-  <table id="staff">
+  <div class="table-scroll" tabindex="0"><table id="staff">
     <caption class="visually-hidden"><r-t key="backoffice.users.title" /></caption>
     <thead><tr><th scope="col"><r-t key="backoffice.users.name" /></th><th scope="col"><r-t key="backoffice.users.email" /></th><th scope="col"><r-t key="backoffice.users.roles" /></th><th scope="col"><r-t key="backoffice.users.twofa" /></th><th scope="col"><span class="visually-hidden"><r-t key="app.actions" /></span></th></tr></thead>
     <tbody>
@@ -24,7 +24,7 @@
       </tr>
       <tr r-empty="staff"><td colspan="5"><r-t key="backoffice.users.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
   <p><a href="/auth/account"><r-t key="backoffice.users.setup" /></a></p>
   <section r-can="user.manage">
     <h2><r-t key="backoffice.users.invite" /></h2>

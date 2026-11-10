@@ -2,7 +2,7 @@
   <r-group slot="title"><r-t key="catalogue.title" /> · {{ brand.name }}</r-group>
   <h1><r-t key="catalogue.title" /></h1>
   <p class="notice" id="saved" r-if="saved"><r-t key="catalogue.saved" :code="saved" /></p>
-  <table id="services">
+  <div class="table-scroll" tabindex="0"><table id="services">
     <caption class="visually-hidden"><r-t key="catalogue.title" /></caption>
     <thead>
       <tr><th scope="col"><r-t key="catalogue.f.code" /></th><th scope="col"><r-t key="catalogue.f.name" /></th><th scope="col"><r-t key="catalogue.f.unit" /></th><th scope="col"><r-t key="catalogue.f.price" /></th><th scope="col"><r-t key="catalogue.f.vat" /></th><th scope="col"><r-t key="catalogue.f.active" /></th></tr>
@@ -18,7 +18,7 @@
       </tr>
       <tr r-empty="services"><td colspan="6"><r-t key="catalogue.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
   <section r-can="settings.write">
     <h2><r-t key="catalogue.edit" /></h2>
     <x-form action="save" class="row" r-for="s in services">

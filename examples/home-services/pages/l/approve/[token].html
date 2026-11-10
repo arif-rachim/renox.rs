@@ -5,7 +5,7 @@
   <p class="notice" id="state-approved" r-if="is_approved"><r-t key="approve.state.approved" /></p>
   <p class="notice" id="state-rejected" r-if="is_rejected"><r-t key="approve.state.rejected" /></p>
   <p class="notice" id="state-expired" r-if="is_expired"><r-t key="approve.state.expired" /></p>
-  <table id="lines">
+  <div class="table-scroll" tabindex="0"><table id="lines">
     <caption class="visually-hidden"><r-t key="quotes.lines" /></caption>
     <thead><tr><th scope="col"><r-t key="quotes.f.desc" /></th><th scope="col"><r-t key="quotes.f.qty" /></th><th scope="col"><r-t key="quotes.f.unit_price" /></th><th scope="col"><r-t key="quotes.f.net" /></th><th scope="col"><r-t key="quotes.f.vat" /></th><th scope="col"><r-t key="quotes.f.total" /></th></tr></thead>
     <tbody>
@@ -14,7 +14,7 @@
         <td dir="ltr">{{ l.qty }}</td>
         <td dir="ltr">{{ l.unit_price | money }}</td>
         <td dir="ltr">{{ l.net | money }}</td>
-        <td dir="ltr">{{ l.vat | money }} ({{ l.vat_rate }}%)</td>
+        <td dir="ltr">{{ l.vat | money }} <bdi dir="ltr">({{ l.vat_rate }}%)</bdi></td>
         <td dir="ltr">{{ l.total | money }}</td>
       </tr>
     </tbody>
@@ -23,7 +23,7 @@
       <tr><th scope="row" colspan="5"><r-t key="quotes.f.vat" /></th><td dir="ltr">{{ quote.vat | money }}</td></tr>
       <tr><th scope="row" colspan="5"><r-t key="quotes.f.total" /></th><td dir="ltr"><strong>{{ quote.total | money }}</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <p><r-t key="quotes.f.valid_until" />: <span dir="ltr">{{ quote.valid_until }}</span></p>
   <p r-if="quote.notes">{{ quote.notes }}</p>
   <section r-if="is_open" id="answer">

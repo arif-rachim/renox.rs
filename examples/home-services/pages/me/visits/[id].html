@@ -59,7 +59,7 @@
 
     <section id="parts">
       <h2><r-t key="visits.parts.title" /></h2>
-      <table r-if="has_parts" class="parts-table">
+      <div class="table-scroll" tabindex="0" r-if="has_parts"><table class="parts-table">
     <caption class="visually-hidden"><r-t key="visits.parts.title" /></caption>
         <thead><tr><th scope="col"><r-t key="visits.parts.description" /></th><th scope="col"><r-t key="visits.parts.qty" /></th><th scope="col"><r-t key="visits.parts.total" /></th><th scope="col"><span class="visually-hidden"><r-t key="app.actions" /></span></th></tr></thead>
         <tbody>
@@ -69,7 +69,7 @@
           </tr>
         </tbody>
         <tfoot><tr><th scope="row" colspan="2"><r-t key="visits.parts.total" /></th><td dir="ltr" id="parts-total">{{ parts_total }}</td><th scope="row"><span class="visually-hidden"><r-t key="app.actions" /></span></th></tr></tfoot>
-      </table>
+      </table></div>
       <p r-else class="muted"><r-t key="visits.parts.none" /></p>
       <r-group r-if="open"><x-form action="part" class="stack narrow" id="part-form">
         <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" :value="values.description" required id="f-description" :aria-invalid="'true' if errors.description else 'false'" :aria-describedby="'err-description' if errors.description else ''" aria-required="true"></label></p>

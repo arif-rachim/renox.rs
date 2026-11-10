@@ -26,7 +26,7 @@
 
   <section id="items">
     <h2><r-t key="contracts.items" /></h2>
-    <table id="item-list">
+    <div class="table-scroll" tabindex="0"><table id="item-list">
     <caption class="visually-hidden"><r-t key="contracts.items" /></caption>
       <thead><tr><th scope="col"><r-t key="contracts.f.site" /></th><th scope="col"><r-t key="contracts.f.service" /></th><th scope="col"><r-t key="contracts.f.visits" /></th><th scope="col"><r-t key="contracts.f.next_visit" /></th><th scope="col" r-if="can_edit"><span class="visually-hidden"><r-t key="app.actions" /></span></th></tr></thead>
       <tbody>
@@ -39,7 +39,7 @@
         </tr>
         <tr r-empty="items"><td colspan="5"><r-t key="contracts.no_items" /></td></tr>
       </tbody>
-    </table>
+    </table></div>
   </section>
 
   <section id="add-item" r-if="can_edit">
@@ -60,7 +60,7 @@
 
   <section id="visits">
     <h2><r-t key="contracts.visits" /></h2>
-    <table r-if="visits" id="visit-list">
+    <div class="table-scroll" tabindex="0" r-if="visits"><table id="visit-list">
     <caption class="visually-hidden"><r-t key="contracts.visits" /></caption>
       <thead><tr><th scope="col"><r-t key="contracts.f.due" /></th><th scope="col"><r-t key="contracts.f.job" /></th><th scope="col"><r-t key="contracts.f.service" /></th><th scope="col"><r-t key="contracts.f.site" /></th><th scope="col"><r-t key="contracts.f.status" /></th></tr></thead>
       <tbody>
@@ -72,7 +72,7 @@
           <td>{{ ('jobs.status.' ~ v.status) | t }}</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <p r-else class="muted"><r-t key="contracts.no_visits" /></p>
   </section>
 

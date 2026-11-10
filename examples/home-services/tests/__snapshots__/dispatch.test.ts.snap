@@ -7,6 +7,7 @@ exports[`the board page columns by status, with the branch's cards and the socke
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Dispatch board · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">

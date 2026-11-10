@@ -1,7 +1,7 @@
 // Starting the home-services app, signing in and launching Chromium for the
 // Lighthouse runs (#725). Exported in small functions: #728 adds extra seed
 // files (`extraSeeds`), #729 reuses launchChromium and signIn.
-import { cpSync, existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -45,6 +45,8 @@ export interface StartAppOptions {
   worker: string;
   /** Extra seed SQL files applied after seeds/001_demo.sql, in this order (#728). */
   extraSeeds?: string[];
+  /** Secrets for the copy's .env, e.g. TWOFA_KEY for the owner's second factor (#729). */
+  env?: Record<string, string>;
 }
 
 /** Copies the app, seeds it and starts `renox dev` on a free port. */
@@ -55,6 +57,7 @@ export async function startApp(opts: StartAppOptions): Promise<App> {
   try {
     cpSync(APP_DIR, dir, { recursive: true, filter: (p) => !/(^|\/)(node_modules|\.renox)(\/|$)/u.test(p.slice(APP_DIR.length)) });
     symlinkSync(join(APP_DIR, "node_modules"), join(dir, "node_modules"));
+    if (opts.env) writeFileSync(join(dir, ".env"), Object.entries(opts.env).map(([k, v]) => `${k}=${v}\n`).join(""), { mode: 0o600 });
     (opts.extraSeeds ?? []).forEach((f, i) => cpSync(f, join(dir, "seeds", `${String(900 + i)}_${basename(f)}`)));
     const db = join(dir, ".renox/data/dev/app.db");
     await seedDev(dir, { db });

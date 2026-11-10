@@ -5,7 +5,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
       
   
   <h1>الاستيراد من إكسل</h1>
-  <p>أدخل عملاءك ومواقعك وخدماتك وعقودك من ملفات إكسل. ارفع ملف ‎.xlsx‎ واحداً لكل نوع بهذا الترتيب (حتى 10 ميغابايت و10٬000 صف لكل ملف، الورقة الأولى فقط، والصف الأول هو العناوين). يُفحص الملف أولاً ولا يُكتب شيء حتى تستورد ملفاً بلا أخطاء.</p>
+  <p>أدخل عملاءك ومواقعك وخدماتك وعقودك من ملفات إكسل. ارفع ملف ‎.xlsx‎ واحداً لكل نوع بهذا الترتيب (حتى ⁨10⁩ ميغابايت و10٬000 صف لكل ملف، الورقة الأولى فقط، والصف الأول هو العناوين). يُفحص الملف أولاً ولا يُكتب شيء حتى تستورد ملفاً بلا أخطاء.</p>
   
   <ol id="import-kinds">
     <li id="kind-customers" dir="auto">
@@ -34,7 +34,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
     <p><button type="submit" class="btn-brand">افحص الملف</button></p>
   </form>
   <h2>آخر عمليات الاستيراد</h2>
-  <table id="imports">(the latest imports)</table>
+  <div class="table-scroll" tabindex="0"><table id="imports">(the latest imports)</table></div>
   <script src="/upload.<hash>.js" defer nonce="<nonce>"></script>
 
     </main>"
@@ -54,7 +54,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
     <dt>موجودة مسبقاً</dt><dd dir="ltr" id="total-exists">0</dd>
     <dt>الأخطاء</dt><dd dir="ltr" id="total-errors">1</dd>
   </dl>
-  <table id="import-errors">
+  <div class="table-scroll" tabindex="0"><table id="import-errors">
     <caption class="visually-hidden">تقرير الفحص</caption>
     <thead><tr><th scope="col">الصف</th><th scope="col">العمود</th><th scope="col">المشكلة</th></tr></thead>
     <tbody>
@@ -64,7 +64,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
         <td dir="auto">ليس رقم هاتف إماراتياً، مثل ‎+971 50 123 4567‎.</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
   
   <section>
     <p id="fix-file">أصلح الملف ثم افحصه من جديد.</p>

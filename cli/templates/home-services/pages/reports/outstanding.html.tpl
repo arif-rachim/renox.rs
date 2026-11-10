@@ -8,7 +8,7 @@
   </nav>
   <h1><r-t key="appreports.outstanding.title" /></h1>
   <p class="muted"><r-t key="appreports.outstanding.hint" /> <span dir="ltr">{{ as_of }}</span></p>
-  <table id="report-outstanding">
+  <div class="table-scroll" tabindex="0"><table id="report-outstanding">
     <caption class="visually-hidden"><r-t key="appreports.outstanding.title" /></caption>
     <thead><tr><th scope="col"><r-t key="appreports.col.customer" /></th><th scope="col"><r-t key="appreports.col.days_0_30" /></th><th scope="col"><r-t key="appreports.col.days_31_60" /></th><th scope="col"><r-t key="appreports.col.days_over_60" /></th><th scope="col"><r-t key="appreports.col.balance" /></th></tr></thead>
     <tbody>
@@ -18,7 +18,7 @@
     <tfoot r-if="rows">
       <tr><th scope="row"><r-t key="appreports.col.total" /></th><td dir="ltr">{{ totals.a | money }}</td><td dir="ltr">{{ totals.b | money }}</td><td dir="ltr">{{ totals.c | money }}</td><td dir="ltr"><strong>{{ totals.balance | money }}</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <section id="export" r-if="can_export">
     <h2><r-t key="appreports.export" /></h2>
     <x-form action="export" class="stack narrow">

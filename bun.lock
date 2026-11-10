@@ -5,6 +5,7 @@
     "": {
       "name": "renox",
       "devDependencies": {
+        "@fontsource/noto-sans-arabic": "5.3.0",
         "bun-types": "1.4.4",
         "lighthouse": "13.5.0",
         "typescript": "7.0.2",
@@ -134,6 +135,8 @@
   },
   "packages": {
     "@electric-sql/pglite": ["@electric-sql/pglite@0.5.15", "", {}, "sha512-ERZWgaRTxueGV4cvL1tfpAOzFCWTXoUtbCBqnf2FhHDVs/so9eAKaanvrwWF9Dntx7BYsmFQujVQ0/B4S8Mmiw=="],
+
+    "@fontsource/noto-sans-arabic": ["@fontsource/noto-sans-arabic@5.3.0", "", {}, "sha512-i3t6GR0LOReyJVEk+YfYCnxv53wuIelg7Y9NGNvOq4Diq/EP0YszaGXkQwfQNigLjfO4POrLaPGM0sNliGYk7A=="],
 
     "@formatjs/ecma402-abstract": ["@formatjs/ecma402-abstract@2.3.6", "", { "dependencies": { "@formatjs/fast-memoize": "2.2.7", "@formatjs/intl-localematcher": "0.6.2", "decimal.js": "^10.4.3", "tslib": "^2.8.0" } }, "sha512-HJnTFeRM2kVFVr5gr5kH1XP6K0JcJtE7Lzvtr3FS/so5f1kpsqqqxy5JF+FRaO6H2qmcMfAUIox7AJteieRtVw=="],
 

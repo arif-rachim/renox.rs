@@ -50,6 +50,9 @@ jobs:
           echo "PLAYWRIGHT_PATH=$RUNNER_TEMP/pw/node_modules/playwright" >> "$GITHUB_ENV"
       - name: Lighthouse
         run: make lighthouse
+      # Every page in Arabic at 390 and 1280 px: no sideways scroll, lang/dir, the Arabic face (#729).
+      - name: RTL audit
+        run: bun bench/lighthouse/rtl-audit.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:

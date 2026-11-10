@@ -7,6 +7,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Quotations · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -48,7 +49,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
     <button type="submit">Filter</button>
     <a class="btn-brand" href="/quotes/new">New quotation</a>
   </form>
-  <table id="quote-list">
+  <div class="table-scroll" tabindex="0"><table id="quote-list">
     <caption class="visually-hidden">Quotations</caption>
     <thead>
       <tr><th scope="col">Number</th><th scope="col">Customer</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col">Valid until</th></tr>
@@ -92,7 +93,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
         <td dir="ltr">2026-10-26</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
@@ -108,6 +109,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>عروض الأسعار · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -149,7 +151,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
     <button type="submit">تصفية</button>
     <a class="btn-brand" href="/quotes/new">عرض سعر جديد</a>
   </form>
-  <table id="quote-list">
+  <div class="table-scroll" tabindex="0"><table id="quote-list">
     <caption class="visually-hidden">عروض الأسعار</caption>
     <thead>
       <tr><th scope="col">الرقم</th><th scope="col">العميل</th><th scope="col">الحالة</th><th scope="col">الإجمالي</th><th scope="col">صالح حتى</th></tr>
@@ -193,7 +195,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
         <td dir="ltr">2026-10-26</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
@@ -209,6 +211,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Q-000002 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -253,7 +256,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
     
     
   </dl>
-  <table id="lines">
+  <div class="table-scroll" tabindex="0"><table id="lines">
     <caption class="visually-hidden">Lines</caption>
     <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th></tr></thead>
     <tbody>
@@ -262,14 +265,14 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
         <td dir="ltr">1</td>
         <td dir="ltr">AED 450.00</td>
         <td dir="ltr">AED 450.00</td>
-        <td dir="ltr">AED 22.50 (5%)</td>
+        <td dir="ltr">AED 22.50 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 472.50</td>
       </tr><tr id="line-3">
         <td dir="auto">Pest control</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 250.00</td>
         <td dir="ltr">AED 250.00</td>
-        <td dir="ltr">AED 12.50 (5%)</td>
+        <td dir="ltr">AED 12.50 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 262.50</td>
       </tr>
     </tbody>
@@ -278,7 +281,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
       <tr><th scope="row" colspan="5">VAT</th><td dir="ltr" id="vat">AED 35.00</td></tr>
       <tr><th scope="row" colspan="5">Total</th><td dir="ltr" id="total"><strong dir="auto">AED 735.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   
   <p id="pdf-links">PDF: <a href="/quotes/qt_seed_02/pdf?lang=en" lang="en">English</a> · <a href="/quotes/qt_seed_02/pdf?lang=ar" lang="ar">العربية</a></p>
   <section>
@@ -302,6 +305,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Q-000004 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -328,7 +332,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
   <p class="notice" id="state-approved">This quotation is already approved. Thank you.</p>
   
   
-  <table id="lines">
+  <div class="table-scroll" tabindex="0"><table id="lines">
     <caption class="visually-hidden">Lines</caption>
     <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th></tr></thead>
     <tbody>
@@ -337,7 +341,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
         <td dir="ltr">2</td>
         <td dir="ltr">AED 180.00</td>
         <td dir="ltr">AED 360.00</td>
-        <td dir="ltr">AED 18.00 (5%)</td>
+        <td dir="ltr">AED 18.00 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 378.00</td>
       </tr>
     </tbody>
@@ -346,7 +350,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
       <tr><th scope="row" colspan="5">VAT</th><td dir="ltr">AED 18.00</td></tr>
       <tr><th scope="row" colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 378.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <p>Valid until: <span dir="ltr">2033-05-18</span></p>
   
   
@@ -365,6 +369,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Q-000003 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -391,7 +396,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
   
   
   
-  <table id="lines">
+  <div class="table-scroll" tabindex="0"><table id="lines">
     <caption class="visually-hidden">Lines</caption>
     <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th></tr></thead>
     <tbody>
@@ -400,14 +405,14 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
         <td dir="ltr">2</td>
         <td dir="ltr">AED 160.00</td>
         <td dir="ltr">AED 320.00</td>
-        <td dir="ltr">AED 16.00 (5%)</td>
+        <td dir="ltr">AED 16.00 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 336.00</td>
       </tr><tr>
         <td dir="auto">Electrical</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 160.00</td>
         <td dir="ltr">AED 160.00</td>
-        <td dir="ltr">AED 8.00 (5%)</td>
+        <td dir="ltr">AED 8.00 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 168.00</td>
       </tr>
     </tbody>
@@ -416,7 +421,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
       <tr><th scope="row" colspan="5">VAT</th><td dir="ltr">AED 24.00</td></tr>
       <tr><th scope="row" colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 504.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <p>Valid until: <span dir="ltr">2033-05-18</span></p>
   <p dir="auto">Tower A, level 12 pantry leak.</p>
   <section id="answer">
@@ -438,6 +443,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>New quotation · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -490,7 +496,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
       
     </section>
     <h2>Lines</h2>
-    <table id="lines">
+    <div class="table-scroll" tabindex="0"><table id="lines">
     <caption class="visually-hidden">Lines</caption>
       <thead><tr><th scope="col">Service</th><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Price (AED)</th></tr></thead>
       <tbody>
@@ -528,7 +534,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
           <td><input name="price_3" aria-label="Price (AED), line 4" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_3" aria-invalid="false" aria-describedby=""></td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
     <p><button type="submit" class="btn-brand">Create quotation</button> <a href="/quotes">Cancel</a></p>
   </form>

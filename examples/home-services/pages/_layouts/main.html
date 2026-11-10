@@ -6,6 +6,7 @@
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title><slot name="title">{{ brand.name }}</slot></title>
   <link rel="stylesheet" href="/renox-ui.css">
+  <link r-if="locale == 'ar'" rel="preload" as="font" type="font/woff2" crossorigin :href="'/fonts/noto-sans-arabic-arabic-400-normal.woff2'">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">

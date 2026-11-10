@@ -7,6 +7,7 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>J-000010 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -84,6 +85,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>J-000012 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -160,7 +162,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
 
     <section id="parts">
       <h2>Parts used</h2>
-      <table class="parts-table">
+      <div class="table-scroll" tabindex="0"><table class="parts-table">
     <caption class="visually-hidden">Parts used</caption>
         <thead><tr><th scope="col">Part</th><th scope="col">Quantity</th><th scope="col">Total (AED)</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
         <tbody>
@@ -170,7 +172,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
           </tr>
         </tbody>
         <tfoot><tr><th scope="row" colspan="2">Total (AED)</th><td dir="ltr" id="parts-total">50.00</td><th scope="row"><span class="visually-hidden">Actions</span></th></tr></tfoot>
-      </table>
+      </table></div>
       
     </section>
 
@@ -222,6 +224,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>J-000012 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -298,7 +301,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
 
     <section id="parts">
       <h2>القطع المستخدمة</h2>
-      <table class="parts-table">
+      <div class="table-scroll" tabindex="0"><table class="parts-table">
     <caption class="visually-hidden">القطع المستخدمة</caption>
         <thead><tr><th scope="col">القطعة</th><th scope="col">الكمية</th><th scope="col">الإجمالي (درهم)</th><th scope="col"><span class="visually-hidden">الإجراءات</span></th></tr></thead>
         <tbody>
@@ -308,7 +311,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
           </tr>
         </tbody>
         <tfoot><tr><th scope="row" colspan="2">الإجمالي (درهم)</th><td dir="ltr" id="parts-total">50.00</td><th scope="row"><span class="visually-hidden">الإجراءات</span></th></tr></tfoot>
-      </table>
+      </table></div>
       
     </section>
 
@@ -320,7 +323,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     <section id="signature">
       <h2>توقيع العميل</h2>
       
-      <p id="signed-by">وقّع: Customer</p>
+      <p id="signed-by">وقّع: ⁨Customer⁩</p>
       
     </section>
 

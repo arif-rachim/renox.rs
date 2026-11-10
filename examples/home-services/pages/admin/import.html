@@ -18,7 +18,7 @@
     <p><button type="submit" class="btn-brand"><r-t key="backoffice.import.check" /></button></p>
   </x-form>
   <h2><r-t key="backoffice.import.recent" /></h2>
-  <table id="imports">
+  <div class="table-scroll" tabindex="0"><table id="imports">
     <caption class="visually-hidden"><r-t key="backoffice.import.recent" /></caption>
     <thead><tr><th scope="col"><r-t key="backoffice.import.col.kind" /></th><th scope="col"><r-t key="backoffice.import.col.file" /></th><th scope="col"><r-t key="backoffice.import.col.when" /></th><th scope="col"><r-t key="backoffice.import.col.who" /></th><th scope="col"><r-t key="backoffice.import.col.status" /></th><th scope="col"><r-t key="backoffice.import.col.counts" /></th></tr></thead>
     <tbody>
@@ -32,6 +32,6 @@
       </tr>
       <tr r-empty="imports"><td colspan="6"><r-t key="backoffice.import.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
   <script src="/upload.js" defer></script>
 </r-layout>

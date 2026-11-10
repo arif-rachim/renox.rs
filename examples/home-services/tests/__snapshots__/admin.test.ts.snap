@@ -43,7 +43,7 @@ exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin 
 
 exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin tile fragment, owner, ar 1`] = `
 "<article id="home-services-tile" class="tile-card">
-    <h2>الفرع: دبي</h2>
+    <h2>الفرع: ⁨دبي⁩</h2>
     <section class="tiles" id="tiles">
       <article class="tile" id="tile-jobs"><span>أعمال اليوم</span><strong dir="ltr"><n></strong><a href="/jobs">المهام</a></article>
       <article class="tile" id="tile-invoices"><span>فواتير مفتوحة</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">الفواتير</a></article>

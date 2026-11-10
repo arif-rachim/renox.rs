@@ -7,6 +7,7 @@ exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai cus
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Customers · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -45,7 +46,7 @@ exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai cus
     <button type="submit">Search</button>
     <a class="btn-brand" href="/customers/new">New customer</a>
   </form>
-  <table id="customer-list">
+  <div class="table-scroll" tabindex="0"><table id="customer-list">
     <caption class="visually-hidden">Customers</caption>
     <thead>
       <tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Phone</th><th scope="col">TRN</th><th scope="col">Sites</th></tr>
@@ -83,7 +84,7 @@ exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai cus
         <td dir="auto">2</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
@@ -99,6 +100,7 @@ exports[`the customer list is the branch's own the list in Arabic, right to left
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>العملاء · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -131,13 +133,13 @@ exports[`the customer list is the branch's own the list in Arabic, right to left
     
   
   <h1>العملاء</h1>
-  <p class="muted">الفرع: دبي</p>
+  <p class="muted">الفرع: ⁨دبي⁩</p>
   <form class="search" role="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
     <input type="search" name="q" value="" placeholder="ابحث بالاسم أو الهاتف" aria-label="ابحث بالاسم أو الهاتف" autocomplete="off" dir="auto">
     <button type="submit">بحث</button>
     <a class="btn-brand" href="/customers/new">عميل جديد</a>
   </form>
-  <table id="customer-list">
+  <div class="table-scroll" tabindex="0"><table id="customer-list">
     <caption class="visually-hidden">العملاء</caption>
     <thead>
       <tr><th scope="col">الاسم</th><th scope="col">النوع</th><th scope="col">الهاتف</th><th scope="col">الرقم الضريبي</th><th scope="col">المواقع</th></tr>
@@ -175,7 +177,7 @@ exports[`the customer list is the branch's own the list in Arabic, right to left
         <td dir="auto">2</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
@@ -191,6 +193,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Marina Heights Property Management · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -281,6 +284,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Marina Heights Property Management · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -371,6 +375,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Service catalogue · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -404,7 +409,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   
   <h1>Service catalogue</h1>
   
-  <table id="services">
+  <div class="table-scroll" tabindex="0"><table id="services">
     <caption class="visually-hidden">Service catalogue</caption>
     <thead>
       <tr><th scope="col">Code</th><th scope="col">Service</th><th scope="col">Per</th><th scope="col">Price</th><th scope="col">VAT</th><th scope="col">Active</th></tr>
@@ -468,7 +473,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
         <td>Active</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
   
 
   </main>
@@ -485,6 +490,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>قائمة الخدمات · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -518,7 +524,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   
   <h1>قائمة الخدمات</h1>
   
-  <table id="services">
+  <div class="table-scroll" tabindex="0"><table id="services">
     <caption class="visually-hidden">قائمة الخدمات</caption>
     <thead>
       <tr><th scope="col">الرمز</th><th scope="col">الخدمة</th><th scope="col">لكل</th><th scope="col">السعر</th><th scope="col">الضريبة</th><th scope="col">مفعّلة</th></tr>
@@ -582,7 +588,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
         <td>مفعّلة</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
   
 
   </main>

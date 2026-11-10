@@ -17,7 +17,7 @@
   </dl>
   <p class="work-links"><a :href="'/invoices/' ~ invoice.id ~ '/pdf?lang=en'"><r-t key="invoices.pdf_en" /></a> <a :href="'/invoices/' ~ invoice.id ~ '/pdf?lang=ar'"><r-t key="invoices.pdf_ar" /></a> <a r-if="customer" :href="'/customers/' ~ customer.id ~ '/statement.pdf?lang=' ~ pdf_lang"><r-t key="invoices.statement" /></a></p>
 
-  <table id="invoice-lines">
+  <div class="table-scroll" tabindex="0"><table id="invoice-lines">
     <caption class="visually-hidden"><r-t key="quotes.lines" /></caption>
     <thead><tr><th scope="col"><r-t key="quotes.f.desc" /></th><th scope="col"><r-t key="quotes.f.qty" /></th><th scope="col"><r-t key="quotes.f.unit_price" /></th><th scope="col"><r-t key="quotes.f.net" /></th><th scope="col"><r-t key="quotes.f.vat" /></th></tr></thead>
     <tbody>
@@ -26,7 +26,7 @@
         <td dir="ltr">{{ l.qty }}</td>
         <td dir="ltr">{{ l.unit_price | money }}</td>
         <td dir="ltr">{{ l.net | money }}</td>
-        <td dir="ltr">{{ l.vat | money }} ({{ l.rate }})</td>
+        <td dir="ltr">{{ l.vat | money }} <bdi dir="ltr">({{ l.rate }})</bdi></td>
       </tr>
     </tbody>
     <tfoot>
@@ -36,11 +36,11 @@
       <tr><th scope="row" colspan="4"><r-t key="invoices.f.paid" /></th><td dir="ltr" id="invoice-paid">{{ invoice.paid | money }}</td></tr>
       <tr><th scope="row" colspan="4"><r-t key="invoices.f.balance" /></th><td dir="ltr" id="invoice-balance">{{ invoice.balance | money }}</td></tr>
     </tfoot>
-  </table>
+  </table></div>
 
   <section id="payments">
     <h2><r-t key="invoices.payments" /></h2>
-    <table r-if="payments" id="payment-list">
+    <div class="table-scroll" tabindex="0" r-if="payments"><table id="payment-list">
     <caption class="visually-hidden"><r-t key="invoices.payments" /></caption>
       <thead><tr><th scope="col"><r-t key="invoices.f.date" /></th><th scope="col"><r-t key="invoices.f.method" /></th><th scope="col"><r-t key="invoices.f.amount" /></th><th scope="col"><r-t key="invoices.f.reference" /></th></tr></thead>
       <tbody>
@@ -51,7 +51,7 @@
           <td>{{ p.reference }}</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <p r-else class="muted"><r-t key="invoices.no_payments" /></p>
   </section>
 
