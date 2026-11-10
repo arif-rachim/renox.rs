@@ -769,7 +769,28 @@ enum ThreadReply {
 /// Shared state between a handle and its isolate thread.
 struct ThreadShared {
     poisoned: AtomicBool,
+    /// The isolate's V8 heap the last time it went idle: in use and
+    /// committed (`used_heap_size`, `total_heap_size`), and how many
+    /// memory-reducing collections it ran (#680).
+    heap_used: AtomicU64,
+    heap_total: AtomicU64,
+    memory_reductions: AtomicU64,
 }
+
+/// One pool member's V8 heap, as of its last idle point (#680).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IsolateHeap {
+    pub used_bytes: u64,
+    pub total_bytes: u64,
+    pub memory_reductions: u64,
+}
+
+/// After this many invocations since the last memory-reducing collection,
+/// an isolate that then goes idle runs one (#680).
+const REDUCE_AFTER_RUNS: u32 = 256;
+/// How long the isolate must be idle first: a burst (B14's connects and
+/// `open` runs) ends before V8 is asked to give its pages back.
+const REDUCE_AFTER_IDLE: Duration = Duration::from_secs(1);
 
 /// One live isolate on its thread: a member of the deployment's pool.
 struct IsolateThread {
@@ -1090,6 +1111,21 @@ impl IsolateHandle {
     /// The modules whose `hooks.ts` has an `on` handler for `event`, by
     /// module name: the targets of a durable event's fan-out (ops.md 1.3.0
     /// section 15.4, "Delivery").
+    /// Each pool member's V8 heap as of its last idle point (#680).
+    pub fn heap_stats(&self) -> Vec<IsolateHeap> {
+        self.inner
+            .members
+            .lock()
+            .expect("pool lock")
+            .iter()
+            .map(|t| IsolateHeap {
+                used_bytes: t.shared.heap_used.load(Ordering::Relaxed),
+                total_bytes: t.shared.heap_total.load(Ordering::Relaxed),
+                memory_reductions: t.shared.memory_reductions.load(Ordering::Relaxed),
+            })
+            .collect()
+    }
+
     pub fn event_handlers(&self, event: &str) -> Vec<String> {
         self.inner
             .event_handlers
@@ -1222,6 +1258,9 @@ impl Pool {
         let (ready_tx, ready_rx) = oneshot::channel();
         let shared = Arc::new(ThreadShared {
             poisoned: AtomicBool::new(false),
+            heap_used: AtomicU64::new(0),
+            heap_total: AtomicU64::new(0),
+            memory_reductions: AtomicU64::new(0),
         });
         let ctx = ThreadContext {
             runtime: self.runtime.clone(),
@@ -3554,6 +3593,10 @@ async fn serve(
     if trace {
         install_gc_trace(worker);
     }
+    // #680: invocations since the last memory-reducing collection, and the
+    // idle timer that runs one once a burst of them is over.
+    let mut runs_since_reduce: u32 = 0;
+    let mut idle: Option<Pin<Box<tokio::time::Sleep>>> = None;
     std::future::poll_fn(|cx| {
         let budget = with_attribution(|a| a.ledger.budget()).unwrap_or(cpu_limit);
         let slice_wall = Instant::now();
@@ -3573,6 +3616,8 @@ async fn serve(
                         continue;
                     }
                     let seq = job.seq;
+                    idle = None;
+                    runs_since_reduce = runs_since_reduce.saturating_add(1);
                     // The request is charged from now on; its synchronous
                     // part runs inside start_dispatch, in its own context.
                     match start_dispatch(ctx, worker, platform, *job) {
@@ -3795,6 +3840,26 @@ async fn serve(
                 flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
             }
             return Poll::Ready(());
+        }
+        // 5. Idle (#680): after a burst, ask V8 to give memory back. Each
+        // run leaves garbage that makes V8 commit heap pages it returns
+        // late or never (B14: about 37 MB over 10,000 connect and `open`
+        // runs); a low-memory notification collects and releases them. It
+        // runs outside any request, so nobody is charged for it.
+        if inflight.is_empty() && calls.is_empty() {
+            if runs_since_reduce >= REDUCE_AFTER_RUNS {
+                let timer =
+                    idle.get_or_insert_with(|| Box::pin(tokio::time::sleep(REDUCE_AFTER_IDLE)));
+                if timer.as_mut().poll(cx).is_ready() {
+                    idle = None;
+                    runs_since_reduce = 0;
+                    worker.js_runtime.v8_isolate().low_memory_notification();
+                    ctx.shared.memory_reductions.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            let (used, total) = heap_stats(&mut worker.js_runtime);
+            ctx.shared.heap_used.store(used, Ordering::Relaxed);
+            ctx.shared.heap_total.store(total, Ordering::Relaxed);
         }
         Poll::Pending
     })
