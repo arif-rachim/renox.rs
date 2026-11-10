@@ -218,7 +218,7 @@ describe("backups (deploy-api.md section 14)", () => {
       expect(await exportRows(h)).toEqual([]);
     });
 
-    test("exportArtifact copies the artifact: kind artifact with the hash, the same bytes, the artifact object stays; audited", async () => {
+    test("exportArtifact copies the artifact as a gzip tar: kind artifact with the hash, the stored bytes once gunzipped, the artifact object stays; audited", async () => {
       const { h, token } = await setup();
       const [active] = await h.db.query<{ hash: string }>("select hash from deployments where tenant_id = 't_bk' and app = 'shop' and state = 'active'");
       const hash = active?.hash as string;
@@ -226,16 +226,20 @@ describe("backups (deploy-api.md section 14)", () => {
       const res = await h.request("POST", `/v1/apps/shop/deployments/${hash}/export`, { token, json: {} });
       expect(res.status).toBe(201);
       const body = (await res.json()) as { url: string; sha256: string; size_bytes: number; kind: string; hash: string };
-      expect(body).toMatchObject({ kind: "artifact", hash, sha256: sha(original), size_bytes: original.length });
+      expect(body).toMatchObject({ kind: "artifact", hash });
       const [row] = await exportRows(h);
       expect(row).toMatchObject({ kind: "artifact", hash, object_key: `exports/t_bk/t_bk/${h.clock.now}.artifact.tar.gz` });
       const url = new URL(body.url);
       const got = await h.request("GET", `${url.pathname}${url.search}`);
-      expect(new Uint8Array(await got.arrayBuffer())).toEqual(new Uint8Array(original));
+      const served = new Uint8Array(await got.arrayBuffer());
+      // The stored object is the uncompressed tar (section 7); the export is its gzip (section 14, #674).
+      expect([served[0], served[1]]).toEqual([0x1f, 0x8b]);
+      expect(new Uint8Array(Bun.gunzipSync(served))).toEqual(new Uint8Array(original));
+      expect(body).toMatchObject({ sha256: sha(served), size_bytes: served.length });
       expect(h.store.objects.has(`artifacts/${hash}.tar`)).toBe(true);
       expect(body.url).not.toContain("artifacts/");
       const audit = (await auditRows(h)).filter((r) => r.action === "exportArtifact");
-      expect(audit[0]).toMatchObject({ status: 201, target: { app: "shop", hash, sha256: sha(original) } });
+      expect(audit[0]).toMatchObject({ status: 201, target: { app: "shop", hash, sha256: sha(served) } });
     });
 
     test("exportArtifact: a hash of another app, a pending deployment and an unknown hash are 404; a superseded one works", async () => {

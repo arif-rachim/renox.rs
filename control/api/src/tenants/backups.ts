@@ -298,9 +298,11 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
       throw unavailable("store", "unreachable");
     }
     if (bytes === null) throw unavailable("artifact", "the artifact object is missing");
+    // The artifact object is the uncompressed tar (section 7); the export is its gzip (0.8.1, #674).
+    const gz = bytes[0] === 0x1f && bytes[1] === 0x8b ? bytes : Bun.gzipSync(new Uint8Array(bytes));
     let stored: ExportAnswer;
     try {
-      stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "artifact", hash, suffix: "artifact.tar.gz", body: bytes[0] === 0x1f && bytes[1] === 0x8b ? bytes : Bun.gzipSync(bytes), expectedSha: null, seconds });
+      stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "artifact", hash, suffix: "artifact.tar.gz", body: gz, expectedSha: null, seconds });
     } catch (e) {
       if (e instanceof ApiError) throw e;
       throw unavailable("store", "the copy could not be written");
