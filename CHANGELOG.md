@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.12 (unreleased)
+
+**CLI**
+
+- `renox approve <module>` resolves the whole `[modules]` table, so a module with dependencies (billing with auth and i18n) no longer fails MF5; approving a changed permission set no longer needs `renox add <module> --yes` (#678).
+
 ## 0.1.11 (2026-11-10)
 
 **Install**
@@ -38,7 +44,7 @@ On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/relea
 **Modules**
 
 - billing 1.0.1: an abandoned 3DS challenge no longer leaves the order stuck: `checkout.session.expired` and `payment_intent.canceled` (reason `abandoned`) expire the checkout, cancel its pending subscription and emit `billing.checkout_expired`; a job (`jobs/checkouts.ts`) expires card checkouts open for 24 h; the order gets a new session (#655).
-- billing 1.1.0 declares the CSP sources Stripe's checkout needs (`script_src` and `frame_src` for `js.stripe.com`, `frame_src` for `hooks.stripe.com`): an app no longer lists them in its own `[security]`; re-approve with `renox add billing` (#660).
+- billing 1.1.0 declares the CSP sources Stripe's checkout needs (`script_src` and `frame_src` for `js.stripe.com`, `frame_src` for `hooks.stripe.com`): an app no longer lists them in its own `[security]`; approve a changed set with `renox approve billing` (#660).
 
 **SDK**
 
