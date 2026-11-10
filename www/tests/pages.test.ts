@@ -225,7 +225,33 @@ describe("pricing and legal", () => {
     expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`Version ${DPA_VERSION}.`);
     expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
   });
+
+  // #741. The landing page's forbidden-word rule (FORBIDDEN, checkLanding) does not apply to legal pages.
+  test("the privacy notice has one h1 and its nine sections in order; both footers link Privacy and the DPA apart", () => {
+    const html = readFileSync(join(import.meta.dir, "../pages/legal/privacy.html"), "utf8");
+    checkPrivacy(html);
+    // The operator's three facts are the owner's to fill in (#741): they stay placeholders until then.
+    for (const p of ["[legal name]", "[issuing authority, licence number]", "[address]"]) expect(html).toContain(p);
+    for (const name of ["home", "main"]) {
+      const layout = readFileSync(join(import.meta.dir, `../pages/_layouts/${name}.html`), "utf8");
+      const footer = layout.slice(layout.indexOf("<footer"), layout.indexOf("</footer>"));
+      expect(footer, name).toContain('<a href="/legal/privacy">Privacy</a>');
+      expect(footer, name).toMatch(/<a href="\/legal\/dpa">(DPA|Data processing agreement)<\/a>/u);
+      expect(footer.match(/href="\/legal\/dpa">Privacy</gu), name).toBeNull();
+    }
+  });
 });
+
+/** The nine sections of the privacy notice, in order (#741). */
+const PRIVACY_SECTIONS = ["1. Who we are and how to reach us", "2. What this notice covers", "3. What we collect and why", "4. What an AI assistant connected through the connector receives", "5. Where data is stored and who processes it", "6. How long we keep it", "7. Your rights", "8. Cookies", "9. Changes to this notice"];
+
+function checkPrivacy(html: string): void {
+  expect(html.match(/<h1[\s>]/gu)?.length).toBe(1);
+  expect([...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>/gu)].map((m) => m[1])).toEqual(PRIVACY_SECTIONS);
+  expect(html).toContain("support@renoxium.com");
+  expect(html).toContain('href="/legal/dpa"');
+  for (const row of ["Account", "Waitlist", "Usage and logs", "Billing", "Connector"]) expect(html).toContain(`<th scope="row">${row}</th>`);
+}
 
 describe("design system (packages/ui/README.md)", () => {
   const read = (p: string) => readFileSync(join(import.meta.dir, "..", p), "utf8");
@@ -259,7 +285,7 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
   const app = join(import.meta.dir, "..");
   const out = mkdtempSync(join(tmpdir(), "renox-www-"));
   const built = await buildArtifact(app, out);
-  expect(built.manifest.routes.map((r) => ("path" in r ? r.path : "")).sort()).toEqual(["/", "/docs", "/docs/:slug", "/legal/dpa", "/legal/terms", "/pricing", "/thanks"]);
+  expect(built.manifest.routes.map((r) => ("path" in r ? r.path : "")).sort()).toEqual(["/", "/docs", "/docs/:slug", "/legal/dpa", "/legal/privacy", "/legal/terms", "/pricing", "/thanks"]);
   expect(await check(app)).toEqual({ errors: [], findings: [] });
   const port = 21000 + Math.floor(Math.random() * 9000);
   const dev = await startDev({ project: app, port, log: () => {} });
@@ -302,6 +328,17 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);
+    // #741: the privacy notice is served; the site sets only the platform's two cookies, as the notice says (section 8).
+    const privacy = await fetch(`${base}/legal/privacy`);
+    expect(privacy.status).toBe(200);
+    const privacyHtml = (await privacy.text()).replaceAll(' dir="auto"', "");
+    checkPrivacy(privacyHtml);
+    expect(privacyHtml).toContain('<a href="/legal/privacy">Privacy</a>');
+    for (const path of ["/", "/legal/privacy", "/pricing", "/docs/data"]) {
+      const names = (await fetch(`${base}${path}`)).headers.getSetCookie().map((c) => c.slice(0, c.indexOf("=")));
+      expect(names.filter((n) => n !== "__Host-renox_sid" && n !== "__Host-renox_csrf"), path).toEqual([]);
+      for (const c of (await fetch(`${base}${path}`)).headers.getSetCookie()) expect(c, path).not.toMatch(/max-age|expires/iu);
+    }
   } finally {
     await dev.stop();
   }
