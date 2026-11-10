@@ -13,6 +13,6 @@
   "devDependencies": {
     "@renox/artifact-validate": "workspace:*",
     "@renox/control-api": "workspace:*",
-    "hono": "4.13.14"
+    "hono": "4.13.16"
   }
 }
