@@ -135,7 +135,7 @@ One platform audit row per tool call as in section 1 (`mcp.<tool>`, outcome); a 
 
 ### Implementation issues
 
-The parts this contract names that no issue of #686 builds yet are filed as sub-issues of #686: the bridge (the `auth` service `mintAgentToken`, the node operation `nodeMintAgentToken`, the platform's client and token cache), the home-services template's settings, branches and services tools, and the platform MCP's owner tools with the scopes `app:settings` and `app:people` and the `owner` profile.
+The parts this contract names that no issue of #686 builds yet are filed as sub-issues of #686: #698, the bridge (the `auth` service `mintAgentToken`, the node operation `nodeMintAgentToken`, the platform's client and token cache); #699, the home-services template's settings, branches, services and people tools; #700, the platform MCP's owner tools with the scopes `app:settings` and `app:people` and the `owner` profile.
 
 ## 2. App MCP: every tenant application can be an MCP server
 
