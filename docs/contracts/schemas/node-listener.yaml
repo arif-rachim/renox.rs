@@ -203,6 +203,57 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /nodes/{node_id}/tenants/{tenant_id}/files:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: nodeFilesTenant
+      tags: [node-listener]
+      summary: The objects of a tenant database's files as a gzip tar, streamed back (exportFiles)
+      description: >-
+        0.8. Reads the keys of the `renox__files` table of the database inside one read
+        transaction and streams each object (`tenants/<tenant_id>/files/<key>`) into a POSIX
+        ustar archive, gzip-compressed (regular files only, sorted by key; an empty store is a
+        valid tar with zero entries). A key whose object is missing is skipped and counted in
+        `x-renox-files-missing`. The isolate is not involved. The control plane stores the
+        bytes under its private prefix.
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: exportFiles on the control plane
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_NOT_FOUND, RENOX_TENANT_MOVING]
+      parameters:
+        - name: database
+          in: query
+          required: true
+          schema: { $ref: "control-messages.schema.json#/$defs/database_id" }
+      responses:
+        "200":
+          description: The archive bytes.
+          headers:
+            x-renox-sha256:
+              description: SHA-256 of the compressed bytes.
+              schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+            x-renox-files:
+              description: Number of entries written.
+              schema: { type: integer, minimum: 0 }
+            x-renox-files-missing:
+              description: Keys in the table whose object was missing and were skipped.
+              schema: { type: integer, minimum: 0 }
+          content:
+            application/x-tar+gzip:
+              schema: { type: string, format: binary }
+              examples:
+                archive: { value: "<bytes of a gzip ustar archive>" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503":
+          description: The tenant is being moved to another node; nothing is streamed.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                moving: { value: { error: { code: RENOX_TENANT_MOVING, message: The service is being moved. Try again shortly., request_id: 01JBQ3Z7MA0000000000000081 } } }
+
   /nodes/{node_id}/tenants/{tenant_id}/import:
     parameters:
       - $ref: "#/components/parameters/NodeId"
