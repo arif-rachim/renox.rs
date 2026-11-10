@@ -47,7 +47,7 @@ declare module "renox:modules" {
     csv(rows: readonly Record<string, unknown>[], headers?: string[]): Promise<string>;
     /** Rows as a one-sheet .xlsx (bytes): numbers stay numbers, strings are never formulas; `sheet` is 1 to 31 characters. */
     xlsx(sheet: string, rows: readonly (readonly (string | number | null)[])[]): Promise<Uint8Array>;
-    /** The nightly report for the day before `nowMs`: kept as a snapshot and emailed when `email_to` is set. */
+    /** The nightly report for the day before `nowMs`: kept as a snapshot and emailed to the addresses of the `reports.nightly_to` fillers (else `email_to`). */
     nightly(nowMs: number): Promise<{ day: string; sent_to: string | null }>;
   };
   export const twofa: {

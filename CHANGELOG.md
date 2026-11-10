@@ -12,6 +12,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - `renox check` refuses a `[security].csp.*` source with `;` or `,` with the MF17 message, the same grammar as a module's CSP source; the contract schema's `cspSource` pattern no longer allows them (#679).
 - `renox approve <module>` resolves the whole `[modules]` table, so a module with dependencies (billing with auth and i18n) no longer fails MF5; approving a changed permission set no longer needs `renox add <module> --yes` (#678).
+- `renox new --template home-services` uses the app's `hooks.ts`, `[[slots]]` and `[events]` (artifact 1.8): a customer's WhatsApp "cancel" or "reschedule" becomes the dispatcher's task when `whatsapp.message_received` arrives (the minute `jobs/inbox-sweep.ts` is gone); the app role of an invited person is applied on `org.member_added` (no longer when the owner opens the users page), which emits the app's own `app.member_ready`; the nightly report goes to the settings' accounts email through `reports.nightly_to` (the `reports` config `email_to` is empty); the `admin` module is mounted at `/admin` (was `/system/admin`) and the app fills its `admin.sidebar` and `admin.dashboard` slots, so the app's duplicate dashboard and audit pages are gone, and its users page is now `/admin/people` (#636). Its tests check that an agent's `create_job` reaches the audit trail as an `agent` row with the client's name, on a worker newer than 0.7.0 (skipped with the reason on 0.7.0, #683).
 
 ## 0.1.11 (2026-11-10)
 

@@ -83,31 +83,23 @@ async function hmac(secret: string, body: string): Promise<string> {
 }
 
 let seq = 0;
-/** A signed delivery of one inbound text, as Meta sends it. */
-async function inbound(from: string, text: string, secret = ENV.WHATSAPP_APP_SECRET as string) {
-  const raw = JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ id: `wamid.hs${++seq}`, from, timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: text } }] } }] }] });
+/** A signed delivery of one inbound text, as Meta sends it (`wamid`: Meta's message id; a retried delivery repeats it). */
+async function inbound(from: string, text: string, secret = ENV.WHATSAPP_APP_SECRET as string, wamid = `wamid.hs${++seq}`) {
+  const raw = JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ id: wamid, from, timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: text } }] } }] }] });
   return t.request("POST", "/whatsapp/webhook/whatsapp", { headers: { "content-type": "application/json", "x-hub-signature-256": `sha256=${await hmac(secret, raw)}` }, body: raw });
 }
 
 /**
- * Runs the inbox sweep now, as the scheduler would: a tick of the job is
- * written the way `renox jobs run` writes one (the worker may be writing, so
- * the lock is taken first), and a signed message from a number nobody knows
- * wakes the outbox (it commits an event), which runs the tick.
+ * Waits until the app's handler of `whatsapp.message_received` (hooks.ts) has
+ * run for every message received so far: the module emits the event in the
+ * webhook's transaction, and the worker's outbox delivers it to the app right
+ * after the commit (no job, no tick), then drops the delivery's row (target
+ * '' is the event before it is fanned out to its handlers).
  */
-async function sweep(): Promise<void> {
-  const id = `01HS${crypto.randomUUID().replace(/-/gu, "").slice(0, 22).toUpperCase()}`; // 26 characters, like the platform's ULIDs
-  rw((db) =>
-    db
-      .transaction(() => {
-        db.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, 'app', 'job:inbox-sweep', 'null', 'app', ?, 0, ?)").run(id, Date.now(), Date.now());
-        db.query("insert into renox__outbox_meta (key, value) values ('job_tick:app:inbox-sweep', ?) on conflict (key) do update set value = excluded.value").run(Date.now());
-      })
-      .immediate(),
-  );
-  expect((await inbound("971500000000", `ping ${++seq}`)).status).toBe(200);
-  for (let i = 0; i < 200 && rows("select 1 from renox__outbox where id = ?", [id]).length > 0; i++) await Bun.sleep(50);
-  expect(rows("select 1 from renox__outbox where id = ?", [id])).toEqual([]);
+async function handled(): Promise<void> {
+  const pending = () => Number(rows("select count(*) as n from renox__outbox where target in ('', 'app') and name = 'whatsapp.message_received'")[0]?.n);
+  for (let i = 0; i < 200 && pending() > 0; i++) await Bun.sleep(50);
+  expect(pending()).toBe(0);
 }
 
 describe("the texts", () => {
@@ -243,19 +235,21 @@ describe("a customer's reply", () => {
     const res = await inbound("971501110001", "cancel", "not-the-secret");
     expect(res.status).toBe(401);
     expect(rows("select 1 from whatsapp__messages where direction = 'in'")).toEqual([]);
-    await sweep();
+    expect(rows("select 1 from renox__outbox where name = 'whatsapp.message_received'")).toEqual([]);
     expect(rows("select 1 from app__tasks")).toEqual([]);
     expect(rows("select 1 from whatsapp__messages where phone = '+971501110001' and direction = 'in'")).toEqual([]);
   });
 
-  test("normal case: cancel from Layla becomes a task on her next scheduled job and a notification to its dispatcher", async () => {
+  test("normal case: cancel from Layla becomes a task on her next scheduled job and a notification to its dispatcher, with no job run", async () => {
     const live = rows("select id, number from app__jobs where customer_id = 'cu_dxb_01' and status = 'scheduled' order by scheduled_start limit 1")[0] as { id: string; number: string };
     const stream = await dubai.sse("/notifications/sse/notifications");
     expect(stream.status).toBe(200);
-    expect((await inbound("971501110001", "Cancel")).status).toBe(200);
-    await sweep();
+    expect((await inbound("971501110001", "Cancel", undefined, "wamid.layla-cancel")).status).toBe(200);
+    // The webhook alone: the event reaches hooks.ts after its commit (no t.job, no scheduled tick).
+    await handled();
     const tasks = rows("select branch_id, kind, job_id, message, done_at from app__tasks");
     expect(tasks).toEqual([{ branch_id: "br_dubai", kind: "cancel", job_id: live.id, message: `Layla Haddad asked to cancel job ${live.number}.`, done_at: null }]);
+    expect(rows("select count(*) as n from app__tasks where message_id = (select id from whatsapp__messages where wa_id = 'wamid.layla-cancel')")[0]?.n).toBe(1);
     const n = rows("select category, title, link from notifications__items where user_id = 'u_dxb_dispatcher' and title like 'Layla Haddad asked%'");
     expect(n).toEqual([{ category: "jobs", title: `Layla Haddad asked to cancel job ${live.number}.`, link: `/jobs/${live.id}` }]);
     expect(rows("select note from app__job_events where job_id = ? order by id desc limit 1", [live.id])[0]?.note).toBe("customer reply on WhatsApp: cancel");
@@ -266,14 +260,33 @@ describe("a customer's reply", () => {
     stream.close();
   });
 
-  test("a message is handled once: a second sweep adds nothing", async () => {
-    await sweep();
+  test("a message is handled once: Meta's retry of the same delivery adds nothing", async () => {
+    const notes = rows("select count(*) as n from notifications__items")[0]?.n;
+    expect((await inbound("971501110001", "Cancel", undefined, "wamid.layla-cancel")).status).toBe(200);
+    await handled();
+    expect(rows("select count(*) as n from whatsapp__messages where wa_id = 'wamid.layla-cancel'")[0]?.n).toBe(1);
     expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(1);
+    expect(rows("select count(*) as n from notifications__items")[0]?.n).toBe(notes);
+  });
+
+  test("and the app's handler is idempotent: a second delivery of the event to the app adds nothing", async () => {
+    const notes = rows("select count(*) as n from notifications__items")[0]?.n;
+    const message = rows("select id, phone from whatsapp__messages where wa_id = 'wamid.layla-cancel'")[0] as { id: string; phone: string };
+    // A redelivery, as the outbox makes one after a crash between the handler's commit and its bookkeeping:
+    // the delivery row written the way the worker writes one (the lock taken first), then a message from a
+    // number nobody knows wakes the outbox.
+    const id = `01HS${crypto.randomUUID().replace(/-/gu, "").slice(0, 22).toUpperCase()}`; // 26 characters, like the platform's ULIDs
+    rw((db) => db.transaction(() => db.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, 'app', 'whatsapp.message_received', ?, 'whatsapp', ?, 0, ?)").run(id, JSON.stringify({ message_id: message.id, from: message.phone }), Date.now(), Date.now())).immediate());
+    expect((await inbound("971500000000", `ping ${++seq}`)).status).toBe(200);
+    await handled();
+    expect(rows("select 1 from renox__outbox_dead where id = ?", [id])).toEqual([]);
+    expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(1);
+    expect(rows("select count(*) as n from notifications__items")[0]?.n).toBe(notes);
   });
 
   test("an Arabic reschedule from Fatima becomes a reschedule task", async () => {
     expect((await inbound("971551110003", "تغيير الموعد")).status).toBe(200);
-    await sweep();
+    await handled();
     expect(rows("select kind, job_id from app__tasks where message like 'Fatima%'")).toEqual([{ kind: "reschedule", job_id: "jb_seed_08" }]);
   });
 
@@ -282,7 +295,7 @@ describe("a customer's reply", () => {
     const notes = rows("select count(*) as n from notifications__items")[0]?.n;
     expect((await inbound("971509999999", "cancel")).status).toBe(200);
     expect((await inbound("971501110001", "thank you")).status).toBe(200);
-    await sweep();
+    await handled();
     expect(rows("select count(*) as n from whatsapp__messages where direction = 'in' and phone = '+971509999999'")[0]?.n).toBe(1);
     expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(tasks);
     expect(rows("select count(*) as n from notifications__items")[0]?.n).toBe(notes);
