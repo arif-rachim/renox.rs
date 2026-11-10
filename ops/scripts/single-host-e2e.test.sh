@@ -282,7 +282,7 @@ for _ in $(seq 30); do
   [[ $(via_socket www.renoxium.app /) == 200 ]] && served=1 && break
   sleep 1
 done
-if [[ $served == 1 ]] && dx grep -q 'Deploy. Run.' /root/body; then pass "step 9: www.renoxium.app answers 200 through the worker socket with the site's home page"
+if [[ $served == 1 ]] && dx grep -q 'Own your business software' /root/body; then pass "step 9: www.renoxium.app answers 200 through the worker socket with the site's home page"
 else fail "step 9: www.renoxium.app through the socket: $(dx head -c 300 /root/body 2>/dev/null)"; fi
 code=$(via_socket dashboard.renoxium.app /signin)
 if [[ $code == 200 ]] && dx grep -q 'password-form' /root/body; then pass "step 9: dashboard.renoxium.app/signin answers 200 through the worker socket"
