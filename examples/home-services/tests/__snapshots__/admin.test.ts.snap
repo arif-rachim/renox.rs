@@ -54,7 +54,8 @@ exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin 
 
 exports[`people the users page lists the branch with roles and who has a second factor: role: users table, owner, en 1`] = `
 "<table id="staff">
-    <thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Second factor</th><th></th></tr></thead>
+    <caption class="visually-hidden">People of the branch</caption>
+    <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Roles</th><th scope="col">Second factor</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>
       <tr id="staff-u_dxb_ali">
         <td dir="auto">Ali Hassan</td>
@@ -64,7 +65,7 @@ exports[`people the users page lists the branch with roles and who has a second 
           </td>
         <td>
           <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_ali">
-            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" selected dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <select name="role" id="f-role-u_dxb_ali" aria-label="Role: Ali Hassan"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" selected dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
             <button type="submit">Change role</button></form>
           <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_ali"><button type="submit">Remove from branch</button></form>
         </td>
@@ -76,7 +77,7 @@ exports[`people the users page lists the branch with roles and who has a second 
           <small class="problem"> Needs a second factor before sensitive actions.</small></td>
         <td>
           <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_accountant">
-            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" selected dir="auto">Accountant</option></select>
+            <select name="role" id="f-role-u_dxb_accountant" aria-label="Role: Aziz Accountant"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" selected dir="auto">Accountant</option></select>
             <button type="submit">Change role</button></form>
           <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_accountant"><button type="submit">Remove from branch</button></form>
         </td>
@@ -88,7 +89,7 @@ exports[`people the users page lists the branch with roles and who has a second 
           </td>
         <td>
           <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_bilal">
-            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" selected dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <select name="role" id="f-role-u_dxb_bilal" aria-label="Role: Bilal Raza"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" selected dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
             <button type="submit">Change role</button></form>
           <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_bilal"><button type="submit">Remove from branch</button></form>
         </td>
@@ -100,7 +101,7 @@ exports[`people the users page lists the branch with roles and who has a second 
           </td>
         <td>
           <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_dispatcher">
-            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" selected dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <select name="role" id="f-role-u_dxb_dispatcher" aria-label="Role: Dina Dispatcher"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" selected dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
             <button type="submit">Change role</button></form>
           <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_dispatcher"><button type="submit">Remove from branch</button></form>
         </td>
@@ -112,7 +113,7 @@ exports[`people the users page lists the branch with roles and who has a second 
           </td>
         <td>
           <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_manager">
-            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" selected dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <select name="role" id="f-role-u_dxb_manager" aria-label="Role: Mona Manager"><option value="owner" dir="auto">Owner</option><option value="branch_manager" selected dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
             <button type="submit">Change role</button></form>
           <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_manager"><button type="submit">Remove from branch</button></form>
         </td>

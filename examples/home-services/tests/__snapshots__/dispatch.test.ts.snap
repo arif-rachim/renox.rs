@@ -16,6 +16,7 @@ exports[`the board page columns by status, with the branch's cards and the socke
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,36 +35,37 @@ exports[`the board page columns by status, with the branch's cards and the socke
       <strong lang="en">English</strong><a href="/dispatch?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Dispatch board</h1>
   <p class="muted" id="board-state" data-socket="/ws/dispatch/dubai" data-offline="Not connected. Reload the page.">Live: the board updates when a job changes.</p>
+  <div aria-live="polite" class="visually-hidden" id="board-announcer" data-new="New job {number} in {column}." data-moved="Job {number} moved to {column}." data-updated="Job {number} updated in {column}."></div>
   <div class="board" id="board">
     <section class="board-column" aria-labelledby="head-new">
       <h2 id="head-new" dir="auto">New</h2>
       <div id="col-new" class="board-cards">
-        <article id="job-jb_seed_01" class="job-card priority-urgent"><a href="/jobs/jb_seed_01" dir="ltr">J-000001</a> <strong dir="auto">Layla Haddad</strong> <span dir="auto">AC repair</span> <small></small> </article><article id="job-jb_seed_02" class="job-card priority-normal"><a href="/jobs/jb_seed_02" dir="ltr">J-000002</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Electrical</span> <small></small> </article><article id="job-jb_seed_03" class="job-card priority-high"><a href="/jobs/jb_seed_03" dir="ltr">J-000003</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Plumbing</span> <small></small> </article><article id="job-jb_seed_04" class="job-card priority-low"><a href="/jobs/jb_seed_04" dir="ltr">J-000004</a> <strong dir="auto">Al Barsha Facilities LLC</strong> <span dir="auto">Handyman</span> <small></small> </article>
+        <article id="job-jb_seed_01" class="job-card priority-urgent"><a href="/jobs/jb_seed_01" dir="ltr">J-000001</a> <strong dir="auto">Layla Haddad</strong> <span dir="auto">AC repair</span> <small></small>  <span class="priority" dir="auto">Urgent</span></article><article id="job-jb_seed_02" class="job-card priority-normal"><a href="/jobs/jb_seed_02" dir="ltr">J-000002</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Electrical</span> <small></small>  </article><article id="job-jb_seed_03" class="job-card priority-high"><a href="/jobs/jb_seed_03" dir="ltr">J-000003</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Plumbing</span> <small></small>  <span class="priority" dir="auto">High</span></article><article id="job-jb_seed_04" class="job-card priority-low"><a href="/jobs/jb_seed_04" dir="ltr">J-000004</a> <strong dir="auto">Al Barsha Facilities LLC</strong> <span dir="auto">Handyman</span> <small></small>  <span class="priority" dir="auto">Low</span></article>
       </div>
     </section><section class="board-column" aria-labelledby="head-scheduled">
       <h2 id="head-scheduled" dir="auto">Scheduled</h2>
       <div id="col-scheduled" class="board-cards">
-        <article id="job-jb_seed_05" class="job-card priority-normal"><a href="/jobs/jb_seed_05" dir="ltr">J-000005</a> <strong dir="auto">Layla Haddad</strong> <span dir="auto">AC service</span> <small></small> <em dir="auto">Ali Hassan</em></article><article id="job-jb_seed_06" class="job-card priority-normal"><a href="/jobs/jb_seed_06" dir="ltr">J-000006</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Pest control</span> <small></small> <em dir="auto">Ali Hassan</em></article><article id="job-jb_seed_07" class="job-card priority-high"><a href="/jobs/jb_seed_07" dir="ltr">J-000007</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Plumbing</span> <small></small> <em dir="auto">Bilal Raza</em></article><article id="job-jb_seed_08" class="job-card priority-normal"><a href="/jobs/jb_seed_08" dir="ltr">J-000008</a> <strong dir="auto">Fatima Al Suwaidi</strong> <span dir="auto">Deep cleaning</span> <small></small> <em dir="auto">Bilal Raza</em></article>
+        <article id="job-jb_seed_05" class="job-card priority-normal"><a href="/jobs/jb_seed_05" dir="ltr">J-000005</a> <strong dir="auto">Layla Haddad</strong> <span dir="auto">AC service</span> <small></small> <em dir="auto">Ali Hassan</em> </article><article id="job-jb_seed_06" class="job-card priority-normal"><a href="/jobs/jb_seed_06" dir="ltr">J-000006</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Pest control</span> <small></small> <em dir="auto">Ali Hassan</em> </article><article id="job-jb_seed_07" class="job-card priority-high"><a href="/jobs/jb_seed_07" dir="ltr">J-000007</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Plumbing</span> <small></small> <em dir="auto">Bilal Raza</em> <span class="priority" dir="auto">High</span></article><article id="job-jb_seed_08" class="job-card priority-normal"><a href="/jobs/jb_seed_08" dir="ltr">J-000008</a> <strong dir="auto">Fatima Al Suwaidi</strong> <span dir="auto">Deep cleaning</span> <small></small> <em dir="auto">Bilal Raza</em> </article>
       </div>
     </section><section class="board-column" aria-labelledby="head-en_route">
       <h2 id="head-en_route" dir="auto">En route</h2>
       <div id="col-en_route" class="board-cards">
-        <article id="job-jb_seed_09" class="job-card priority-high"><a href="/jobs/jb_seed_09" dir="ltr">J-000009</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Electrical</span> <small></small> <em dir="auto">Bilal Raza</em></article>
+        <article id="job-jb_seed_09" class="job-card priority-high"><a href="/jobs/jb_seed_09" dir="ltr">J-000009</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Electrical</span> <small></small> <em dir="auto">Bilal Raza</em> <span class="priority" dir="auto">High</span></article>
       </div>
     </section><section class="board-column" aria-labelledby="head-in_progress">
       <h2 id="head-in_progress" dir="auto">In progress</h2>
       <div id="col-in_progress" class="board-cards">
-        <article id="job-jb_seed_10" class="job-card priority-normal"><a href="/jobs/jb_seed_10" dir="ltr">J-000010</a> <strong dir="auto">Al Barsha Facilities LLC</strong> <span dir="auto">AC repair</span> <small></small> <em dir="auto">Ali Hassan</em></article>
+        <article id="job-jb_seed_10" class="job-card priority-normal"><a href="/jobs/jb_seed_10" dir="ltr">J-000010</a> <strong dir="auto">Al Barsha Facilities LLC</strong> <span dir="auto">AC repair</span> <small></small> <em dir="auto">Ali Hassan</em> </article>
       </div>
     </section><section class="board-column" aria-labelledby="head-done">
       <h2 id="head-done" dir="auto">Done</h2>
       <div id="col-done" class="board-cards">
-        <article id="job-jb_seed_11" class="job-card priority-normal"><a href="/jobs/jb_seed_11" dir="ltr">J-000011</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Handyman</span> <small></small> <em dir="auto">Bilal Raza</em></article>
+        <article id="job-jb_seed_11" class="job-card priority-normal"><a href="/jobs/jb_seed_11" dir="ltr">J-000011</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Handyman</span> <small></small> <em dir="auto">Bilal Raza</em> </article>
       </div>
     </section>
   </div>
@@ -73,8 +75,17 @@ exports[`the board page columns by status, with the branch's cards and the socke
       // One socket per page. Every message is a fragment the server rendered
       // (partials/job-card.html): a \`delete\` of the card's old place, then the
       // card put first in its column. The feed's \`{ table, rowid, op }\` frames
-      // are JSON, not HTML, and are skipped.
+      // are JSON, not HTML, and are skipped. Every change is also written, as
+      // one sentence, to the polite live region (#board-announcer) for a screen
+      // reader: a new card, a card in another column, a card changed in place.
       const state = document.getElementById("board-state");
+      const announcer = document.getElementById("board-announcer");
+      const say = (text) => {
+        announcer.textContent = "";
+        setTimeout(() => { announcer.textContent = text; }, 50);
+      };
+      const sentence = (kind, number, column) => (announcer.dataset[kind] || "").replace("{number}", number).replace("{column}", column);
+      const columnName = (colId) => { const h = document.getElementById("head-" + colId.slice(4)); return h ? h.textContent.trim() : ""; };
       const url = new URL(state.dataset.socket, location.href);
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       const socket = new WebSocket(url);
@@ -82,18 +93,29 @@ exports[`the board page columns by status, with the branch's cards and the socke
         if (typeof e.data !== "string" || e.data.trimStart().startsWith("{")) return;
         const tpl = document.createElement("template");
         tpl.innerHTML = e.data;
+        const was = new Map();
         for (const el of tpl.content.querySelectorAll("[hx-swap-oob]")) {
           const mode = el.getAttribute("hx-swap-oob");
           if (mode === "delete") {
             const old = document.getElementById(el.id);
-            if (old) old.remove();
+            if (old) {
+              was.set(el.id, old.parentElement ? old.parentElement.id : "");
+              old.remove();
+            }
           } else if (mode === "afterbegin") {
             const col = document.getElementById(el.id);
-            if (col) col.prepend(...el.childNodes);
+            if (!col) continue;
+            const card = el.firstElementChild;
+            col.prepend(...el.childNodes);
+            const number = card && card.querySelector("a") ? card.querySelector("a").textContent.trim() : "";
+            const before = card ? was.get(card.id) : undefined;
+            if (before === undefined) say(sentence("new", number, columnName(el.id)));
+            else if (before !== el.id) say(sentence("moved", number, columnName(el.id)));
+            else say(sentence("updated", number, columnName(el.id)));
           }
         }
       });
-      socket.addEventListener("close", () => { state.textContent = state.dataset.offline || "Not connected. Reload the page."; });
+      socket.addEventListener("close", () => { state.textContent = state.dataset.offline || "Not connected. Reload the page."; say(state.textContent); });
     })();
   </script>
 

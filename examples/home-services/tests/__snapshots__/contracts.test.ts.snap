@@ -16,6 +16,7 @@ exports[`the seed a Dubai dispatcher sees the Dubai contract and not the Sharjah
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,7 +35,7 @@ exports[`the seed a Dubai dispatcher sees the Dubai contract and not the Sharjah
       <strong lang="en">English</strong><a href="/contracts?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Maintenance contracts</h1>
@@ -48,8 +49,9 @@ exports[`the seed a Dubai dispatcher sees the Dubai contract and not the Sharjah
     <button type="submit">Filter</button>
   </form>
   <table id="contract-list">
+    <caption class="visually-hidden">Maintenance contracts</caption>
     <thead>
-      <tr><th>Contract</th><th>Customer</th><th>Status</th><th>Term</th><th>Price (AED)</th><th>Items</th></tr>
+      <tr><th scope="col">Contract</th><th scope="col">Customer</th><th scope="col">Status</th><th scope="col">Term</th><th scope="col">Price (AED)</th><th scope="col">Items</th></tr>
     </thead>
     <tbody>
       <tr id="contract-AMC-000001">
@@ -86,6 +88,7 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -104,7 +107,7 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
       <strong lang="en">English</strong><a href="/contracts/ct_seed_01?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/contracts">All contracts</a></p>
@@ -134,7 +137,8 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
   <section id="items">
     <h2>Services and sites</h2>
     <table id="item-list">
-      <thead><tr><th>Site</th><th>Service</th><th>Visits a year</th><th>Next visit due</th></tr></thead>
+    <caption class="visually-hidden">Services and sites</caption>
+      <thead><tr><th scope="col">Site</th><th scope="col">Service</th><th scope="col">Visits a year</th><th scope="col">Next visit due</th></tr></thead>
       <tbody>
         <tr id="item-1">
           <td dir="auto">Tower A<br><small class="muted" dir="auto">Dubai Marina, Marina Heights A</small></td>
@@ -193,6 +197,7 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -207,11 +212,11 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
     
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/contracts/ct_seed_01?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/contracts">كل العقود</a></p>
@@ -241,7 +246,8 @@ exports[`the seed the contract page: items, price with VAT, no visits yet: role:
   <section id="items">
     <h2>الخدمات والمواقع</h2>
     <table id="item-list">
-      <thead><tr><th>الموقع</th><th>الخدمة</th><th>الزيارات في السنة</th><th>موعد الزيارة القادمة</th></tr></thead>
+    <caption class="visually-hidden">الخدمات والمواقع</caption>
+      <thead><tr><th scope="col">الموقع</th><th scope="col">الخدمة</th><th scope="col">الزيارات في السنة</th><th scope="col">موعد الزيارة القادمة</th></tr></thead>
       <tbody>
         <tr id="item-1">
           <td dir="auto">Tower A<br><small class="muted" dir="auto">Dubai Marina, Marina Heights A</small></td>

@@ -1,5 +1,6 @@
 <r-layout use="main">
   <r-group slot="title"><r-t key="visits.title" /> · {{ brand.name }}</r-group>
+  <div class="touch">
   <h1><r-t key="visits.title" /></h1>
   <p class="muted"><r-t key="visits.today" /></p>
   <ul class="visit-list" r-if="visits">
@@ -13,4 +14,5 @@
     </li>
   </ul>
   <p r-else id="no-visits"><r-t key="visits.none" /></p>
+  </div>
 </r-layout>

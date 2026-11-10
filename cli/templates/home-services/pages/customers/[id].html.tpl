@@ -26,7 +26,7 @@
   </ul>
   <section r-can="customer.write"><x-form action="addSite" class="stack narrow">
     <h3><r-t key="customers.add_site" /></h3>
-    <x-site-fields :emirates="emirates" :values="values" />
+    <x-site-fields :emirates="emirates" :values="values" :errors="errors" />
     <p><button type="submit" class="btn-brand"><r-t key="customers.add_site_submit" /></button></p>
   </x-form></section>
 </r-layout>

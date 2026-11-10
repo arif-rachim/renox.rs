@@ -14,7 +14,8 @@
     <dt><r-t key="backoffice.import.total.errors" /></dt><dd dir="ltr" id="total-errors">{{ imp.errors }}</dd>
   </dl>
   <table id="import-errors" r-if="error_rows">
-    <thead><tr><th><r-t key="backoffice.import.err_row" /></th><th><r-t key="backoffice.import.err_column" /></th><th><r-t key="backoffice.import.err_message" /></th></tr></thead>
+    <caption class="visually-hidden"><r-t key="backoffice.import.report" /></caption>
+    <thead><tr><th scope="col"><r-t key="backoffice.import.err_row" /></th><th scope="col"><r-t key="backoffice.import.err_column" /></th><th scope="col"><r-t key="backoffice.import.err_message" /></th></tr></thead>
     <tbody>
       <tr r-for="e in error_rows">
         <td dir="ltr"><r-group r-if="e.row">{{ e.row }}</r-group><r-group r-else>—</r-group></td>

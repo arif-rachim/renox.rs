@@ -15,15 +15,16 @@
   <script src="/me.js" defer></script>
 </head>
 <body>
+  <a class="skip" href="#main"><r-t key="app.skip" /></a>
   <header class="site-header">
     <a href="/" class="brand-link"><img r-if="brand.logo" :src="brand.logo" alt="" class="brand-logo"><strong>{{ brand.name }}</strong></a>
     <span class="spacer"></span>
     <r-slot name="app.header" />
-    <nav class="i18n-language" aria-label="Language" r-if="i18n_links">
+    <nav class="i18n-language" :aria-label="'app.lang.label' | t" r-if="i18n_links">
       <r-group r-for="l in i18n_links"><strong r-if="l.current" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="app.lang.ar" /></r-group><r-group r-else><r-t key="app.lang.en" /></r-group></strong><a r-else :href="l.href" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="app.lang.ar" /></r-group><r-group r-else><r-t key="app.lang.en" /></r-group></a></r-group>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     <x-form-errors :problems="problems" /><slot />
   </main>
   <footer><small>{{ brand.footer }}</small></footer>

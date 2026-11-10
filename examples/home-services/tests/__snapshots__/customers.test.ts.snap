@@ -16,6 +16,7 @@ exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai cus
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,19 +35,20 @@ exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai cus
       <strong lang="en">English</strong><a href="/customers?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Customers</h1>
   <p class="muted">Branch: Dubai</p>
-  <form class="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
-    <input type="search" name="q" value="" placeholder="Search by name or phone" autocomplete="off" dir="auto">
+  <form class="search" role="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
+    <input type="search" name="q" value="" placeholder="Search by name or phone" aria-label="Search by name or phone" autocomplete="off" dir="auto">
     <button type="submit">Search</button>
     <a class="btn-brand" href="/customers/new">New customer</a>
   </form>
   <table id="customer-list">
+    <caption class="visually-hidden">Customers</caption>
     <thead>
-      <tr><th>Name</th><th>Type</th><th>Phone</th><th>TRN</th><th>Sites</th></tr>
+      <tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Phone</th><th scope="col">TRN</th><th scope="col">Sites</th></tr>
     </thead>
     <tbody>
       <tr id="customer-cu_dxb_05">
@@ -106,6 +108,7 @@ exports[`the customer list is the branch's own the list in Arabic, right to left
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -120,23 +123,24 @@ exports[`the customer list is the branch's own the list in Arabic, right to left
     <a href="/org/members">الأعضاء</a>
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/customers?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>العملاء</h1>
   <p class="muted">الفرع: دبي</p>
-  <form class="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
-    <input type="search" name="q" value="" placeholder="ابحث بالاسم أو الهاتف" autocomplete="off" dir="auto">
+  <form class="search" role="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
+    <input type="search" name="q" value="" placeholder="ابحث بالاسم أو الهاتف" aria-label="ابحث بالاسم أو الهاتف" autocomplete="off" dir="auto">
     <button type="submit">بحث</button>
     <a class="btn-brand" href="/customers/new">عميل جديد</a>
   </form>
   <table id="customer-list">
+    <caption class="visually-hidden">العملاء</caption>
     <thead>
-      <tr><th>الاسم</th><th>النوع</th><th>الهاتف</th><th>الرقم الضريبي</th><th>المواقع</th></tr>
+      <tr><th scope="col">الاسم</th><th scope="col">النوع</th><th scope="col">الهاتف</th><th scope="col">الرقم الضريبي</th><th scope="col">المواقع</th></tr>
     </thead>
     <tbody>
       <tr id="customer-cu_dxb_05">
@@ -196,6 +200,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -214,7 +219,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
       <strong lang="en">English</strong><a href="/customers/cu_dxb_04?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/customers">All customers</a></p>
@@ -248,16 +253,16 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <section><form method="post" action="?/addSite" hx-post="?/addSite" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
     <h3>Add a site</h3>
     
-<p><label>Site name <input name="label" maxlength="80" value="" required dir="auto"></label></p>
-<p><label>Emirate <select name="emirate" required>
+<p><label>Site name <input name="label" maxlength="80" value="" required id="f-label" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>Emirate <select name="emirate" required id="f-emirate" aria-invalid="false" aria-describedby="" aria-required="true">
   <option value="AE-AZ" dir="auto">Abu Dhabi</option><option value="AE-DU" selected dir="auto">Dubai</option><option value="AE-SH" dir="auto">Sharjah</option><option value="AE-AJ" dir="auto">Ajman</option><option value="AE-UQ" dir="auto">Umm Al Quwain</option><option value="AE-RK" dir="auto">Ras Al Khaimah</option><option value="AE-FU" dir="auto">Fujairah</option>
 </select></label></p>
-<p><label>Area <input name="area" maxlength="80" value="" required dir="auto"></label></p>
-<p><label>Address <input name="address" maxlength="300" value="" required dir="auto"></label></p>
-<p><label>Makani number <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value=""></label></p>
-<p><label>Latitude <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" value=""></label></p>
-<p><label>Longitude <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" value=""></label></p>
-<p><label>Access notes <textarea name="access_notes" maxlength="500" dir="auto"></textarea></label></p>
+<p><label>Area <input name="area" maxlength="80" value="" required id="f-area" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>Address <input name="address" maxlength="300" value="" required id="f-address" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>Makani number <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>Latitude <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lat" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>Longitude <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lng" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>Access notes <textarea name="access_notes" maxlength="500" id="f-access_notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
 
     <p><button type="submit" class="btn-brand">Add site</button></p>
   </form></section>
@@ -285,6 +290,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -299,11 +305,11 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
     <a href="/org/members">الأعضاء</a>
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/customers/cu_dxb_04?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/customers">كل العملاء</a></p>
@@ -337,16 +343,16 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <section><form method="post" action="?/addSite" hx-post="?/addSite" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
     <h3>إضافة موقع</h3>
     
-<p><label>اسم الموقع <input name="label" maxlength="80" value="" required dir="auto"></label></p>
-<p><label>الإمارة <select name="emirate" required>
+<p><label>اسم الموقع <input name="label" maxlength="80" value="" required id="f-label" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>الإمارة <select name="emirate" required id="f-emirate" aria-invalid="false" aria-describedby="" aria-required="true">
   <option value="AE-AZ" dir="auto">أبوظبي</option><option value="AE-DU" selected dir="auto">دبي</option><option value="AE-SH" dir="auto">الشارقة</option><option value="AE-AJ" dir="auto">عجمان</option><option value="AE-UQ" dir="auto">أم القيوين</option><option value="AE-RK" dir="auto">رأس الخيمة</option><option value="AE-FU" dir="auto">الفجيرة</option>
 </select></label></p>
-<p><label>المنطقة <input name="area" maxlength="80" value="" required dir="auto"></label></p>
-<p><label>العنوان <input name="address" maxlength="300" value="" required dir="auto"></label></p>
-<p><label>رقم مكاني <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value=""></label></p>
-<p><label>خط العرض <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" value=""></label></p>
-<p><label>خط الطول <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" value=""></label></p>
-<p><label>ملاحظات الدخول <textarea name="access_notes" maxlength="500" dir="auto"></textarea></label></p>
+<p><label>المنطقة <input name="area" maxlength="80" value="" required id="f-area" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>العنوان <input name="address" maxlength="300" value="" required id="f-address" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>رقم مكاني <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>خط العرض <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lat" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>خط الطول <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lng" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>ملاحظات الدخول <textarea name="access_notes" maxlength="500" id="f-access_notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
 
     <p><button type="submit" class="btn-brand">إضافة الموقع</button></p>
   </form></section>
@@ -374,6 +380,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -392,14 +399,15 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
       <strong lang="en">English</strong><a href="/services?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Service catalogue</h1>
   
   <table id="services">
+    <caption class="visually-hidden">Service catalogue</caption>
     <thead>
-      <tr><th>Code</th><th>Service</th><th>Per</th><th>Price</th><th>VAT</th><th>Active</th></tr>
+      <tr><th scope="col">Code</th><th scope="col">Service</th><th scope="col">Per</th><th scope="col">Price</th><th scope="col">VAT</th><th scope="col">Active</th></tr>
     </thead>
     <tbody>
       <tr id="service-1">
@@ -486,6 +494,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -500,18 +509,19 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
     <a href="/org/members">الأعضاء</a>
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/services?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>قائمة الخدمات</h1>
   
   <table id="services">
+    <caption class="visually-hidden">قائمة الخدمات</caption>
     <thead>
-      <tr><th>الرمز</th><th>الخدمة</th><th>لكل</th><th>السعر</th><th>الضريبة</th><th>مفعّلة</th></tr>
+      <tr><th scope="col">الرمز</th><th scope="col">الخدمة</th><th scope="col">لكل</th><th scope="col">السعر</th><th scope="col">الضريبة</th><th scope="col">مفعّلة</th></tr>
     </thead>
     <tbody>
       <tr id="service-1">

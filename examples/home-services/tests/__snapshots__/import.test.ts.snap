@@ -1,7 +1,7 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`/admin/import the page and the report render in Arabic, right to left: role: import page, owner, ar 1`] = `
-"<main>
+"<main id="main" tabindex="-1">
       
   
   <h1>الاستيراد من إكسل</h1>
@@ -28,8 +28,8 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
   </ol>
   <form method="post" action="?/check" hx-post="?/check" class="stack narrow" id="import-form"><input type="hidden" name="_csrf" value="<csrf>">
     <p><label>محتوى الملف
-      <select name="kind"><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="contracts" dir="auto">العقود</option></select></label></p>
-    <p><label>ملف إكسل (‎.xlsx‎) <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required> <span data-upload-status="" class="muted"></span></label>
+      <select name="kind" id="f-kind" aria-invalid="false" aria-describedby=""><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="contracts" dir="auto">العقود</option></select></label></p>
+    <p><label>ملف إكسل (‎.xlsx‎) <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required aria-required="true" id="f-file_key" aria-invalid="false" aria-describedby=""> <span data-upload-status="" class="muted"></span></label>
       <input type="hidden" name="file_key"></p>
     <p><button type="submit" class="btn-brand">افحص الملف</button></p>
   </form>
@@ -41,7 +41,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
 `;
 
 exports[`/admin/import the page and the report render in Arabic, right to left: role: import report, owner, ar 1`] = `
-"<main>
+"<main id="main" tabindex="-1">
       
   
   <h1>تقرير الفحص</h1>
@@ -55,7 +55,8 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
     <dt>الأخطاء</dt><dd dir="ltr" id="total-errors">1</dd>
   </dl>
   <table id="import-errors">
-    <thead><tr><th>الصف</th><th>العمود</th><th>المشكلة</th></tr></thead>
+    <caption class="visually-hidden">تقرير الفحص</caption>
+    <thead><tr><th scope="col">الصف</th><th scope="col">العمود</th><th scope="col">المشكلة</th></tr></thead>
     <tbody>
       <tr>
         <td dir="ltr">2</td>

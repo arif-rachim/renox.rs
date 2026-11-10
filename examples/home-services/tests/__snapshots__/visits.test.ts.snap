@@ -16,6 +16,7 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,9 +35,10 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
       <strong lang="en">English</strong><a href="/me/visits/jb_seed_10?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
+  <div class="touch">
   <p><a href="/me">My visits</a></p>
   <h1 dir="ltr">J-000010</h1>
   <p><span class="status status-in_progress" id="job-status" dir="auto">In progress</span></p>
@@ -113,12 +115,28 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
       };
       canvas.addEventListener("pointerup", end);
       canvas.addEventListener("pointercancel", end);
+      // Without a pointer (keyboard, screen reader): "Type the customer's name
+      // instead" writes the typed name onto the canvas as the signature image
+      // when the form is sent, so the same signature step is satisfied.
+      const typed = document.getElementById("sig-typed");
+      const form = document.getElementById("signature-form");
+      const nameField = form ? form.querySelector('[name="signed_by"]') : null;
+      document.addEventListener("submit", (e) => {
+        if (e.target !== form || !typed || !typed.checked || !nameField || nameField.value.trim() === "") return;
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        g.fillStyle = "#111";
+        g.font = 'italic 44px "Segoe Script", "Brush Script MT", cursive, serif';
+        g.textBaseline = "middle";
+        g.fillText(nameField.value.trim(), 16, canvas.height / 2, canvas.width - 32);
+        data.value = canvas.toDataURL("image/png");
+      }, true);
       document.getElementById("sig-clear")?.addEventListener("click", () => {
         g.clearRect(0, 0, canvas.width, canvas.height);
         data.value = "";
       });
     })();
   </script>
+  </div>
 
   </main>
   <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
@@ -143,6 +161,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -161,9 +180,10 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       <strong lang="en">English</strong><a href="/me/visits/jb_seed_12?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
+  <div class="touch">
   <p><a href="/me">My visits</a></p>
   <h1 dir="ltr">J-000012</h1>
   <p><span class="status status-done" id="job-status" dir="auto">Done</span></p>
@@ -209,14 +229,15 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     <section id="parts">
       <h2>Parts used</h2>
       <table class="parts-table">
-        <thead><tr><th>Part</th><th>Quantity</th><th>Total (AED)</th><th></th></tr></thead>
+    <caption class="visually-hidden">Parts used</caption>
+        <thead><tr><th scope="col">Part</th><th scope="col">Quantity</th><th scope="col">Total (AED)</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
         <tbody>
           <tr id="part-2">
             <td dir="auto">Filter set</td><td dir="ltr">2</td><td dir="ltr">50.00</td>
             <td></td>
           </tr>
         </tbody>
-        <tfoot><tr><th colspan="2">Total (AED)</th><th dir="ltr" id="parts-total">50.00</th><th></th></tr></tfoot>
+        <tfoot><tr><th scope="row" colspan="2">Total (AED)</th><td dir="ltr" id="parts-total">50.00</td><th scope="row"><span class="visually-hidden">Actions</span></th></tr></tfoot>
       </table>
       
     </section>
@@ -237,8 +258,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       <h2>Summary for the report</h2>
       <p class="muted">Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.</p>
       <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-        <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">Both units serviced.</textarea></label></p>
-        <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">تمت صيانة الوحدتين.</textarea></label></p>
+        <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en" aria-invalid="false" aria-describedby="">Both units serviced.</textarea></label></p>
+        <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar" aria-invalid="false" aria-describedby="">تمت صيانة الوحدتين.</textarea></label></p>
         <p><button type="submit">Save summary</button></p>
       </form>
     </section>
@@ -300,12 +321,28 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       };
       canvas.addEventListener("pointerup", end);
       canvas.addEventListener("pointercancel", end);
+      // Without a pointer (keyboard, screen reader): "Type the customer's name
+      // instead" writes the typed name onto the canvas as the signature image
+      // when the form is sent, so the same signature step is satisfied.
+      const typed = document.getElementById("sig-typed");
+      const form = document.getElementById("signature-form");
+      const nameField = form ? form.querySelector('[name="signed_by"]') : null;
+      document.addEventListener("submit", (e) => {
+        if (e.target !== form || !typed || !typed.checked || !nameField || nameField.value.trim() === "") return;
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        g.fillStyle = "#111";
+        g.font = 'italic 44px "Segoe Script", "Brush Script MT", cursive, serif';
+        g.textBaseline = "middle";
+        g.fillText(nameField.value.trim(), 16, canvas.height / 2, canvas.width - 32);
+        data.value = canvas.toDataURL("image/png");
+      }, true);
       document.getElementById("sig-clear")?.addEventListener("click", () => {
         g.clearRect(0, 0, canvas.width, canvas.height);
         data.value = "";
       });
     })();
   </script>
+  </div>
 
   </main>
   <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
@@ -330,6 +367,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -344,13 +382,14 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/me/visits/jb_seed_12?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
+  <div class="touch">
   <p><a href="/me">زياراتي</a></p>
   <h1 dir="ltr">J-000012</h1>
   <p><span class="status status-done" id="job-status" dir="auto">منجزة</span></p>
@@ -396,14 +435,15 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     <section id="parts">
       <h2>القطع المستخدمة</h2>
       <table class="parts-table">
-        <thead><tr><th>القطعة</th><th>الكمية</th><th>الإجمالي (درهم)</th><th></th></tr></thead>
+    <caption class="visually-hidden">القطع المستخدمة</caption>
+        <thead><tr><th scope="col">القطعة</th><th scope="col">الكمية</th><th scope="col">الإجمالي (درهم)</th><th scope="col"><span class="visually-hidden">الإجراءات</span></th></tr></thead>
         <tbody>
           <tr id="part-2">
             <td dir="auto">Filter set</td><td dir="ltr">2</td><td dir="ltr">50.00</td>
             <td></td>
           </tr>
         </tbody>
-        <tfoot><tr><th colspan="2">الإجمالي (درهم)</th><th dir="ltr" id="parts-total">50.00</th><th></th></tr></tfoot>
+        <tfoot><tr><th scope="row" colspan="2">الإجمالي (درهم)</th><td dir="ltr" id="parts-total">50.00</td><th scope="row"><span class="visually-hidden">الإجراءات</span></th></tr></tfoot>
       </table>
       
     </section>
@@ -424,8 +464,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       <h2>ملخص التقرير</h2>
       <p class="muted">جملتان يصيغهما الذكاء الاصطناعي من ملاحظاتك وقطعك عند تشغيله. عدّلهما قبل إرسال التقرير.</p>
       <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-        <p><label>الملخص (الإنجليزية) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">Both units serviced.</textarea></label></p>
-        <p><label>الملخص (العربية) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">تمت صيانة الوحدتين.</textarea></label></p>
+        <p><label>الملخص (الإنجليزية) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en" aria-invalid="false" aria-describedby="">Both units serviced.</textarea></label></p>
+        <p><label>الملخص (العربية) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar" aria-invalid="false" aria-describedby="">تمت صيانة الوحدتين.</textarea></label></p>
         <p><button type="submit">حفظ الملخص</button></p>
       </form>
     </section>
@@ -487,12 +527,28 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       };
       canvas.addEventListener("pointerup", end);
       canvas.addEventListener("pointercancel", end);
+      // Without a pointer (keyboard, screen reader): "Type the customer's name
+      // instead" writes the typed name onto the canvas as the signature image
+      // when the form is sent, so the same signature step is satisfied.
+      const typed = document.getElementById("sig-typed");
+      const form = document.getElementById("signature-form");
+      const nameField = form ? form.querySelector('[name="signed_by"]') : null;
+      document.addEventListener("submit", (e) => {
+        if (e.target !== form || !typed || !typed.checked || !nameField || nameField.value.trim() === "") return;
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        g.fillStyle = "#111";
+        g.font = 'italic 44px "Segoe Script", "Brush Script MT", cursive, serif';
+        g.textBaseline = "middle";
+        g.fillText(nameField.value.trim(), 16, canvas.height / 2, canvas.width - 32);
+        data.value = canvas.toDataURL("image/png");
+      }, true);
       document.getElementById("sig-clear")?.addEventListener("click", () => {
         g.clearRect(0, 0, canvas.width, canvas.height);
         data.value = "";
       });
     })();
   </script>
+  </div>
 
   </main>
   <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>

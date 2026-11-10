@@ -14,7 +14,8 @@
     <button type="submit"><r-t key="appreports.show" /></button>
   </form>
   <table id="report-amc">
-    <thead><tr><th><r-t key="appreports.col.contract" /></th><th><r-t key="appreports.col.customer" /></th><th><r-t key="appreports.col.ends_on" /></th><th><r-t key="appreports.col.price" /></th><th><r-t key="appreports.col.renewal" /></th></tr></thead>
+    <caption class="visually-hidden"><r-t key="appreports.amc.title" /></caption>
+    <thead><tr><th scope="col"><r-t key="appreports.col.contract" /></th><th scope="col"><r-t key="appreports.col.customer" /></th><th scope="col"><r-t key="appreports.col.ends_on" /></th><th scope="col"><r-t key="appreports.col.price" /></th><th scope="col"><r-t key="appreports.col.renewal" /></th></tr></thead>
     <tbody>
       <tr r-for="r in rows" :id="'amc-' ~ r.contract">
         <td dir="ltr"><a :href="'/contracts/' ~ r.id">{{ r.contract }}</a></td>

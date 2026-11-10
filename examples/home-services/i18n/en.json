@@ -2,7 +2,8 @@
   "app": {
     "lang": {
       "en": "English",
-      "ar": "العربية"
+      "ar": "العربية",
+      "label": "Language"
     },
     "home": {
       "lede": "Book a visit, follow your technician and get your report.",
@@ -11,7 +12,9 @@
     "nav": {
       "jobs": "Jobs",
       "board": "Dispatch board"
-    }
+    },
+    "skip": "Skip to main content",
+    "actions": "Actions"
   },
   "customers": {
     "title": "Customers",
@@ -153,7 +156,8 @@
       "qty": "Enter a quantity above 0 with at most two decimals.",
       "price": "Enter the price in AED, for example 120 or 120.50.",
       "price_required": "A line without a service needs a price in AED."
-    }
+    },
+    "link_label": "Approval link"
   },
   "approve": {
     "title": "Quotation {number}",
@@ -252,7 +256,12 @@
     "live": "Live: the board updates when a job changes.",
     "offline": "Not connected. Reload the page.",
     "unassigned": "No technician yet",
-    "empty": "Nothing here."
+    "empty": "Nothing here.",
+    "announce": {
+      "new": "New job {number} in {column}.",
+      "moved": "Job {number} moved to {column}.",
+      "updated": "Job {number} updated in {column}."
+    }
   },
   "visits": {
     "title": "My visits",
@@ -285,7 +294,8 @@
       "caption": "Caption",
       "add": "Add a photo",
       "limit": "A photo is at most 10 MB (JPEG, PNG or WebP).",
-      "not_stored": "Photo not stored"
+      "not_stored": "Photo not stored",
+      "alt": "Photo of the work"
     },
     "parts": {
       "title": "Parts used",
@@ -308,7 +318,9 @@
       "clear": "Clear",
       "save": "Save signature",
       "saved": "Signed by {name}",
-      "none": "Not signed yet."
+      "none": "Not signed yet.",
+      "typed": "Type the customer's name instead",
+      "typed_hint": "Signs with the name typed above, written as the signature."
     },
     "checkout": {
       "title": "Check out",
@@ -554,7 +566,8 @@
       "import": "Import",
       "users": "People",
       "audit": "Audit trail",
-      "menu": "Back office"
+      "menu": "Back office",
+      "label": "Back office"
     },
     "tiles": {
       "jobs_today": "Jobs today",

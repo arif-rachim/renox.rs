@@ -27,7 +27,8 @@
   <section id="items">
     <h2><r-t key="contracts.items" /></h2>
     <table id="item-list">
-      <thead><tr><th><r-t key="contracts.f.site" /></th><th><r-t key="contracts.f.service" /></th><th><r-t key="contracts.f.visits" /></th><th><r-t key="contracts.f.next_visit" /></th><th r-if="can_edit"></th></tr></thead>
+    <caption class="visually-hidden"><r-t key="contracts.items" /></caption>
+      <thead><tr><th scope="col"><r-t key="contracts.f.site" /></th><th scope="col"><r-t key="contracts.f.service" /></th><th scope="col"><r-t key="contracts.f.visits" /></th><th scope="col"><r-t key="contracts.f.next_visit" /></th><th scope="col" r-if="can_edit"><span class="visually-hidden"><r-t key="app.actions" /></span></th></tr></thead>
       <tbody>
         <tr r-for="i in items" :id="'item-' ~ i.id">
           <td>{{ i.site }}<br><small class="muted">{{ i.address }}</small></td>
@@ -45,14 +46,14 @@
     <h2><r-t key="contracts.add_item" /></h2>
     <x-form action="item" class="stack narrow">
       <p><label><r-t key="contracts.f.site" />
-        <select name="site_id" required>
+        <select name="site_id" required id="f-site_id" :aria-invalid="'true' if errors.site_id else 'false'" :aria-describedby="'err-site_id' if errors.site_id else ''" aria-required="true">
           <option r-for="x in sites" :value="x.id" :selected="x.id == values.site_id">{{ x.name }}</option>
         </select></label></p>
       <p><label><r-t key="contracts.f.service" />
-        <select name="service" required>
+        <select name="service" required id="f-service" :aria-invalid="'true' if errors.service else 'false'" :aria-describedby="'err-service' if errors.service else ''" aria-required="true">
           <option r-for="x in catalogue" :value="x.sid" :selected="x.sid == values.service">{{ x.name }}</option>
         </select></label></p>
-      <p><label><r-t key="contracts.f.visits" /> <input name="visits" inputmode="numeric" dir="ltr" maxlength="2" :value="values.visits" required></label></p>
+      <p><label><r-t key="contracts.f.visits" /> <input name="visits" inputmode="numeric" dir="ltr" maxlength="2" :value="values.visits" required id="f-visits" :aria-invalid="'true' if errors.visits else 'false'" :aria-describedby="'err-visits' if errors.visits else ''" aria-required="true"></label></p>
       <p><button type="submit"><r-t key="contracts.add_item" /></button></p>
     </x-form>
   </section>
@@ -60,7 +61,8 @@
   <section id="visits">
     <h2><r-t key="contracts.visits" /></h2>
     <table r-if="visits" id="visit-list">
-      <thead><tr><th><r-t key="contracts.f.due" /></th><th><r-t key="contracts.f.job" /></th><th><r-t key="contracts.f.service" /></th><th><r-t key="contracts.f.site" /></th><th><r-t key="contracts.f.status" /></th></tr></thead>
+    <caption class="visually-hidden"><r-t key="contracts.visits" /></caption>
+      <thead><tr><th scope="col"><r-t key="contracts.f.due" /></th><th scope="col"><r-t key="contracts.f.job" /></th><th scope="col"><r-t key="contracts.f.service" /></th><th scope="col"><r-t key="contracts.f.site" /></th><th scope="col"><r-t key="contracts.f.status" /></th></tr></thead>
       <tbody>
         <tr r-for="v in visits" :id="'visit-' ~ v.number">
           <td dir="ltr">{{ v.due_on }}</td>

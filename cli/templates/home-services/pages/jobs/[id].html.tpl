@@ -35,8 +35,8 @@
         <select name="slot" id="slots" size="8">
           <option r-for="s in slots" :value="s.value" :selected="values.form == 'schedule' and values.slot == s.value">{{ s.label }}</option>
         </select></label></p>
-      <p r-else id="no-slots"><r-t key="jobs.schedule.none" /></p>
-      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note if values.form == 'schedule' else ''"></label></p>
+      <p r-else id="no-slots"><span id="f-schedule-slot" tabindex="-1"><r-t key="jobs.schedule.none" /></span></p>
+      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note if values.form == 'schedule' else ''" id="f-schedule-note" :aria-invalid="'true' if values.form == 'schedule' and errors.note else 'false'" :aria-describedby="'err-note' if values.form == 'schedule' and errors.note else ''"></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="jobs.schedule.submit" /></button></p>
     </x-form>
   </section>
@@ -44,9 +44,9 @@
   <section id="assign" r-if="can_schedule">
     <h2><r-t key="jobs.assign.title" /></h2>
     <x-form action="assign" class="stack narrow">
-      <p><select name="technician" required>
+      <p><label><r-t key="jobs.f.technician" /> <select name="technician" required id="f-assign-technician" :aria-invalid="'true' if values.form == 'assign' and errors.technician else 'false'" :aria-describedby="'err-technician' if values.form == 'assign' and errors.technician else ''" aria-required="true">
         <option r-for="t in technicians" :value="t.id" :selected="(values.form == 'assign' and t.id == values.technician) or (values.form != 'assign' and t.assigned)">{{ t.name }}</option>
-      </select></p>
+      </select></label></p>
       <p><button type="submit"><r-t key="jobs.assign.submit" /></button></p>
     </x-form>
   </section>
@@ -64,7 +64,7 @@
   <section id="cancel" r-if="can_cancel">
     <h2><r-t key="jobs.cancel.title" /></h2>
     <x-form action="cancel" class="stack narrow">
-      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note if values.form == 'cancel' else ''"></label></p>
+      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note if values.form == 'cancel' else ''" id="f-cancel-note" :aria-invalid="'true' if values.form == 'cancel' and errors.note else 'false'" :aria-describedby="'err-note' if values.form == 'cancel' and errors.note else ''"></label></p>
       <p><button type="submit"><r-t key="jobs.cancel.submit" /></button></p>
     </x-form>
   </section>
@@ -85,8 +85,8 @@
     <p r-if="visit.signed_by" id="signed-by"><r-t key="visits.signature.saved" :name="visit.signed_by" /></p>
     <r-group r-if="can_edit_summary">
       <x-form action="summary" class="stack narrow">
-        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">{{ values.summary_en if values.summary_en is defined else visit.summary_en }}</textarea></label></p>
-        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">{{ values.summary_ar if values.summary_ar is defined else visit.summary_ar }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary-summary_en" :aria-invalid="'true' if values.form == 'summary' and errors.summary_en else 'false'" :aria-describedby="'err-summary_en' if values.form == 'summary' and errors.summary_en else ''">{{ values.summary_en if values.summary_en is defined else visit.summary_en }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary-summary_ar" :aria-invalid="'true' if values.form == 'summary' and errors.summary_ar else 'false'" :aria-describedby="'err-summary_ar' if values.form == 'summary' and errors.summary_ar else ''">{{ values.summary_ar if values.summary_ar is defined else visit.summary_ar }}</textarea></label></p>
         <p><button type="submit"><r-t key="visits.summary.save" /></button></p>
       </x-form>
     </r-group>

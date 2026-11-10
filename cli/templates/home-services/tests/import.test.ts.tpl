@@ -369,7 +369,7 @@ describe("/admin/import", () => {
   test("the page and the report render in Arabic, right to left", async () => {
     const id = await checked("customers", [HEADER, ["Dubai", "household", "Arabic Report", "12345", null, null, "en"]]);
     const steady = (html: string) =>
-      /<main>[\s\S]*<\/main>/u
+      /<main\b[^>]*>[\s\S]*<\/main>/u
         .exec(html)?.[0]
         .replace(/<table id="imports">[\s\S]*?<\/table>/u, "<table id=\"imports\">(the latest imports)</table>")
         .replace(/im_[a-f0-9]{16}/gu, "im_ID")

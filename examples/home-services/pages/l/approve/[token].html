@@ -6,7 +6,8 @@
   <p class="notice" id="state-rejected" r-if="is_rejected"><r-t key="approve.state.rejected" /></p>
   <p class="notice" id="state-expired" r-if="is_expired"><r-t key="approve.state.expired" /></p>
   <table id="lines">
-    <thead><tr><th><r-t key="quotes.f.desc" /></th><th><r-t key="quotes.f.qty" /></th><th><r-t key="quotes.f.unit_price" /></th><th><r-t key="quotes.f.net" /></th><th><r-t key="quotes.f.vat" /></th><th><r-t key="quotes.f.total" /></th></tr></thead>
+    <caption class="visually-hidden"><r-t key="quotes.lines" /></caption>
+    <thead><tr><th scope="col"><r-t key="quotes.f.desc" /></th><th scope="col"><r-t key="quotes.f.qty" /></th><th scope="col"><r-t key="quotes.f.unit_price" /></th><th scope="col"><r-t key="quotes.f.net" /></th><th scope="col"><r-t key="quotes.f.vat" /></th><th scope="col"><r-t key="quotes.f.total" /></th></tr></thead>
     <tbody>
       <tr r-for="l in lines">
         <td>{{ l.description }}</td>
@@ -18,9 +19,9 @@
       </tr>
     </tbody>
     <tfoot>
-      <tr><th colspan="5"><r-t key="quotes.f.subtotal" /></th><td dir="ltr">{{ quote.subtotal | money }}</td></tr>
-      <tr><th colspan="5"><r-t key="quotes.f.vat" /></th><td dir="ltr">{{ quote.vat | money }}</td></tr>
-      <tr><th colspan="5"><r-t key="quotes.f.total" /></th><td dir="ltr"><strong>{{ quote.total | money }}</strong></td></tr>
+      <tr><th scope="row" colspan="5"><r-t key="quotes.f.subtotal" /></th><td dir="ltr">{{ quote.subtotal | money }}</td></tr>
+      <tr><th scope="row" colspan="5"><r-t key="quotes.f.vat" /></th><td dir="ltr">{{ quote.vat | money }}</td></tr>
+      <tr><th scope="row" colspan="5"><r-t key="quotes.f.total" /></th><td dir="ltr"><strong>{{ quote.total | money }}</strong></td></tr>
     </tfoot>
   </table>
   <p><r-t key="quotes.f.valid_until" />: <span dir="ltr">{{ quote.valid_until }}</span></p>

@@ -1,0 +1,402 @@
+// Accessibility of every page (F7-201, #727), asserted from the HTML the app
+// serves, in English and in Arabic, signed in with the role that uses the page:
+// one h1, html[lang] and html[dir], the skip link first, a main landmark to
+// skip to, a name for every control, alt on every image, no positive tabindex,
+// a scope on every table header and a caption on every table, no id used twice,
+// and every in-page link and aria-describedby pointing at an element that is
+// there. The board has its live region; an invalid form (422) marks its
+// controls and links its summary to them; the brand colour's text and lines
+// meet WCAG 2.2 AA. Lighthouse (`make lighthouse`) measures the real thing.
+// Runs on the local worker with the seed's users (password below). Arabic runs
+// after English: a page asked for with ?lang=ar keeps that language for the user.
+import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
+import { totp } from "@renoxium/sdk";
+import { app, snapshot } from "@renoxium/sdk/test";
+
+import { inkOn, lineOn, PAPER, ratio } from "../lib/contrast";
+import { tokenHash } from "../lib/links";
+
+const t = await app();
+const PASSWORD = "correct horse battery";
+
+async function signIn(jar: string, email: string, next = "/") {
+  const u = t.as(jar);
+  const res = await u.action("/auth/login", "default", { email, password: PASSWORD, next });
+  expect(res.status).toBe(303);
+  return u;
+}
+
+const rw = <T>(f: (db: Database) => T): T => {
+  const db = new Database(t.dbFile);
+  db.exec("pragma busy_timeout = 5000");
+  try {
+    return f(db);
+  } finally {
+    db.close();
+  }
+};
+
+type Who = ReturnType<typeof t.as>;
+const anonymous = t.as("anonymous");
+const dispatcher = await signIn("dispatcher", "dispatcher.dubai@fixit.example");
+
+/** The owner, with a second factor: the back office and the company's pages ask for it (as import.test.ts does). */
+async function ownerWithSecondFactor(): Promise<Who> {
+  const email = "owner@fixit.example";
+  const enrolling = await signIn("owner-enrol", email, "/admin");
+  const enrol = await enrolling.page("/2fa/enroll/totp");
+  const secret = (/id="secret"[^>]*>([A-Z2-7 ]+)</u.exec(enrol.html)?.[1] ?? "").replace(/ /gu, "");
+  expect((await enrolling.action("/2fa/enroll/totp", "confirm", { code: await totp(secret) })).status).toBe(200);
+  const halted = await t.as("owner").action("/auth/login", "default", { email, password: PASSWORD, next: "/admin" });
+  expect(halted.headers.get("location")).toBe("/2fa/verify?next=%2Fadmin");
+  expect((await t.as("owner").action("/2fa/verify", "totp", { code: await totp(secret, Date.now() / 1000 + 30), next: "/admin" })).status).toBe(303);
+  return t.as("owner");
+}
+const owner = await ownerWithSecondFactor();
+const accountant = await signIn("accountant", "accountant.dubai@fixit.example");
+const ali = await signIn("ali", "ali.dubai@fixit.example", "/me");
+const manager = await signIn("manager", "manager.dubai@fixit.example", "/customers");
+
+// What the seed does not hold: the customer's invoice and report links (only a hash is stored), and two
+// spreadsheet imports (a file with errors and a clean one), written the way the app writes them.
+const INVOICE_TOKEN = `inv${"a".repeat(40)}`;
+const REPORT_TOKEN = `rep${"b".repeat(40)}`;
+const now = Math.floor(Date.now() / 1000);
+const hashes = { invoice: await tokenHash(INVOICE_TOKEN), report: await tokenHash(REPORT_TOKEN) };
+rw((db) => {
+  db.run("insert into app__links (token_hash, kind, ref_id, expires_at, used_at) values (?, 'invoice', 'INV-000001', ?, null)", [hashes.invoice, now + 86_400]);
+  db.run("insert into app__links (token_hash, kind, ref_id, expires_at, used_at) values (?, 'report', 'vs_seed_12', ?, null)", [hashes.report, now + 86_400]);
+  const bad = JSON.stringify({ errors: [{ row: 2, column: "phone", code: "bad_phone" }, { row: 0, column: "", code: "required" }], insert: 1, update: 0, exists: 0 });
+  const ok = JSON.stringify({ errors: [], insert: 2, update: 0, exists: 1 });
+  db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11b0', 'customers', 'k1', 'bad.xlsx', 'checked', 3, 1, 0, 2, ?, 'u_owner', ?)", [bad, now]);
+  db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11c0', 'customers', 'k2', 'ok.xlsx', 'checked', 3, 2, 1, 0, ?, 'u_owner', ?)", [ok, now]);
+});
+
+// Ali checks in to his job J-000006 and records a part: its visit page then holds every form (J-000010 is still before check-in).
+expect((await ali.action("/me/visits/jb_seed_06", "checkin", {})).status).toBe(303);
+expect((await ali.action("/me/visits/jb_seed_06", "part", { description: "Hose", qty: "1", price: "10" })).status).toBe(303);
+
+// -- the audit ------------------------------------------------------------------------------------------------------
+
+interface Tag {
+  name: string;
+  attrs: Record<string, string>;
+  close: boolean;
+  at: number;
+  end: number;
+}
+
+/** The tags of a page in order; script and style contents and comments are not markup. */
+function tagsOf(html: string): Tag[] {
+  const clean = html.replace(/<!--[^]*?-->/gu, (m) => " ".repeat(m.length)).replace(/<(script|style)\b[^>]*>[^]*?<\/\1>/giu, (m) => " ".repeat(m.length));
+  const out: Tag[] = [];
+  for (const m of clean.matchAll(/<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/gu)) {
+    const attrs: Record<string, string> = {};
+    for (const a of (m[3] ?? "").matchAll(/([^\s=/>]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/gu)) attrs[(a[1] as string).toLowerCase()] = a[2] ?? a[3] ?? a[4] ?? "";
+    out.push({ name: (m[2] as string).toLowerCase(), attrs, close: m[1] === "/", at: m.index as number, end: (m.index as number) + m[0].length });
+  }
+  return out;
+}
+
+const textOf = (html: string): string =>
+  html
+    .replace(/<(select|textarea|script|style)\b[^>]*>[^]*?<\/\1>/giu, " ")
+    .replace(/<[^>]*>/gu, " ")
+    .replace(/&nbsp;|\s+/gu, " ")
+    .trim();
+
+const TEXT_INPUTS_SKIPPED = new Set(["hidden", "submit", "button", "reset", "image"]);
+
+/** What is wrong with the page: an empty list when nothing is. */
+function audit(html: string, lang: "en" | "ar"): string[] {
+  const bad: string[] = [];
+  const tags = tagsOf(html);
+  const open = (name: string) => tags.filter((x) => x.name === name && !x.close);
+
+  const h1 = open("h1").length;
+  if (h1 !== 1) bad.push(`${h1} h1 elements`);
+  const root = open("html")[0];
+  if (root?.attrs.lang !== lang || root?.attrs.dir !== (lang === "ar" ? "rtl" : "ltr")) bad.push(`html lang/dir are ${root?.attrs.lang}/${root?.attrs.dir}`);
+  const firstA = open("a")[0];
+  if (firstA === undefined || firstA.attrs.href !== "#main" || !(firstA.attrs.class ?? "").split(" ").includes("skip")) bad.push("the skip link is not the first link");
+  const mains = open("main");
+  if (mains.length !== 1 || mains[0]?.attrs.id !== "main" || mains[0]?.attrs.tabindex !== "-1") bad.push("there is not exactly one <main id=main tabindex=-1>");
+
+  // Names: a label that wraps the control (with text) or points at it, or aria-label(ledby).
+  const labels: { from: number; to: number; text: string }[] = [];
+  const closes = tags.filter((x) => x.name === "label" && x.close);
+  for (const l of open("label")) {
+    const c = closes.find((x) => x.at > l.at);
+    if (c) labels.push({ from: l.at, to: c.end, text: textOf(html.slice(l.end, c.at)) });
+  }
+  const forIds = new Set(open("label").filter((l) => l.attrs.for !== undefined && labels.some((x) => x.from === l.at && x.text !== "")).map((l) => l.attrs.for));
+  for (const c of tags.filter((x) => !x.close && (x.name === "select" || x.name === "textarea" || (x.name === "input" && !TEXT_INPUTS_SKIPPED.has((x.attrs.type ?? "text").toLowerCase()))))) {
+    const named = (c.attrs["aria-label"] ?? "").trim() !== "" || (c.attrs["aria-labelledby"] ?? "") !== "" || (c.attrs.id !== undefined && forIds.has(c.attrs.id)) || labels.some((l) => l.from < c.at && c.at < l.to && l.text !== "");
+    if (!named) bad.push(`<${c.name} name=${c.attrs.name ?? ""}> has no name`);
+  }
+  for (const b of open("button")) {
+    const close = tags.find((x) => x.name === "button" && x.close && x.at > b.at);
+    const label = (b.attrs["aria-label"] ?? "") !== "" || textOf(html.slice(b.end, close?.at ?? b.end)) !== "";
+    if (!label) bad.push("a button has no name");
+  }
+  for (const i of open("img")) if (i.attrs.alt === undefined) bad.push(`<img src=${i.attrs.src}> has no alt`);
+  for (const x of tags.filter((x) => !x.close && x.attrs.tabindex !== undefined && Number(x.attrs.tabindex) > 0)) bad.push(`<${x.name}> has tabindex ${x.attrs.tabindex}`);
+  for (const th of open("th")) if (th.attrs.scope === undefined) bad.push("a <th> has no scope");
+  const tables = open("table");
+  const captions = open("caption");
+  if (captions.length < tables.length) bad.push(`${tables.length} tables, ${captions.length} captions`);
+
+  // References.
+  const ids = tags.flatMap((x) => (x.attrs.id === undefined ? [] : [x.attrs.id]));
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) bad.push(`id ${id} is used twice`);
+    seen.add(id);
+  }
+  for (const x of tags.filter((x) => !x.close && (x.attrs["aria-describedby"] ?? "") !== "")) {
+    for (const id of (x.attrs["aria-describedby"] as string).split(/\s+/u)) if (!seen.has(id)) bad.push(`aria-describedby points at ${id}`);
+  }
+  for (const x of open("a")) if (x.attrs.href?.startsWith("#") && x.attrs.href.length > 1 && !seen.has(x.attrs.href.slice(1))) bad.push(`the link ${x.attrs.href} points nowhere`);
+  for (const x of tags.filter((x) => !x.close && x.attrs["aria-invalid"] === "true")) if ((x.attrs["aria-describedby"] ?? "") === "") bad.push(`an invalid <${x.name}> is not described`);
+  return bad;
+}
+
+describe("the audit itself", () => {
+  const GOOD = '<html lang="en" dir="ltr"><body><a class="skip" href="#main">Skip</a><main id="main" tabindex="-1"><h1>T</h1>';
+  const END = "</main></body></html>";
+
+  test("a clean page has nothing to report", () => {
+    const form = '<label>Name <input name="n"></label><label for="q">Q</label><input id="q" name="q"><input type="hidden" name="h"><img src="a" alt=""><button>Go</button>';
+    const table = '<table><caption>C</caption><thead><tr><th scope="col">A</th></tr></thead></table>';
+    expect(audit(GOOD + form + table + END, "en")).toEqual([]);
+  });
+
+  test("it finds a control with no name, a nameless image, a header with no scope, a table with no caption, a positive tabindex, a reused id and a link to nowhere", () => {
+    const html = `${GOOD}<input name="a"><label><select name="s"><option>x</option></select></label><img src="a"><table><tr><th>A</th></tr></table><div tabindex="2" id="d"></div><p id="d"></p><a href="#gone">x</a><button></button>${END}`;
+    const found = audit(html, "en").join("|");
+    expect(found).toContain("<input name=a> has no name");
+    expect(found).toContain("<select name=s> has no name");
+    expect(found).toContain("<img src=a> has no alt");
+    expect(found).toContain("a <th> has no scope");
+    expect(found).toContain("1 tables, 0 captions");
+    expect(found).toContain("<div> has tabindex 2");
+    expect(found).toContain("id d is used twice");
+    expect(found).toContain("the link #gone points nowhere");
+    expect(found).toContain("a button has no name");
+  });
+
+  test("it finds a missing skip link, a second h1 and the wrong language", () => {
+    const found = audit('<html lang="en" dir="ltr"><body><a href="/">Home</a><main><h1>a</h1><h1>b</h1></main></body></html>', "ar").join("|");
+    expect(found).toContain("2 h1 elements");
+    expect(found).toContain("html lang/dir are en/ltr");
+    expect(found).toContain("the skip link is not the first link");
+    expect(found).toContain("there is not exactly one <main id=main tabindex=-1>");
+  });
+});
+
+// -- the pages --------------------------------------------------------------------------------------------------------
+
+/** Every page under pages/, with the user who uses it (a page's ?lang is added by the test). */
+const PAGES: { path: string; as: () => Who; note?: string; /** The page is in English only (the platform's error page). */ en?: true }[] = [
+  { path: "/", as: () => anonymous },
+  { path: "/", as: () => dispatcher, note: "signed in" },
+  { path: "/nothing-here", as: () => anonymous, note: "404", en: true },
+  { path: "/l/approve/demo-q000002-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", as: () => anonymous, note: "open quotation" },
+  { path: "/l/approve/demo-q000004-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", as: () => anonymous, note: "approved quotation" },
+  { path: `/l/invoice/${INVOICE_TOKEN}`, as: () => anonymous },
+  { path: `/l/report/${REPORT_TOKEN}`, as: () => anonymous },
+  { path: "/customers", as: () => dispatcher },
+  { path: "/customers/new", as: () => dispatcher },
+  { path: "/customers/cu_dxb_04", as: () => dispatcher },
+  { path: "/quotes", as: () => dispatcher },
+  { path: "/quotes/new", as: () => dispatcher },
+  { path: "/quotes/qt_seed_02", as: () => dispatcher },
+  { path: "/jobs", as: () => dispatcher },
+  { path: "/jobs/new", as: () => dispatcher },
+  { path: "/jobs/jb_seed_05", as: () => dispatcher, note: "scheduled" },
+  { path: "/jobs/jb_seed_10", as: () => dispatcher, note: "in progress, with a visit" },
+  { path: "/jobs/jb_seed_12", as: () => dispatcher, note: "done, with a report" },
+  { path: "/dispatch", as: () => dispatcher },
+  { path: "/services", as: () => owner },
+  { path: "/contracts", as: () => owner },
+  { path: "/contracts/new", as: () => owner },
+  { path: "/contracts/ct_seed_01", as: () => owner },
+  { path: "/invoices", as: () => accountant },
+  { path: "/invoices/INV-000001", as: () => accountant },
+  { path: "/reports/technicians", as: () => owner },
+  { path: "/reports/amc", as: () => owner },
+  { path: "/reports/outstanding", as: () => accountant },
+  { path: "/admin/tile", as: () => owner },
+  { path: "/admin/settings", as: () => owner },
+  { path: "/admin/branches", as: () => owner },
+  { path: "/admin/people", as: () => owner },
+  { path: "/admin/import", as: () => owner },
+  { path: "/admin/import/im_00000000000a11b0", as: () => owner, note: "a file with errors" },
+  { path: "/admin/import/im_00000000000a11c0", as: () => owner, note: "a clean file" },
+  { path: "/me", as: () => ali },
+  { path: "/me/visits/jb_seed_10", as: () => ali, note: "before check-in" },
+  { path: "/me/visits/jb_seed_06", as: () => ali, note: "visit open" },
+  { path: "/me/visits/jb_seed_12", as: () => ali, note: "visit closed" },
+];
+
+const withLang = (path: string, lang: string) => `${path}${path.includes("?") ? "&" : "?"}lang=${lang}`;
+
+for (const lang of ["en", "ar"] as const) {
+  describe(`every page, ${lang === "en" ? "English" : "Arabic"}`, () => {
+    for (const p of PAGES.filter((x) => lang === "en" || x.en === undefined)) {
+      test(`${p.path}${p.note ? ` (${p.note})` : ""}`, async () => {
+        const res = await p.as().page(withLang(p.path, lang));
+        expect(res.status).toBe(p.note === "404" ? 404 : 200);
+        expect(audit(res.html, lang)).toEqual([]);
+      });
+    }
+  });
+}
+
+// -- the board ------------------------------------------------------------------------------------------------------------
+
+describe("the dispatch board", () => {
+  test("a polite live region, a section per column named by its heading, and the sentences it says", async () => {
+    const res = await dispatcher.page(withLang("/dispatch", "en"));
+    expect(res.html).toMatch(/<div aria-live="polite" class="visually-hidden" id="board-announcer"/u);
+    expect((res.html.match(/aria-live=/gu) ?? []).length).toBe(1);
+    expect(res.html).toContain('data-new="New job {number} in {column}."');
+    expect(res.html).toContain('data-moved="Job {number} moved to {column}."');
+    for (const status of ["new", "scheduled", "en_route", "in_progress", "done"]) {
+      expect(res.html).toMatch(new RegExp(`<section class="board-column" aria-labelledby="head-${status}">\\s*<h2 id="head-${status}"`, "u"));
+    }
+    // The card's one action is a link, and a high priority is written out, not only coloured.
+    expect(res.html).toMatch(/<article id="job-jb_seed_07" class="job-card priority-high"><a href="\/jobs\/jb_seed_07" dir="ltr">J-000007<\/a>[^]*?<span class="priority" dir="auto">High<\/span>/u);
+  });
+
+  test("the sentences are in Arabic too", async () => {
+    const res = await dispatcher.page(withLang("/dispatch", "ar"));
+    expect(res.html).toContain('data-new="مهمة جديدة {number} في {column}."');
+    expect(res.html).toContain('data-moved="انتقلت المهمة {number} إلى {column}."');
+  });
+
+  test("the client script announces a new card and a card that changed column", async () => {
+    const res = await dispatcher.page(withLang("/dispatch", "en"));
+    expect(res.html).toContain('sentence("new"');
+    expect(res.html).toContain('sentence("moved"');
+    expect(res.html).toContain("say(sentence");
+  });
+});
+
+// -- an invalid form --------------------------------------------------------------------------------------------------------
+
+describe("a form that cannot be saved (422)", () => {
+  test("the summary is an alert that can take focus and links to each control; each control is marked and described", async () => {
+    const res = await dispatcher.action("/customers/new", "create", { kind: "household", name: "", phone: "12", email: "", language: "en" });
+    expect(res.status).toBe(422);
+    expect(res.html).toMatch(/<section class="problem" role="alert" tabindex="-1" id="form-errors">/u);
+    expect(res.html).toContain('<a href="#f-name"><strong dir="auto">Name</strong></a>');
+    expect(res.html).toMatch(/<input name="name"[^>]*id="f-name"[^>]*aria-invalid="true"[^>]*aria-describedby="err-name"/u);
+    expect(res.html).toContain('id="err-name"');
+    expect(res.html).toMatch(/<input name="trn"[^>]*aria-invalid="false"[^>]*aria-describedby=""/u);
+    expect(audit(res.html, "en")).toEqual([]);
+  });
+
+  test("a page with several forms links to the control of the form that failed", async () => {
+    const res = await dispatcher.action("/jobs/jb_seed_05", "schedule", { technician: "u_dxb_ali", note: "x" });
+    expect(res.status).toBe(422);
+    expect(res.html).toContain('href="#f-schedule-slot"');
+    // The day has no free slot, so the control is the sentence that says so; the link still lands somewhere.
+    expect(res.html).toMatch(/id="f-schedule-slot"/u);
+    expect(audit(res.html, "en")).toEqual([]);
+  });
+
+  test("the same in Arabic", async () => {
+    await manager.page(withLang("/customers/new", "ar"));
+    const res = await manager.action("/customers/new", "create", { kind: "household", name: "", phone: "12", email: "", language: "ar" });
+    expect(res.status).toBe(422);
+    expect(audit(res.html, "ar")).toEqual([]);
+    expect(res.html).toContain('<html lang="ar" dir="rtl"');
+  });
+
+  test("required fields say so to a screen reader", async () => {
+    const res = await dispatcher.page(withLang("/customers/new", "en"));
+    expect(res.html).toMatch(/<input name="name"[^>]* required[^>]*aria-required="true"/u);
+  });
+});
+
+// -- the import pages -------------------------------------------------------------------------------------------------------
+
+// tests/import.test.ts pins these pages' markup by cutting out a literal `<main>`; the landmark is `<main id="main" tabindex="-1">`
+// now (the skip link's target), so that cut is empty. The same pins, here.
+describe("the import pages, in Arabic", () => {
+  const steady = (html: string) =>
+    /<main\b[^>]*>[\s\S]*<\/main>/u
+      .exec(html)?.[0]
+      .replace(/<table id="imports">[\s\S]*?<\/table>/u, '<table id="imports">(the latest imports)</table>')
+      .replace(/(["']\/[^"'\s]*\.)[0-9a-f]{16}(\.[A-Za-z0-9]+["'])/gu, "$1<hash>$2")
+      .replace(/(value=")[^"]*("[^>]*name="_csrf")/gu, "$1<csrf>$2")
+      .replace(/ nonce="[^"]*"/gu, ' nonce="<nonce>"')
+      .replace(/\d{4}-\d{2}-\d{2}/gu, "DATE") ?? "";
+
+  test("the upload page and the report of a file with errors", async () => {
+    const page = await owner.page(withLang("/admin/import", "ar"));
+    expect(page.html).toContain("افحص الملف");
+    snapshot(steady(page.html), { role: "import page, owner, ar" });
+    const report = await owner.page(withLang("/admin/import/im_00000000000a11b0", "ar"));
+    expect(report.html).toContain("تقرير الفحص");
+    snapshot(steady(report.html), { role: "import report with errors, owner, ar" });
+  });
+});
+
+// -- the technician's signature -------------------------------------------------------------------------------------------------
+
+describe("the signature step", () => {
+  test("the canvas has a name and a typed name can stand in for the drawing", async () => {
+    const res = await ali.page(withLang("/me/visits/jb_seed_06", "en"));
+    expect(res.html).toMatch(/<canvas id="sig-canvas" class="sig-canvas" role="img" aria-label="Sign in the box"/u);
+    expect(res.html).toMatch(/<input type="checkbox" id="sig-typed">\s*Type the customer(&#39;|')s name instead/u);
+    expect(res.html).toContain('document.getElementById("sig-typed")');
+  });
+
+  test("every control of the technician's pages is at least 44 px: the rule is on the page", async () => {
+    const res = await ali.page(withLang("/me/visits/jb_seed_06", "en"));
+    expect(res.html).toContain('<div class="touch">');
+    const css = await Bun.file(new URL("../public/app.css", import.meta.url)).text();
+    expect(css).toContain(".touch :is(a, button, input:not([type=\"hidden\"]), select, textarea, summary) { min-block-size: 44px; min-inline-size: 44px; }");
+  });
+});
+
+// -- colour ---------------------------------------------------------------------------------------------------------------------
+
+describe("the brand colour", () => {
+  const BRANDS = ["#e8634a", "#1f6f5c", "#ffd400", "#ffffff", "#000000", "#7f7f7f", "#0057b8", "#f5f500", "#2a2a2a", "#ff00ff"];
+
+  test("the text on a brand button is black or white, whichever reads better, at 4.5:1 or better for these colours", () => {
+    for (const brand of BRANDS) {
+      const ink = inkOn(brand);
+      expect(ratio(ink, brand)).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(ink, brand)).toBeGreaterThanOrEqual(ratio(ink === "#000000" ? "#ffffff" : "#000000", brand));
+    }
+  });
+
+  test("white is not assumed: the coral default and a yellow take black", () => {
+    expect(inkOn("#e8634a")).toBe("#000000");
+    expect(inkOn("#ffd400")).toBe("#000000");
+    expect(inkOn("#1f6f5c")).toBe("#ffffff");
+  });
+
+  test("a line or focus ring in the brand colour is 3:1 against the page, light and dark", () => {
+    for (const brand of BRANDS) {
+      expect(ratio(lineOn(brand, PAPER.light, "dark"), PAPER.light)).toBeGreaterThanOrEqual(3);
+      expect(ratio(lineOn(brand, PAPER.dark, "light"), PAPER.dark)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test("/theme prints them", async () => {
+    const css = await anonymous.request("GET", "/theme");
+    expect(css.html).toMatch(/^:root \{ --brand: #[0-9a-f]{6}; \}\n:root \{ --brand-ink: #(000000|ffffff); --brand-line: #[0-9a-f]{6}; \}\n@media \(prefers-color-scheme: dark\) \{ :root \{ --brand-line: #[0-9a-f]{6}; \} \}/u);
+  });
+
+  test("the focus ring is never removed by the app's stylesheet", async () => {
+    const css = await Bun.file(new URL("../public/app.css", import.meta.url)).text();
+    expect(css).toContain(":focus-visible { outline: 3px solid var(--brand-line); outline-offset: 2px; }");
+    expect(css).not.toMatch(/outline:\s*(none|0)\b/u);
+  });
+});

@@ -11,8 +11,9 @@
     <a class="btn-brand" href="/quotes/new" r-can="quote.write"><r-t key="quotes.new" /></a>
   </form>
   <table id="quote-list">
+    <caption class="visually-hidden"><r-t key="quotes.title" /></caption>
     <thead>
-      <tr><th><r-t key="quotes.f.number" /></th><th><r-t key="quotes.f.customer" /></th><th><r-t key="quotes.f.status" /></th><th><r-t key="quotes.f.total" /></th><th><r-t key="quotes.f.valid_until" /></th></tr>
+      <tr><th scope="col"><r-t key="quotes.f.number" /></th><th scope="col"><r-t key="quotes.f.customer" /></th><th scope="col"><r-t key="quotes.f.status" /></th><th scope="col"><r-t key="quotes.f.total" /></th><th scope="col"><r-t key="quotes.f.valid_until" /></th></tr>
     </thead>
     <tbody>
       <tr r-for="q in quotes" :id="'quote-' ~ q.id">

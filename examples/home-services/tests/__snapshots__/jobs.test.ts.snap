@@ -16,6 +16,7 @@ exports[`the job list is the branch's own filters by status, technician and day:
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,7 +35,7 @@ exports[`the job list is the branch's own filters by status, technician and day:
       <strong lang="en">English</strong><a href="/jobs?status=new&amp;lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Jobs</h1>
@@ -55,8 +56,9 @@ exports[`the job list is the branch's own filters by status, technician and day:
     <a href="/dispatch">Dispatch board</a>
   </form>
   <table id="job-list">
+    <caption class="visually-hidden">Jobs</caption>
     <thead>
-      <tr><th>Number</th><th>Customer</th><th>Service</th><th>Status</th><th>Technician</th><th>Scheduled</th></tr>
+      <tr><th scope="col">Number</th><th scope="col">Customer</th><th scope="col">Service</th><th scope="col">Status</th><th scope="col">Technician</th><th scope="col">Scheduled</th></tr>
     </thead>
     <tbody>
       <tr id="job-jb_seed_01">
