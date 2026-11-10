@@ -346,6 +346,11 @@ async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option
     };
     if let Some(status) = status {
         let m = &out.meter;
+        // #659: refusals during an event handler or job count like a request's.
+        let tenant = &cell.key.tenant_id;
+        crate::telemetry::counters::security_events(tenant, "fetch_denied", m.fetch_blocked);
+        crate::telemetry::counters::security_events(tenant, "db_auth_refused", m.db_auth_refused);
+        crate::telemetry::counters::security_events(tenant, "login_failed", m.login_failed);
         d.meter.record(MeterRecord {
             request_id: ev.request_id(),
             tenant_id: cell.key.tenant_id.clone(),

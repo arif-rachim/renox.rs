@@ -386,6 +386,32 @@
           "expr": "sum(increase(renox_worker_process_restarts_total{tenant_id=\"$tenant\"}[24h]))"
         }
       ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Security events",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum by (kind) (increase(renox_security_events_total{tenant_id=\"$tenant\"}[5m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ]
     }
   ]
 }

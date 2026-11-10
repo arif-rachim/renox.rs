@@ -332,3 +332,168 @@ async fn one_page_request_is_one_trace_and_no_secret_reaches_spans_or_metrics() 
     );
     worker.shutdown().await;
 }
+
+// ---------------------------------------------------------------- #659
+
+const SEC_FN_JS: &str = r#"
+import { auth } from "renox:modules";
+export async function GET({ url, db }) {
+  const op = url.searchParams.get("op");
+  try {
+    if (op === "fetch") await fetch("http://127.0.0.1:9/");
+    if (op === "attach") await db.execute("attach database ? as other", ["/tmp/renox-other.db"]);
+    if (op === "login") await auth.fail();
+  } catch (e) {
+    return Response.json({ code: e.code });
+  }
+  return Response.json({ code: null });
+}
+export function POST() { return Response.json({ ok: true }); }
+"#;
+
+/// A stand-in for `modules/auth` `login`'s failure path (#659).
+const SEC_AUTH_JS: &str = r#"
+export async function fail(ctx) {
+  await ctx.events.emit("auth.login_failed", { reason: "password", ip_hash: "0123456789abcdef" }, { durable: false });
+}
+"#;
+
+const SEC_PAGE_JS: &str = r#"
+export function load() { return new Response("page"); }
+export const actions = { async add() { return { ok: 1 }; } };
+"#;
+
+fn write_security_artifact(artifacts: &Path) -> String {
+    let tmp = scratch("sec-artifact-src");
+    for (id, js) in [
+        ("functions/api/sec", SEC_FN_JS),
+        ("pages/sec", SEC_PAGE_JS),
+        ("modules/auth/services", SEC_AUTH_JS),
+    ] {
+        let p = tmp.join("code").join(format!("{id}.js"));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, js).unwrap();
+    }
+    let sql = "create table app__x (id integer primary key);\n";
+    std::fs::create_dir_all(tmp.join("migrations/app")).unwrap();
+    std::fs::write(tmp.join("migrations/app/001_init.sql"), sql).unwrap();
+    use sha2::Digest;
+    let digest: String = sha2::Sha256::digest(sql.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    std::fs::write(
+        tmp.join("migrations/checksums.json"),
+        serde_json::json!({ "version": 0, "files": { "app/001_init.sql": digest } }).to_string(),
+    )
+    .unwrap();
+    let manifest = serde_json::json!({
+        "artifact": { "version": 1 },
+        "app": { "name": "security", "timezone": "UTC" },
+        "code": { "format": "esm-dir", "entry": { "functions/api/sec": "functions/api/sec.js", "pages/sec": "pages/sec.js", "modules/auth/services": "modules/auth/services.js" } },
+        "routes": [
+            { "kind": "function", "method": "GET", "path": "/api/sec", "module": "functions/api/sec", "export": "GET" },
+            { "kind": "function", "method": "POST", "path": "/api/sec", "module": "functions/api/sec", "export": "POST" },
+            { "kind": "page", "path": "/sec", "module": "pages/sec", "load": true, "actions": ["add"] }
+        ],
+        "permissions": { "network": [], "secrets": [] },
+        "modules": [{
+            "name": "auth", "version": "1.0.0", "hash": "0".repeat(64), "source": "path:modules/auth",
+            "mount": "/auth", "isolation": "shared", "dependencies": [], "config": {},
+            "permissions": { "tables": "auth__*", "network": [], "secrets": [], "slots": [], "hooks": [] },
+            "approved": { "tables": "auth__*", "network": [], "secrets": [], "slots": [], "hooks": [] },
+            "exports": { "services": ["fail"], "events": { "auth.login_failed": { "type": "object" } } },
+        }],
+        "security": { "ratelimit": [
+            { "method": "POST", "path": "/api/sec", "requests": 1, "window_s": 60, "key": "ip" }
+        ] }
+    });
+    std::fs::write(
+        tmp.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let hash = renox_runtime::manifest::content_hash(&tmp).unwrap();
+    std::fs::rename(&tmp, artifacts.join(&hash)).unwrap();
+    hash
+}
+
+async fn sec_get(addr: std::net::SocketAddr, path: &str) -> String {
+    let head = format!("GET {path} HTTP/1.1\r\nHost: sec.test\r\nConnection: close\r\n\r\n");
+    send(addr, &head).await
+}
+
+async fn sec_post(addr: std::net::SocketAddr, path: &str) -> String {
+    let head = format!(
+        "POST {path} HTTP/1.1\r\nHost: sec.test\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 5\r\nConnection: close\r\n\r\nsku=a"
+    );
+    send(addr, &head).await
+}
+
+const SECURITY_LINES: [&str; 5] = [
+    "renox_security_events_total{tenant_id=\"t_sec\",kind=\"fetch_denied\"} 1\n",
+    "renox_security_events_total{tenant_id=\"t_sec\",kind=\"db_auth_refused\"} 1\n",
+    "renox_security_events_total{tenant_id=\"t_sec\",kind=\"csrf_failed\"} 1\n",
+    "renox_security_events_total{tenant_id=\"t_sec\",kind=\"rate_limited\"} 1\n",
+    "renox_security_events_total{tenant_id=\"t_sec\",kind=\"login_failed\"} 1\n",
+];
+
+/// #659: each of the five security events adds one to
+/// `renox_security_events_total{tenant_id, kind}` (docs/24 "Security
+/// events not visible to operators"): a blocked fetch, a statement the
+/// SQLite authorizer refuses (`RENOX_DB_AUTH`), a CSRF failure, a per-route
+/// 429, and auth's `auth.login_failed` event.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn security_events_are_counted_per_kind() {
+    let root = scratch("security");
+    let text = r#"
+listen = "127.0.0.1:0"
+data_dir = "data"
+artifacts_dir = "artifacts"
+routes_file = "routes.json"
+meters_dir = "meters"
+logs_dir = "logs"
+idle_timeout_secs = 60
+meter_flush_ms = 50
+"#;
+    std::fs::write(root.join("worker.toml"), text).unwrap();
+    let config = WorkerConfig::parse(text, &root).unwrap();
+    std::fs::create_dir_all(&config.artifacts_dir).unwrap();
+    let hash = write_security_artifact(&config.artifacts_dir);
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "sec.test", "tenant_id": "t_sec", "deployment_hash": hash, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(config).await.unwrap();
+    let addr = worker.addr;
+
+    let r = sec_get(addr, "/api/sec?op=fetch").await;
+    assert!(r.contains("RENOX_FETCH_BLOCKED"), "{r}");
+    let r = sec_get(addr, "/api/sec?op=attach").await;
+    assert!(r.contains("RENOX_DB_AUTH"), "{r}");
+    // The auth module's failed sign-in, emitted in memory like `login` does.
+    let r = sec_get(addr, "/api/sec?op=login").await;
+    assert!(r.contains(r#""code":null"#), "{r}");
+    let r = sec_post(addr, "/sec?/add").await;
+    assert!(r.starts_with("HTTP/1.1 403"), "{r}");
+    let r = sec_post(addr, "/api/sec").await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    let r = sec_post(addr, "/api/sec").await;
+    assert!(r.starts_with("HTTP/1.1 429"), "{r}");
+
+    // The request records are written after the response; poll `/metrics`.
+    let mut text = String::new();
+    for _ in 0..50 {
+        text = worker.manager.metrics_text(None, vec![]).await;
+        if SECURITY_LINES.iter().all(|l| text.contains(l)) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    for line in SECURITY_LINES {
+        assert!(text.contains(line), "missing {line} in\n{text}");
+    }
+    assert!(text.contains("# TYPE renox_security_events_total counter"));
+    assert!(text.contains("renox_gateway_rate_limited_total "));
+    worker.shutdown().await;
+}

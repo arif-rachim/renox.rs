@@ -844,9 +844,24 @@ impl Failure {
     fn limit(template: &str, e: &RenderError) -> Failure {
         let mut fields = serde_json::Map::new();
         fields.insert("code".into(), RENDER_LIMIT_CODE.into());
-        fields.insert("template".into(), template.into());
+        let stats = e.stats();
+        // The innermost template that was running (a partial, say), else the page.
+        fields.insert(
+            "template".into(),
+            stats.template.as_deref().unwrap_or(template).into(),
+        );
         fields.insert("limit".into(), limit_name(e).unwrap_or("fuel").into());
-        fields.insert("render_fuel".into(), e.stats().fuel_used.into());
+        fields.insert("render_fuel".into(), stats.fuel_used.into());
+        if let Some(line) = stats.line {
+            fields.insert("line".into(), line.into());
+            // The form the dev overlay parses (`cli/src/dev/overlay/details.ts`).
+            if let Some(t) = &stats.template {
+                fields.insert(
+                    "cause_message".into(),
+                    format!("{e} (in {t}:{line})").into(),
+                );
+            }
+        }
         Failure {
             code: RENDER_LIMIT_CODE,
             message: RENDER_LIMIT_MESSAGE,

@@ -44,6 +44,8 @@ fn b13_nested_loops_stop_at_fuel_within_50_ms() {
         panic!("expected Fuel, got {err:?}");
     };
     assert_eq!(stats.fuel_used, RenderLimits::DEFAULT.fuel);
+    assert_eq!(stats.template.as_deref(), Some("pages/index"));
+    assert!(stats.line.is_some_and(|l| l > 0), "{stats:?}");
     assert!(stats.ms > 0.0);
     assert!(
         elapsed < Duration::from_millis(50),
@@ -86,6 +88,9 @@ fn iteration_limit() {
         .unwrap_err();
     assert!(matches!(e, RenderError::Iterations(_)), "{e:?}");
     assert!(e.is_limit());
+    // #657: the stop names the template and the line of the loop.
+    assert_eq!(e.stats().template.as_deref(), Some("pages/index"));
+    assert_eq!(e.stats().line, Some(1));
     // Nested loops count all iterations together.
     let c = compile_fixture("evil-nested-loops").unwrap();
     let r = Renderer::new(c.sources()).unwrap();
@@ -116,6 +121,43 @@ fn iteration_limit() {
     );
 }
 
+/// #657 (`docs/23-failure-modes.md`, "Template nested loops / huge
+/// output"): a fuel stop in a layout names the layout and its line, not the
+/// page that uses it. (A component is inlined into the page at compile
+/// time, so a stop inside one names the page.)
+#[test]
+fn fuel_stop_names_the_innermost_template_and_line() {
+    let c = compile_files(&[
+        (
+            "pages/_layouts/main.html",
+            "<!doctype html><html><body>\n<main><slot /></main>\n<table><tr r-for=\"a in rows\"><td r-for=\"b in cols\">{{ a }}{{ b }}</td></tr></table>\n</body></html>",
+        ),
+        (
+            "pages/index.html",
+            "<r-layout use=\"main\">\n  <h1>grid</h1>\n</r-layout>",
+        ),
+    ])
+    .unwrap();
+    let r = Renderer::new(c.sources()).unwrap();
+    let e = r
+        .render(
+            RenderTarget::Page("pages/index"),
+            nested_loops_data(10_000),
+            &RenderContext::default(),
+            &RenderLimits::DEFAULT,
+        )
+        .unwrap_err();
+    let RenderError::Fuel(stats) = e else {
+        panic!("expected Fuel, got {e:?}");
+    };
+    assert_eq!(
+        stats.template.as_deref(),
+        Some("pages/_layouts/main"),
+        "{stats:?}"
+    );
+    assert_eq!(stats.line, Some(3), "{stats:?}");
+}
+
 /// Output size limit: output past the limit stops the render.
 #[test]
 fn output_size_limit() {
@@ -137,6 +179,9 @@ fn output_size_limit() {
         panic!("expected OutputSize, got {e:?}");
     };
     assert!(stats.fuel_used > 0, "fuel seen at the last loop start");
+    // No location here: minijinja replaces a writer's error, and the line
+    // it carried, with its own `WriteFailure` (#657 follow-up); the cell
+    // logs the page id instead.
     // Fragments are capped too.
     let shop = compile_fixture("shop").unwrap();
     let r = Renderer::new(shop.sources()).unwrap();

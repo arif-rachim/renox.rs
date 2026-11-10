@@ -62,6 +62,10 @@ description = "A user registered"
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
 description = "A user signed in"
 
+[exports.events."auth.login_failed"]
+payload = { type = "object", required = ["reason", "ip_hash"], additionalProperties = false, properties = { reason = { enum = ["password", "unknown_user", "locked"] }, ip_hash = { type = "string" } } }
+description = "A password sign-in failed; the cell counts it as renox_security_events_total{kind=\"login_failed\"} (#659). No email, no user id"
+
 [exports.events."auth.agent_token_revoked"]
 payload = { type = "object", required = ["token_hash", "user_id", "at"], additionalProperties = false, properties = { token_hash = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
 description = "An agent token was revoked; the cell drops it from its /mcp cache (#286)"

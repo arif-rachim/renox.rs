@@ -104,6 +104,13 @@ describe("error overlay rows", () => {
     expect([d.template, d.line]).toEqual(["pages/products/index", 42]);
   });
 
+  test("a render limit error names the template and its line", () => {
+    const withCause = errorDetails(ID, [line("render limit reached", { code: "RENOX_RENDER_LIMIT", template: "partials/x.html", line: 12, limit: "fuel", cause_message: "render ran out of fuel (in partials/x.html:12)" })], null);
+    expect([withCause.template, withCause.line]).toEqual(["partials/x.html", 12]);
+    const bare = errorDetails(ID, [line("render limit reached", { code: "RENOX_RENDER_LIMIT", template: "partials/x.html", line: 12, limit: "fuel" })], null);
+    expect([bare.template, bare.line]).toEqual(["partials/x.html", 12]);
+  });
+
   test("a denial names the action, the principal and the deciding policy; a scope refusal the table and the statement shape", () => {
     const g = CASES.guard_denied as (typeof CASES)[string];
     const rows = Object.fromEntries(overlayRows(g.status, errorDetails(ID, g.lines, null)).rows);

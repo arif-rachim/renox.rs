@@ -678,6 +678,17 @@ fn agent_of(v: &serde_json::Value) -> Option<Agent> {
     })
 }
 
+/// The event the cell emits after every `tools/call` that passed the token
+/// check (#658; `ops.md` section 15): one per call, whatever its outcome.
+pub const TOOL_CALLED_EVENT: &str = "mcp.tool_called";
+/// The code of the tenant log line written for each call.
+pub const TOOL_CALL_CODE: &str = "RENOX_TOOL_CALL";
+
+/// One `tools/call`, audited (#658): the outbox event `mcp.tool_called`
+/// (the `audit` module turns it into a row) and one tenant log line, so an
+/// app without the module still has the trail in `renox logs`. A call to a
+/// tool that does not exist is a protocol error, not a tool call: no
+/// record (and an unknown name is not a bounded string to store).
 #[allow(clippy::too_many_arguments)]
 async fn call(
     manager: &crate::CellManager,
@@ -689,6 +700,72 @@ async fn call(
     token_hash: &[u8; 32],
     tools: &[ToolRoute],
 ) -> Response<Bytes> {
+    let name = params
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let (response, outcome) =
+        run_call(manager, cell, ctx, id, params, agent, token_hash, tools).await;
+    if let Some(outcome) = outcome {
+        audit_call(cell, manager, ctx, &name, agent, outcome).await;
+    }
+    response
+}
+
+async fn audit_call(
+    cell: &Cell,
+    manager: &crate::CellManager,
+    ctx: &RequestCtx,
+    tool: &str,
+    agent: &Agent,
+    outcome: &'static str,
+) {
+    let client: String = agent
+        .client
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("unknown")
+        .chars()
+        .take(200)
+        .collect();
+    let at = now_ms();
+    let mut f = serde_json::Map::new();
+    f.insert("code".into(), TOOL_CALL_CODE.into());
+    f.insert("tool".into(), tool.into());
+    f.insert("client".into(), client.clone().into());
+    f.insert("outcome".into(), outcome.into());
+    f.insert("request_id".into(), ctx.request_id.clone().into());
+    cell.isolate
+        .log("info", Some(&ctx.request_id), "mcp tool call", f);
+    let payload = serde_json::json!({
+        "tool": tool,
+        "agent_user_id": agent.principal.id,
+        "client": client,
+        "outcome": outcome,
+        "request_id": ctx.request_id,
+        "at": at,
+    });
+    if let Err(e) = manager
+        .emit_platform_event(&cell.key.tenant_id, TOOL_CALLED_EVENT, payload.to_string())
+        .await
+    {
+        tracing::warn!(tool, error = %e, "mcp.tool_called could not be written to the outbox");
+    }
+}
+
+/// The call itself and the outcome to audit (`None`: not a tool call).
+#[allow(clippy::too_many_arguments)]
+async fn run_call(
+    manager: &crate::CellManager,
+    cell: &Cell,
+    ctx: &RequestCtx,
+    id: &serde_json::Value,
+    params: serde_json::Value,
+    agent: &Agent,
+    token_hash: &[u8; 32],
+    tools: &[ToolRoute],
+) -> (Response<Bytes>, Option<&'static str>) {
     let rid = ctx.request_id.as_str();
     let name = params
         .get("name")
@@ -699,37 +776,46 @@ async fn call(
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
     let Some(tool) = tools.iter().find(|t| t.name == name) else {
-        return rpc_protocol(id, -32602, "Unknown tool", rid);
+        return (rpc_protocol(id, -32602, "Unknown tool", rid), None);
     };
-    // 2. Scope.
+    // 2. Scope: a denied call ("forbidden", like the Cedar refusal).
     if !agent.covers(&tool.name) {
-        return rpc_error(
-            StatusCode::FORBIDDEN,
-            id,
-            "RENOX_TOOL_SCOPE",
-            "The token does not allow this tool.",
-            rid,
-            None,
+        return (
+            rpc_error(
+                StatusCode::FORBIDDEN,
+                id,
+                "RENOX_TOOL_SCOPE",
+                "The token does not allow this tool.",
+                rid,
+                None,
+            ),
+            Some("forbidden"),
         );
     }
     // 3. Rate limit (no body code, like the gateway's).
     if let Err(retry) = cell.mcp.take(token_hash) {
-        return Response::builder()
-            .status(StatusCode::TOO_MANY_REQUESTS)
-            .header(header::RETRY_AFTER, retry.max(1))
-            .body(Bytes::new())
-            .expect("valid");
+        return (
+            Response::builder()
+                .status(StatusCode::TOO_MANY_REQUESTS)
+                .header(header::RETRY_AFTER, retry.max(1))
+                .body(Bytes::new())
+                .expect("valid"),
+            Some("rate_limited"),
+        );
     }
     // 4. Input.
     let problems = validate(&tool.input, &args);
     if !problems.is_empty() {
-        return rpc_error(
-            StatusCode::BAD_REQUEST,
-            id,
-            "RENOX_TOOL_INPUT",
-            "The tool input is invalid.",
-            rid,
-            Some(serde_json::Value::Array(problems)),
+        return (
+            rpc_error(
+                StatusCode::BAD_REQUEST,
+                id,
+                "RENOX_TOOL_INPUT",
+                "The tool input is invalid.",
+                rid,
+                Some(serde_json::Value::Array(problems)),
+            ),
+            Some("input"),
         );
     }
     let args_json = args.to_string();
@@ -747,13 +833,16 @@ async fn call(
                     .mcp
                     .redeem(t, &tool.name, args_json.as_bytes(), token_hash)
                 {
-                    return rpc_error(
-                        StatusCode::CONFLICT,
-                        id,
-                        "RENOX_TOOL_CONFIRM",
-                        "The confirmation is missing, expired, or already used.",
-                        rid,
-                        Some(serde_json::json!({ "reason": why })),
+                    return (
+                        rpc_error(
+                            StatusCode::CONFLICT,
+                            id,
+                            "RENOX_TOOL_CONFIRM",
+                            "The confirmation is missing, expired, or already used.",
+                            rid,
+                            Some(serde_json::json!({ "reason": why })),
+                        ),
+                        Some("failed"),
                     );
                 }
             }
@@ -780,24 +869,31 @@ async fn call(
         )
         .await;
     if out.outcome == InvokeOutcome::Forbidden {
-        return rpc_error(
-            StatusCode::FORBIDDEN,
-            id,
-            "RENOX_FORBIDDEN",
-            "You are not allowed to do this.",
-            rid,
-            None,
+        return (
+            rpc_error(
+                StatusCode::FORBIDDEN,
+                id,
+                "RENOX_FORBIDDEN",
+                "You are not allowed to do this.",
+                rid,
+                None,
+            ),
+            Some("forbidden"),
         );
     }
     if out.outcome == InvokeOutcome::NoHandler {
-        return rpc_protocol(id, -32602, "Unknown tool", rid);
+        return (rpc_protocol(id, -32602, "Unknown tool", rid), None);
     }
     record(manager, ctx, &tool.name, &out.meter, t0, started_at);
     // 7. The output.
+    let mut audited = "failed";
     let body = match out.outcome {
         InvokeOutcome::Ok(json) => {
             let value: serde_json::Value =
                 serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
+            if !(preview && value.get("error").is_some()) {
+                audited = if preview { "preview" } else { "ok" };
+            }
             if preview && value.get("error").is_some() {
                 // The preview failed: nothing to confirm, so no token. The
                 // result keeps the shape of a preview, without
@@ -826,7 +922,7 @@ async fn call(
             tool_result(serde_json::json!("The tool failed."), true)
         }
     };
-    result(id, body, rid)
+    (result(id, body, rid), Some(audited))
 }
 
 #[cfg(test)]

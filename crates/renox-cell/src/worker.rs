@@ -488,6 +488,13 @@ impl Worker {
             gw_config.security_txt = Some(Arc::new(txt));
         }
         let gateway = Gateway::new(gw_config, routes.clone());
+        // #659: the gateway's 429s, exported by `/metrics` (it has no listener of its own).
+        {
+            let g = gateway.clone();
+            crate::telemetry::counters::register_gateway_rate_limited(move || {
+                g.stats().rate_limited
+            });
+        }
         // `/__renox/events` lines go to the same tenant log (#126).
         gateway.set_client_event_sink(Arc::new(ClientLogSink::new(log_sink, &config.data_dir)));
         let (listener, addr) = match &config.listen {

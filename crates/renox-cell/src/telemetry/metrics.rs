@@ -291,6 +291,31 @@ impl Metrics {
                     "renox_worker_sandbox_denials_total{{kind=\"{kind}\"}} {n}"
                 );
             }
+            // #659: the five events of the threat model, per tenant.
+            family(
+                &mut out,
+                "renox_security_events_total",
+                "counter",
+                "Security events by tenant and kind: fetch_denied, db_auth_refused, csrf_failed, rate_limited, login_failed.",
+            );
+            for ((t, kind), n) in &c.security {
+                let _ = writeln!(
+                    out,
+                    "renox_security_events_total{{tenant_id=\"{}\",kind=\"{kind}\"}} {n}",
+                    esc(t)
+                );
+            }
+            family(
+                &mut out,
+                "renox_gateway_rate_limited_total",
+                "counter",
+                "Requests the gateway's per-IP rate limit refused with 429 (before any tenant is known).",
+            );
+            let _ = writeln!(
+                out,
+                "renox_gateway_rate_limited_total {}",
+                c.gateway_rate_limited
+            );
             family(
                 &mut out,
                 "renox_worker_replication_lag_seconds",

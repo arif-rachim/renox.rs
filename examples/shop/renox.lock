@@ -5,7 +5,7 @@ version = 1
 name = "audit"
 version = "1.0.0"
 source = "official"
-hash = "af95c4f9be252e48ae6bc1ab43f824697758b2c2352c391774c08e3cb6c03057"
+hash = "589ad20a024c02d5541e44ca21e85011e3b4647badff2584f58b2a440747e320"
 isolation = "shared"
 mount = "/audit"
 dependencies = []
@@ -27,7 +27,7 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.1.0"
 source = "official"
-hash = "5ee2604452fa8537667958e965c1e4137d78bc62f6909e473aae07531060f986"
+hash = "0cfbcde39e870cefa80d29abffb9ce59018d4110ca1395cb906ca100c2af87db"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]

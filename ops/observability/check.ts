@@ -41,7 +41,7 @@ export function failureModes(doc: string): Set<string> {
 
 const PROMQL_WORDS = new Set([
   "sum", "max", "min", "avg", "count", "rate", "increase", "irate", "histogram_quantile", "by", "without", "on", "ignoring",
-  "and", "or", "unless", "group_left", "group_right", "offset", "bool", "label_values", "abs", "clamp_min", "clamp_max", "le",
+  "and", "or", "unless", "group_left", "group_right", "offset", "bool", "label_values", "quantile_over_time", "abs", "clamp_min", "clamp_max", "le",
 ]);
 
 /** The metric names an expression reads (identifiers that are not PromQL words, labels, strings or durations). */

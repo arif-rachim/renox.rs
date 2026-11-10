@@ -391,6 +391,40 @@ impl CellManager {
         handle.call(renox_data::outbox::stats).await.ok()?.ok()
     }
 
+    /// Write a platform event (module `renox`, like `authz.roles_changed`)
+    /// to the tenant's outbox from the cell (#658: `mcp.tool_called`).
+    pub(crate) async fn emit_platform_event(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        payload: String,
+    ) -> Result<(), String> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()
+            .ok_or("no database")?;
+        let handle = slot.lock().await.handle.clone().ok_or("no database")?;
+        let ev = renox_data::outbox::OutboxEvent {
+            id: renox_runtime::ops::events::ulid(),
+            name: name.to_string(),
+            payload,
+            module: renox_data::PLATFORM_MODULE.into(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+        };
+        handle
+            .call(move |db| renox_data::outbox::emit_autocommit(db, &ev))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
+    }
+
     /// Statement counters of a tenant's open database (tests: the outbox
     /// worker does not poll an idle tenant).
     pub async fn db_stats(&self, tenant_id: &str) -> Option<renox_data::DbStats> {
@@ -1331,6 +1365,7 @@ impl CellManager {
             && let Some(retry) =
                 buckets.check(parts.method.as_str(), parts.uri.path(), ctx.client_ip)
         {
+            crate::telemetry::counters::security_event(&ctx.tenant_id, "rate_limited");
             return Response::builder()
                 .status(http::StatusCode::TOO_MANY_REQUESTS)
                 .header(http::header::RETRY_AFTER, retry)
@@ -1361,6 +1396,7 @@ impl CellManager {
                 f.insert("route".into(), route.into());
                 f.insert("action".into(), action.into());
                 f.insert("reason".into(), reason.into());
+                crate::telemetry::counters::security_event(&ctx.tenant_id, "csrf_failed");
                 cell.isolate
                     .log("warn", Some(&ctx.request_id), "csrf check failed", f);
                 // 403 with the error page; no tenant code ran, no meter record.
@@ -1643,6 +1679,14 @@ impl CellManager {
         let Some(route) = m.route.clone() else {
             return;
         };
+        // #659: refusals the runtime counted during the request.
+        crate::telemetry::counters::security_events(&rc.tenant_id, "fetch_denied", m.fetch_blocked);
+        crate::telemetry::counters::security_events(
+            &rc.tenant_id,
+            "db_auth_refused",
+            m.db_auth_refused,
+        );
+        crate::telemetry::counters::security_events(&rc.tenant_id, "login_failed", m.login_failed);
         // #295: the request families of `/metrics`.
         self.inner.metrics.request(
             &rc.tenant_id,

@@ -45,6 +45,10 @@ pub(crate) struct RequestState {
     pub egress: Arc<EgressCounter>,
     /// Fetches refused with `RENOX_FETCH_BLOCKED`, caught or not.
     pub fetch_blocked: u64,
+    /// Statements the SQLite authorizer refused (`RENOX_DB_AUTH`, #659).
+    pub db_auth_refused: u64,
+    /// `auth.login_failed` events emitted (#659).
+    pub login_failed: u64,
     pub fetches_in_flight: u32,
     /// Response bodies currently open (each holds a connection); shared
     /// with the body resources, which decrement it when they close.
@@ -93,6 +97,8 @@ impl RequestState {
             cancel: CancelHandle::new_rc(),
             egress: Arc::new(EgressCounter::new(egress_limit_bytes)),
             fetch_blocked: 0,
+            db_auth_refused: 0,
+            login_failed: 0,
             fetches_in_flight: 0,
             open_bodies: Rc::new(std::cell::Cell::new(0)),
             resources: RequestResources::default(),

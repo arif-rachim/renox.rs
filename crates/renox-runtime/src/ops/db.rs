@@ -1073,6 +1073,9 @@ mod v8_ops {
             let mut r = request.borrow_mut();
             r.db_ms += measured.ms;
             r.db_rows += measured.rows;
+            if matches!(&measured.value, Err(DbError::Auth { .. })) {
+                r.db_auth_refused += 1;
+            }
             if let Err(e) = &measured.value
                 && renox_data::integrity::is_corruption(e)
             {
