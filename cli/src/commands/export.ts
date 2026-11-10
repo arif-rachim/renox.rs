@@ -8,7 +8,7 @@
 //
 //   manifest.json           what was exported, with the hashes
 //   worker.toml             the worker's config (local mode)
-//   routes.json             every hostname of the app, 127.0.0.1 and localhost -> the artifact
+//   routes.json             every hostname of the app and 127.0.0.1 -> the artifact (a one-label name such as localhost is refused by the route table, V13)
 //   platform.key            32 random bytes as hex, 0600 (platform sessions are not carried over)
 //   secrets.txt             the secret NAMES (values never leave the platform)
 //   artifact/<hash>/        the active deployment
@@ -172,7 +172,7 @@ async function exportInto(io: Io, name: string, out: string, outName: string, sa
   say(`Secrets: ${sec.secrets.length} name${sec.secrets.length === 1 ? "" : "s"} in secrets.txt (values are not exported)`);
 
   // The worker's directory.
-  const hostnames = [...new Set([...app.hostnames, "127.0.0.1", "localhost"])];
+  const hostnames = [...new Set([...app.hostnames, "127.0.0.1"])];
   writeRoutesFile(join(out, "routes.json"), routeEntries({ hostnames, tenantId: tenant, hash }));
   writeFileSync(join(out, "worker.toml"), workerToml());
   writeFileSync(join(out, "platform.key"), Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex"), { mode: 0o600 });

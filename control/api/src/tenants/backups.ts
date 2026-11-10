@@ -300,7 +300,7 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     if (bytes === null) throw unavailable("artifact", "the artifact object is missing");
     let stored: ExportAnswer;
     try {
-      stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "artifact", hash, suffix: "artifact.tar.gz", body: bytes, expectedSha: null, seconds });
+      stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "artifact", hash, suffix: "artifact.tar.gz", body: bytes[0] === 0x1f && bytes[1] === 0x8b ? bytes : Bun.gzipSync(bytes), expectedSha: null, seconds });
     } catch (e) {
       if (e instanceof ApiError) throw e;
       throw unavailable("store", "the copy could not be written");
