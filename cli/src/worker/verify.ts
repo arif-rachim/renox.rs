@@ -41,20 +41,20 @@ export const PINNED_WORKER: {
   sha256: Readonly<Record<string, string>>;
   pdf: Readonly<Record<string, string>>;
 } = {
-  version: "0.6.1",
+  version: "0.7.0",
   sha256: {
-    "x86_64-unknown-linux-gnu": "069e36500f4ba85c8c6438bb115a0ecfbeab4d21f629149bcce57d29d3ce5d11",
-    "aarch64-unknown-linux-gnu": "65804364f326fbe59ae2b654f502d2ea4145fbdde2f4a69886afc9f27ff9e8f0",
-    "x86_64-apple-darwin": "f6e38bfcda429d2b2601af6c07356a4c875fa2dff0c44b4ac4a09b1f11477398",
-    "aarch64-apple-darwin": "9fc16ae25e3416982c169480b3cbede3ac4b53382e3ad985411efc94832ed45e",
+    "x86_64-unknown-linux-gnu": "cbd56176894332a456f146e6dc4de34609f723ee565ea0c35118f6c20a2a6317",
+    "aarch64-unknown-linux-gnu": "cdfb851c055c43a41f8cd8778e66bbcc8a238e18d3aa83444f5c13f670bfc002",
+    "x86_64-apple-darwin": "7add960f6b8c10e29c0723c0e21bbe9d28b08157312d56a61002ff7f6e24679c",
+    "aarch64-apple-darwin": "fc2cf4792596fea17ed8d53a6aa455a17a36a19439410d8df97bf1e16a8174fb",
     // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
-    "x86_64-pc-windows-msvc": "9d99fe2dee21a5ef5aeded4a3a52898189336f74bcdaeeb91d450053285cd8d7",
+    "x86_64-pc-windows-msvc": "a1af6a034115affa424f7a1ce170784433310488856a9192c9532f32d9605a57",
   },
   pdf: {
-    "x86_64-unknown-linux-gnu": "2a59bac049a2b38d55fc02ff7e03f7f4eee3570e2e8e61adbc4699937ab85092",
-    "aarch64-unknown-linux-gnu": "c8050f124150fe570b60675609bba4190922dad53f7b19aa50800c1fdbe198e9",
-    "x86_64-apple-darwin": "c0ae4ae9be597c4245232d412abc56f49b6d6c6b8f7aa766e02cbf52f969170a",
-    "aarch64-apple-darwin": "ae55de9edb7cf4b87e8879560ed9b0397ec4d6b09a53c65de47278a4a4ba3fb0",
+    "x86_64-unknown-linux-gnu": "b71aba789744f7a6ffa644f2899542ab2a445f9890be32889c36c415500fdf46",
+    "aarch64-unknown-linux-gnu": "d3f3f5a49aa7805ecfc42699eb16cbacc86a586fb544f5304c925ba78f6041bf",
+    "x86_64-apple-darwin": "d57b8d088faed9774669e643aba07b8e9fd7b7bf3fb0392eda0700e3a764fa17",
+    "aarch64-apple-darwin": "0fa8d705a8bc091dacd8e4519df17826557583871fdec553744f88e60ee6daf8",
   },
 };
 

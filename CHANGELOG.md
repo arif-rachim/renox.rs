@@ -6,6 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **Worker**
 
+- Pins `renox-worker` 0.7.0.
 - The app handles module events, fills hook points and emits its own events (artifact 1.8, ops.md 1.12.0 section 15.4): the `hooks` code entry registers as module `app` (no `permissions.hooks`; in memory and in hook order after the modules of equal priority; deliveries as `Renox::System::"app"`, route `EVENT app <name>`, the same retries and dead letter); `ctx.events.emit("app.<name>", …)` is allowed for the names of the manifest `events` map, with the payload checked against its schema; an undeclared `app.*` name, or one emitted by a module, is `RENOX_MODULE_UNDECLARED`. App slot fillers render in a module's `<r-slot>` (#633).
 - `ctx.pdf.render` embeds images (`ops.md` 1.13.0, section 24): `<img src="/_img/<key>?w=<n>">` (a tenant file by key, private keys included, at most 1600 px, JPEG or PNG, through the `/_img` variant cache) and `data:image/png;base64,` / `data:image/jpeg;base64,` URIs (at most 2 MiB each); at most 50 images and 20 MB of image bytes per document, else `RENOX_PDF_LIMIT`; any other `src` is dropped. The template engine lets these two `data:` types through on `<img src>` only (#582).
 

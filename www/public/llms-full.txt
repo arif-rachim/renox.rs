@@ -39,7 +39,7 @@ renox --version
 ```
 
 ```
-renox 0.1.10 (renox-worker 0.6.1)
+renox 0.1.10 (renox-worker 0.7.0)
 ```
 
 **Windows (x64), in PowerShell:** `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` installs `renox.exe` and `renox-worker.exe`; `renox dev` and `renox test` run without WSL 2.
@@ -277,7 +277,7 @@ renox --version
 ```
 
 ```
-renox 0.1.10 (renox-worker 0.6.1)
+renox 0.1.10 (renox-worker 0.7.0)
 ```
 
 On Windows (x64), in PowerShell: `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
@@ -2691,7 +2691,7 @@ On Linux or macOS (x64 or arm64):
 ```sh
 curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.10/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.10 (renox-worker 0.6.1)
+renox --version                          # renox 0.1.10 (renox-worker 0.7.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -2781,7 +2781,7 @@ For a worker use `release-worker\.yml@refs/tags/worker-v` and the worker release
 The variant is published gzip-compressed: the `.gz` is what `SHA256SUMS`, its signature and the provenance cover, and the `.gz` is small enough for cosign. `SHA256SUMS.unpacked`, signed as well, lists the sha256 of each binary after `gunzip`, and the CLI pins those hashes beside the default ones (`PINNED_WORKER.pdf`), so it runs either build and refuses anything else with `RENOX_CLI_WORKER_UNVERIFIED`. `fetch-worker.ts --pdf` checks the `.gz` against its `.sha256`, unpacks it and installs it as `renox-worker`; run it without `--pdf` to go back. `RENOX_WORKER_VARIANT=pdf sh install.sh` does the same for an installed `renox` (any other value but `default` is refused); run it without the variable to go back. With an installed `renox` and no checkout, verify and unpack the variant by hand, then point `renox dev` at it:
 
 ```sh
-v=0.6.1; a=renox-worker-$v-x86_64-unknown-linux-gnu-pdf
+v=0.7.0; a=renox-worker-$v-x86_64-unknown-linux-gnu-pdf
 id='^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-worker\.yml@refs/tags/worker-v'
 cosign verify-blob --bundle $a.gz.sigstore.json --certificate-identity-regexp "$id" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com $a.gz
@@ -3167,7 +3167,7 @@ Linux and macOS, x64 and arm64 (Windows: a PowerShell installer, and WSL 2 for `
 
 ```sh
 curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.10/install.sh | sh
-renox --version        # renox 0.1.10 (renox-worker 0.6.1)
+renox --version        # renox 0.1.10 (renox-worker 0.7.0)
 ```
 
 With Bun 1.4 or later instead: `bun add -g @renoxium/cli` (or `bunx @renoxium/cli new myapp`, `bun create renox myapp`); the worker is downloaded into `~/.renox/bin` on first use (`docs/12-developer-experience.md`, "Installing the CLI").

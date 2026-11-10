@@ -5,7 +5,7 @@
 # /etc/renox/worker.toml from ops/worker.toml.example, then enables
 # renox-node.target.
 #
-#   sudo ops/scripts/bootstrap-node.sh --worker-version 0.6.1 \
+#   sudo ops/scripts/bootstrap-node.sh --worker-version 0.7.0 \
 #     --node-id node-dxb-01 --control-url https://10.0.1.5:8788 \
 #     --region me-central-1 --blocked-addresses 203.0.113.10,10.0.1.5 \
 #     --node-token-file ./node.token [--health-listen 10.0.1.11:9090]
