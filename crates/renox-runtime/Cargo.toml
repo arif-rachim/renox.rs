@@ -71,7 +71,7 @@ typst = { version = "0.15.1", optional = true }
 typst-pdf = { version = "0.15.1", optional = true }
 typst-layout = { version = "0.15.1", optional = true }
 html5ever = { version = "0.39.0", optional = true }
-markup5ever_rcdom = { version = "0.39.0", optional = true }
+markup5ever_rcdom = { version = "0.40.1", optional = true }
 # #582: `data:image/png|jpeg;base64,` URIs in a PDF template.
 base64 = { version = "0.23", optional = true }
 tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
