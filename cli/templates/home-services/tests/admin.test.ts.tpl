@@ -1,13 +1,17 @@
-// The back office (F7-128): /admin for the owner only (branding, branches,
-// people, audit), the branding reaching the layout, the quotation PDF and the
-// invoice email, a technician invited to Sharjah who may open /me and nothing
-// else, an accountant promoted without a second factor who cannot issue until
-// one is set up, and the audit trail finding a row for every sensitive action.
-// Runs on the local worker with the seed's users (password below).
+// The back office (F7-128): the `admin` module's back office at /admin with
+// the app's sidebar links and tile ([[slots]] in renox.toml) and the app's own
+// pages beside it (branding, branches, people), for the owner only; the
+// branding reaching the layout, the quotation PDF and the invoice email; a
+// technician invited to Sharjah who gets the role when they accept (the
+// `org.member_added` handler of hooks.ts, no page opened) and may open /me and
+// nothing else; an accountant promoted without a second factor who cannot
+// issue until one is set up; and the module's audit trail finding a row for
+// every sensitive action. Runs on the local worker with the seed's users
+// (password below).
 import { Database } from "bun:sqlite";
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { totp } from "@renoxium/sdk";
-import { app, snapshot } from "@renoxium/sdk/test";
+import { app, snapshot, type TestApp } from "@renoxium/sdk/test";
 
 import { base64Of, solidPng } from "../lib/placeholder-png";
 
@@ -37,6 +41,20 @@ const setting = (key: string): string => String(rows("select value from app__set
 const PNG = `data:image/png;base64,${base64Of(solidPng([200, 30, 30], 16).bytes)}`;
 /** The numbers of the dashboard tiles move with the day: they are masked in the snapshots. */
 const steady = (html: string) => html.replace(/(<strong dir="ltr">)\d+(<\/strong>)/gu, "$1<n>$2");
+/** The module's sidebar, with the app's links in it. */
+const sidebar = (html: string) => /<nav class="renox-admin-sidebar"[\s\S]*?<\/nav>/u.exec(html)?.[0] ?? "";
+/** The app's tile on the module's dashboard, as the dashboard renders it (before htmx asks for the numbers). */
+const tileSlot = (html: string) => /<article id="home-services-tile"[\s\S]*?<\/article>/u.exec(html)?.[0] ?? "";
+/** What htmx gets for the tile: the `tile` fragment of /admin/tile. */
+const tileFragment = (who: TestApp, query = "") => who.request("GET", `/admin/tile${query}`, { headers: { "hx-request": "true", "hx-target": "home-services-tile" } });
+/** Polls until `f` returns something other than undefined (an event handler runs after the commit, on the worker's outbox). */
+async function until<T>(f: () => T | undefined, what: string, ms = 10_000): Promise<T> {
+  for (const end = Date.now() + ms; Date.now() < end; await Bun.sleep(50)) {
+    const v = f();
+    if (v !== undefined) return v;
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
 
 /** Enrols a TOTP factor for `email` on one session, then signs in on another that passed it (as invoices.test.ts does). */
 async function withSecondFactor(jar: string, email: string, next: string) {
@@ -59,21 +77,55 @@ const customer = t.as("customer");
 const { plain: ownerNoFactor, verified: owner } = await withSecondFactor("owner", "owner@fixit.example", "/admin");
 
 describe("/admin per role", () => {
-  test("normal case: the owner sees the dashboard with the branch's three numbers", async () => {
+  test("normal case: the owner sees the module's dashboard with the app's sidebar links and its tile", async () => {
     const res = await owner.page("/admin");
     expect(res.status).toBe(200);
+    // The module's own page: its layout, its users card.
+    expect(res.html).toContain('class="renox-admin-sidebar"');
+    expect(res.html).toContain('id="admin-card-users"');
+    // The admin.sidebar filler: the app's pages.
+    const nav = sidebar(res.html);
+    for (const href of ["/admin/branches", "/admin/people", "/admin/settings", "/admin/audit"]) expect(nav).toContain(`href="${href}"`);
+    // The admin.dashboard filler: htmx asks /admin/tile for the numbers.
+    const tile = tileSlot(res.html);
+    expect(tile).toContain('hx-get="/admin/tile"');
+    snapshot(`${nav}\n${tile}`, { role: "admin sidebar and tile, owner, en" });
+    for (const path of ["/admin/settings", "/admin/branches", "/admin/people", "/admin/audit", "/admin/users", "/admin/tile"]) expect((await owner.page(path)).status).toBe(200);
+  });
+
+  test("the tile's fragment holds the branch's three numbers", async () => {
+    const res = await tileFragment(owner);
+    expect(res.status).toBe(200);
+    expect(res.html).toStartWith('<article id="home-services-tile"');
     expect(res.html).toContain('id="tile-jobs"');
-    expect(res.html).toContain('id="tile-invoices"');
     expect(res.html).toContain('id="tile-amc"');
     // The seed: INV-000001 is part paid, so one open invoice in Dubai; two contracts, one per branch.
     expect(res.html).toMatch(/id="tile-invoices"><span>Open invoices<\/span><strong dir="ltr">1<\/strong>/u);
-    snapshot(steady(res.html), { role: "dashboard, owner, en" });
-    for (const path of ["/admin/settings", "/admin/branches", "/admin/users", "/admin/audit"]) expect((await owner.page(path)).status).toBe(200);
+    expect(res.html).not.toContain("<html");
+    snapshot(steady(res.html), { role: "admin tile fragment, owner, en" });
+  });
+
+  test("in Arabic: the sidebar links and the tile", async () => {
+    const res = await owner.page("/admin?lang=ar");
+    expect(res.status).toBe(200);
+    expect(res.html).toContain('dir="rtl"');
+    const nav = sidebar(res.html);
+    expect(nav).toContain("الفروع");
+    expect(nav).toContain("الأشخاص");
+    expect(tileSlot(res.html)).toContain("اليوم في هذا الفرع");
+    snapshot(`${nav}\n${tileSlot(res.html)}`, { role: "admin sidebar and tile, owner, ar" });
+    const fragment = await tileFragment(owner, "?lang=ar");
+    expect(fragment.status).toBe(200);
+    expect(fragment.html).toContain("أعمال اليوم");
+    snapshot(steady(fragment.html), { role: "admin tile fragment, owner, ar" });
+    // The choice of language is kept: back to English for the rest of the file.
+    expect((await owner.page("/admin?lang=en")).html).toContain('dir="ltr"');
   });
 
   test("error case: a dispatcher, a manager, an accountant and a technician get 403 on every page", async () => {
     for (const who of [dispatcher, manager, accountantDxb, ali]) {
-      for (const path of ["/admin", "/admin/settings", "/admin/branches", "/admin/users", "/admin/audit"]) expect((await who.page(path)).status).toBe(403);
+      for (const path of ["/admin", "/admin/settings", "/admin/branches", "/admin/people", "/admin/audit", "/admin/users", "/admin/tile"]) expect((await who.page(path)).status).toBe(403);
+      expect((await tileFragment(who)).status).toBe(403);
     }
     expect((await t.as("nobody").page("/admin")).status).toBe(403);
   });
@@ -192,7 +244,7 @@ describe("branches", () => {
     expect(edit.status).toBe(422);
     expect(edit.html).toMatch(/name="area"[^>]*value="Typed Area"/u);
     expect(edit.html.match(/value="Typed Area"/gu)?.length).toBe(1);
-    const role = await owner.action("/admin/users", "role", { user_id: "u_owner", role: "dispatcher" });
+    const role = await owner.action("/admin/people", "role", { user_id: "u_owner", role: "dispatcher" });
     expect(role.status).toBe(422);
     const invite = role.html.split('action="?/invite"')[1] ?? "";
     expect(invite).toMatch(/<option value="technician"[^>]*selected/u);
@@ -226,7 +278,7 @@ describe("people", () => {
   let token = "";
 
   test("the users page lists the branch with roles and who has a second factor", async () => {
-    const res = await owner.page("/admin/users");
+    const res = await owner.page("/admin/people");
     expect(res.status).toBe(200);
     expect(res.html).toContain("Dina Dispatcher");
     expect(res.html).toContain("Ali Hassan");
@@ -239,34 +291,40 @@ describe("people", () => {
 
   test("an owner works in Sharjah and invites a technician: an org invitation, the role waits for the person", async () => {
     // From here on the owner's session works in Sharjah (the active organisation is kept per session), to the end of the file.
-    const switched = await owner.action("/org", "switch", { org: "org_sharjah", next: "/admin/users" });
+    const switched = await owner.action("/org", "switch", { org: "org_sharjah", next: "/admin/people" });
     expect(switched.status).toBe(303);
-    expect((await owner.page("/admin/users")).html).toContain("Sami Dispatcher");
-    expect((await dispatcher.action("/admin/users", "invite", { email: EMAIL, role: "technician" })).status).toBe(403);
-    expect((await owner.action("/admin/users", "invite", { email: "not an email", role: "technician" })).status).toBe(422);
-    expect((await owner.action("/admin/users", "invite", { email: EMAIL, role: "janitor" })).status).toBe(422);
-    const sent = await owner.action("/admin/users", "invite", { email: EMAIL, role: "technician" });
+    expect((await owner.page("/admin/people")).html).toContain("Sami Dispatcher");
+    expect((await dispatcher.action("/admin/people", "invite", { email: EMAIL, role: "technician" })).status).toBe(403);
+    expect((await owner.action("/admin/people", "invite", { email: "not an email", role: "technician" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "invite", { email: EMAIL, role: "janitor" })).status).toBe(422);
+    const sent = await owner.action("/admin/people", "invite", { email: EMAIL, role: "technician" });
     expect(sent.status).toBe(303);
     expect(rows("select org_id, role from org__invites where email = ?", [EMAIL])).toEqual([{ org_id: "org_sharjah", role: "member" }]);
     expect(rows("select branch_id, role, applied_at from app__staff_invites where email = ?", [EMAIL])).toEqual([{ branch_id: "br_sharjah", role: "technician", applied_at: null }]);
     const mail = rows("select text_body from email__messages where to_address = ?", [EMAIL]);
     token = /\/org\/accept\/([A-Za-z0-9_-]+)/u.exec(String(mail[0]?.text_body))?.[1] ?? "";
     expect(token).not.toBe("");
-    expect((await owner.page("/admin/users")).html).toContain(EMAIL);
+    expect((await owner.page("/admin/people")).html).toContain(EMAIL);
   });
 
-  test("once they have joined, the technician has /me and nothing else", async () => {
+  test("once they have accepted, the role is theirs without the people page being opened, and the owner is told", async () => {
     const newbie = t.as("newbie");
     expect((await newbie.action("/auth/register", "default", { email: EMAIL, password: PASSWORD, display_name: "Nadia Newtech" })).status).toBe(200);
     expect((await newbie.action("/auth/login", "default", { email: EMAIL, password: PASSWORD })).status).toBe(303);
+    // The org module's own flow: its accept page. It emits org.member_added; hooks.ts applies the pending role after the commit.
     expect((await newbie.action(`/org/accept/${token}`, "accept", {})).status).toBe(303);
-    // The owner's next look at the page applies the role the owner chose.
-    const page = await owner.page("/admin/users");
-    expect(page.html).toContain("Nadia Newtech");
-    expect(rows("select scope_type, scope_id from renox__role_assignments where role = 'technician' and user_id = (select id from auth__users where email = ?)", [EMAIL])).toEqual([{ scope_type: "org", scope_id: "org_sharjah" }]);
+    const assigned = await until(() => {
+      const r = rows("select scope_type, scope_id from renox__role_assignments where role = 'technician' and user_id = (select id from auth__users where email = ?)", [EMAIL]);
+      return r.length > 0 ? r : undefined;
+    }, "the technician role");
+    expect(assigned).toEqual([{ scope_type: "org", scope_id: "org_sharjah" }]);
     expect(rows("select applied_at is not null as done from app__staff_invites where email = ?", [EMAIL])).toEqual([{ done: 1 }]);
+    // app.member_ready, the app's own event, is handled by the app: the owner who invited her gets a notification.
+    const told = await until(() => rows("select category, title, link from notifications__items where user_id = 'u_owner' and category = 'staff'")[0], "the owner's notification");
+    expect(told).toEqual({ category: "staff", title: "Nadia Newtech joined Sharjah as technician.", link: "/admin/people" });
+    expect((await owner.page("/admin/people")).html).toContain("Nadia Newtech");
     expect((await newbie.page("/me")).status).toBe(200);
-    for (const path of ["/customers", "/quotes", "/invoices", "/contracts", "/dispatch", "/reports", "/admin", "/admin/users", "/services"]) expect((await newbie.page(path)).status).toBe(403);
+    for (const path of ["/customers", "/quotes", "/invoices", "/contracts", "/dispatch", "/reports", "/admin", "/admin/people", "/admin/users", "/admin/audit", "/services"]) expect((await newbie.page(path)).status).toBe(403);
     expect((await newbie.action("/admin/settings", "save", { brand_name: "Mine", brand_color: "#000000" })).status).toBe(403);
     // The role does not reach Dubai: Dubai's technician list is unchanged.
     expect(rows("select count(*) as n from renox__role_assignments where role = 'technician'")[0]?.n).toBe(5);
@@ -275,8 +333,8 @@ describe("people", () => {
   test("promoted to accountant without a second factor, they cannot issue until one is set up", async () => {
     const id = String(rows("select id from auth__users where email = ?", [EMAIL])[0]?.id);
     // The owner cannot change their own role.
-    expect((await owner.action("/admin/users", "role", { user_id: "u_owner", role: "technician" })).status).toBe(422);
-    expect((await owner.action("/admin/users", "role", { user_id: id, role: "accountant" })).status).toBe(303);
+    expect((await owner.action("/admin/people", "role", { user_id: "u_owner", role: "technician" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "role", { user_id: id, role: "accountant" })).status).toBe(303);
     expect(rows("select role, scope_type, scope_id from renox__role_assignments where user_id = ?", [id])).toEqual([{ role: "accountant", scope_type: "org", scope_id: "org_sharjah" }]);
 
     const newbie = t.as("newbie");
@@ -294,9 +352,9 @@ describe("people", () => {
 
   test("the owner removes them from the branch: no role, no access", async () => {
     const id = String(rows("select id from auth__users where email = ?", [EMAIL])[0]?.id);
-    expect((await owner.action("/admin/users", "remove", { user_id: "u_owner" })).status).toBe(422);
-    expect((await owner.action("/admin/users", "remove", { user_id: "u_nobody" })).status).toBe(422);
-    expect((await owner.action("/admin/users", "remove", { user_id: id })).status).toBe(303);
+    expect((await owner.action("/admin/people", "remove", { user_id: "u_owner" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "remove", { user_id: "u_nobody" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "remove", { user_id: id })).status).toBe(303);
     expect(rows("select count(*) as n from org__members where user_id = ?", [id])[0]?.n).toBe(0);
     expect(rows("select count(*) as n from renox__role_assignments where user_id = ?", [id])[0]?.n).toBe(0);
     expect((await t.as("newbie").page("/invoices")).status).toBe(403);
@@ -304,19 +362,23 @@ describe("people", () => {
 
   test("a seeded global role is kept for the person's other branches when it changes in one", async () => {
     // The owner belongs to both branches with a global `owner` role; Sami (Sharjah dispatcher) is changed to a manager.
-    expect((await owner.action("/admin/users", "role", { user_id: "u_shj_dispatcher", role: "branch_manager" })).status).toBe(303);
+    expect((await owner.action("/admin/people", "role", { user_id: "u_shj_dispatcher", role: "branch_manager" })).status).toBe(303);
     expect(rows("select role, scope_type, scope_id from renox__role_assignments where user_id = 'u_shj_dispatcher'")).toEqual([{ role: "branch_manager", scope_type: "org", scope_id: "org_sharjah" }]);
     const sami = await signIn("sami", "dispatcher.sharjah@fixit.example", "/jobs");
     expect((await sami.page("/reports/amc")).status).toBe(403);
     expect((await sami.page("/contracts")).status).toBe(200);
     expect((await sami.page("/quotes")).status).toBe(200);
     // And back to a dispatcher.
-    expect((await owner.action("/admin/users", "role", { user_id: "u_shj_dispatcher", role: "dispatcher" })).status).toBe(303);
+    expect((await owner.action("/admin/people", "role", { user_id: "u_shj_dispatcher", role: "dispatcher" })).status).toBe(303);
   });
 });
 
+// The trail is the `admin` module's page (/admin/audit) over the audit module;
+// the owner holds audit.read through the owner policy.
 describe("the audit trail", () => {
   const today = (): string => new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+  /** A cell of the module's audit table holding exactly `text`. */
+  const cell = (text: string) => new RegExp(`<td[^>]*>${text.replace(/\./gu, "\\.")}</td>`, "u");
 
   test("every sensitive action of the flow has a row: settings, issue, pay, a job transition, a link answer", async () => {
     // The end-to-end flow so far: settings.write and invoice.issue happened above. Now a payment and a customer's approval.
@@ -330,20 +392,21 @@ describe("the audit trail", () => {
     for (const action of ["invoice.issue", "invoice.pay", "settings.write", "job.transition", "quote.link_answer"]) {
       const res = await owner.page(`/admin/audit?action=${action}`);
       expect(res.status).toBe(200);
-      expect(res.html).toContain(`<td dir="ltr">${action}</td>`);
+      expect(res.html).toMatch(cell(action));
     }
     // The decisions of the platform are in the trail as allowed or denied rows.
     const settingsRows = rows("select result from renox__authz_audit_v1 where action = 'settings.write' order by id").map((r) => r.result);
     expect(settingsRows).toContain("allow");
     expect(settingsRows).toContain("deny");
-    const all = await owner.page("/admin/audit");
-    expect(all.html).toContain('<td dir="ltr">staff.invite</td>');
-    expect(all.html).toContain('<td dir="ltr">branch.create</td>');
+    // What the app records itself: the invitation and the new branch.
+    for (const action of ["staff.invite", "branch.create"]) expect((await owner.page(`/admin/audit?action=${action}`)).html).toMatch(cell(action));
+    expect((await owner.page("/admin/audit")).html).not.toContain('class="problem"');
   });
 
   test("the filter by actor narrows the rows, and anyone but the owner gets 403", async () => {
     const mine = await owner.page("/admin/audit?actor=u_owner&action=job.transition");
-    expect(mine.html).toContain('<td dir="ltr">u_owner</td>');
+    expect(mine.html).toMatch(cell("u_owner"));
+    expect(mine.html).not.toMatch(cell("quote.link_answer"));
     expect((await dispatcher.page("/admin/audit")).status).toBe(403);
     expect((await owner.page("/admin/audit?action=drop%20table")).status).toBe(200);
   });

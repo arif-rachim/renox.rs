@@ -225,6 +225,8 @@ describe("who may", () => {
   });
 });
 
+// The module's config email_to is empty (renox.toml): the address comes from
+// the app's filler of `reports.nightly_to` (hooks.ts), read when the run starts.
 describe("the nightly summary", () => {
   test("goes to the accounts email of the settings", async () => {
     expect(rows("select value from app__settings where key = 'accounts_email'")[0]?.value).toBe("accounts@fixit.example");
@@ -233,5 +235,26 @@ describe("the nightly summary", () => {
     expect(sent).toEqual({ day, sent_to: "accounts@fixit.example" });
     expect(rows("select subject from email__messages where to_address = 'accounts@fixit.example'")).toEqual([{ subject: `Daily report ${day}` }]);
     expect(rows("select day, sent_to from reports__snapshots")).toEqual([{ day, sent_to: "accounts@fixit.example" }]);
+  });
+
+  test("a changed accounts email takes effect on the next run, and none keeps the summary as a snapshot only", async () => {
+    const setAccounts = (value: string) => rw((db) => db.run("update app__settings set value = ? where key = 'accounts_email'", [value]));
+    const run = async (offsetDays: number) => (await t.service("reports").nightly?.(Date.now() + offsetDays * 86_400_000)) as { day: string; sent_to: string | null };
+    setAccounts("books@fixit.example");
+    const moved = await run(2);
+    expect(moved.sent_to).toBe("books@fixit.example");
+    expect(rows("select subject from email__messages where to_address = 'books@fixit.example'")).toEqual([{ subject: `Daily report ${moved.day}` }]);
+    setAccounts("");
+    const none = await run(3);
+    expect(none.sent_to).toBeNull();
+    expect(rows("select sent_to from reports__snapshots where day = ?", [none.day])).toEqual([{ sent_to: null }]);
+    setAccounts("accounts@fixit.example");
+  });
+
+  test("the scheduled run (the module's job) fills its address the same way", async () => {
+    await t.job("nightly", { module: "reports" });
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    expect(rows("select sent_to from reports__snapshots where day = ?", [yesterday])).toEqual([{ sent_to: "accounts@fixit.example" }]);
+    expect(rows("select count(*) as n from email__messages where to_address = 'accounts@fixit.example' and subject = ?", [`Daily report ${yesterday}`])[0]?.n).toBe(1);
   });
 });

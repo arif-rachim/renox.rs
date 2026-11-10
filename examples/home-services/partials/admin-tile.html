@@ -1,0 +1,1 @@
+<article id="home-services-tile" class="tile-card" hx-get="/admin/tile" hx-trigger="load" hx-swap="outerHTML"><h2><r-t key="backoffice.tiles.title" /></h2><p><a href="/admin/tile"><r-t key="backoffice.tiles.open" /></a></p></article>

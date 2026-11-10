@@ -28,14 +28,16 @@ booking = { version = "^1.0.0", mount = "/booking", config = { slot_minutes = 30
 jobs = { version = "^1.0.0", mount = "/system/jobs" }
 storage = { version = "^1.0.0", mount = "/files", config = { quota_mb = 500, max_upload_bytes = 10485760 } }
 tax_gcc = { version = "^1.0.0", mount = "/tax", config = { seller_name = "FixIt Services LLC", seller_trn = "100000000000003", seller_address = "Dubai" } }
-# The nightly summary (03:00 UTC, CSV by email) goes to the accounts email. The
-# module reads its address from this config, which is static: it is the seed's
-# `accounts_email` setting, and changing the setting does not change it.
-reports = { version = "^1.0.0", mount = "/reports", config = { email_to = "accounts@fixit.example" } }
-# The module's back office (users, audit, the dashboard cards of modules) is the
-# operator's, like the jobs runs page; the owner's back office is this app's own
-# /admin (pages/admin): the app's pages cannot share a path with a module's.
-admin = { version = "^1.0.0", mount = "/system/admin", config = { base_path = "/system/admin" } }
+# The nightly summary (03:00 UTC, CSV by email) goes to the accounts email of
+# the settings: hooks.ts fills `reports.nightly_to` when the job runs, so
+# email_to stays empty (with no accounts email set, the summary is only kept as
+# a snapshot).
+reports = { version = "^1.0.0", mount = "/reports", config = { email_to = "" } }
+# The back office: the module's dashboard, its users page (its own admin role)
+# and its audit trail at /admin. The app's pages sit beside them
+# (/admin/settings, /admin/branches, /admin/people) and the app fills the
+# module's sidebar and dashboard ([[slots]] at the end).
+admin = { version = "^1.0.0", mount = "/admin", config = { base_path = "/admin", title = "Back office" } }
 gcc = { version = "^1.0.0" }
 
 [authz]
@@ -76,7 +78,6 @@ app__visit_photos = { owner = "branch_id" }
 app__visit_parts = { owner = "branch_id" }
 
 # What the customers answer (F7-124): the dispatcher's tasks, the same way.
-# app__inbox_seen is the sweep's own bookkeeping, not owned.
 app__tasks = { owner = "branch_id" }
 
 # Invoices and their payments, the same way (each payment repeats the invoice's
@@ -111,3 +112,23 @@ Branch = { table = "app__branches", id = "slug", attrs = ["org_id"] }
 # `{ table, rowid, op }`; the transition also publishes the re-rendered card.
 [realtime.feeds]
 app__jobs = "jobs:{branch_id}"
+
+# The admin module's back office lists the app's pages in its sidebar and shows
+# the branch's three numbers on its dashboard, both only to who may read the
+# settings (the owner). A filler sees the module page's data, not the app's, so
+# the tile loads its numbers from the app's /admin/tile with htmx.
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-sidebar.html"
+requires = "settings.read"
+
+[[slots]]
+name = "admin.dashboard"
+template = "partials/admin-tile.html"
+requires = "settings.read"
+
+# An invited person has joined a branch and holds the app role chosen for them
+# (hooks.ts, on "org.member_added"); the app's own handler tells who invited them.
+[events."app.member_ready"]
+description = "An invited person joined a branch and holds the app role chosen at invite time."
+payload = { type = "object", required = ["user_id", "branch_id"], additionalProperties = false, properties = { user_id = { type = "string" }, branch_id = { type = "string" } } }

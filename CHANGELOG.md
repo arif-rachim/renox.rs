@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.12 (unreleased)
+
+**CLI**
+
+- `renox new --template home-services` uses the app's `hooks.ts`, `[[slots]]` and `[events]` (artifact 1.8): a customer's WhatsApp "cancel" or "reschedule" becomes the dispatcher's task when `whatsapp.message_received` arrives (the minute `jobs/inbox-sweep.ts` is gone); the app role of an invited person is applied on `org.member_added` (no longer when the owner opens the users page), which emits the app's own `app.member_ready`; the nightly report goes to the settings' accounts email through `reports.nightly_to` (the `reports` config `email_to` is empty); the `admin` module is mounted at `/admin` (was `/system/admin`) and the app fills its `admin.sidebar` and `admin.dashboard` slots, so the app's duplicate dashboard and audit pages are gone, and its users page is now `/admin/people` (#636). Its tests check that an agent's `create_job` reaches the audit trail as an `agent` row with the client's name, on a worker newer than 0.7.0 (skipped with the reason on 0.7.0, #683).
+
 ## 0.1.11 (2026-11-10)
 
 **Install**

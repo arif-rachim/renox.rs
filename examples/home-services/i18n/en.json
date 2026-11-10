@@ -559,7 +559,9 @@
       "jobs_today": "Jobs today",
       "open_invoices": "Open invoices",
       "amc_renewals": "Contracts ending this month",
-      "branch": "Branch: {branch}"
+      "branch": "Branch: {branch}",
+      "title": "Today in this branch",
+      "open": "Open"
     },
     "settings": {
       "title": "Branding and settings",
@@ -634,19 +636,6 @@
         "technician": "Technician",
         "accountant": "Accountant"
       }
-    },
-    "audit": {
-      "title": "Audit trail",
-      "action": "Action",
-      "actor": "Actor",
-      "all": "All actions",
-      "filter": "Filter",
-      "when": "When",
-      "result": "Result",
-      "source": "Source",
-      "none": "No events match.",
-      "hint": "Sensitive decisions come from the platform's own record; the rest are written by the app.",
-      "denied": "The trail needs the audit.read action."
     },
     "err": {
       "brand_name": "Enter a name of 1 to 80 characters.",
