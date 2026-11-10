@@ -7,7 +7,7 @@
 //! socket; the isolate is never involved in fan-out.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -140,10 +140,30 @@ pub struct Conn {
     opened: Instant,
 }
 
+/// The state one connection shares between the hub, its transport's
+/// writer and (WebSocket) its reader: the close signal, the heartbeat
+/// deadline, and the reader-to-writer control state, in one allocation
+/// (#680; B14 counts every per-connection allocation).
 #[derive(Default)]
-struct CloseSignal {
+pub(crate) struct CloseSignal {
     closed: Mutex<CloseState>,
+    beat: Mutex<Beat>,
+    /// `ws.rs`: pings, pongs and the peer's close, reader to writer.
+    pub(crate) ctrl: crate::ws::Ctrl,
 }
+
+/// The transport's next heartbeat deadline, which the hub's one ticker
+/// watches instead of a timer per connection (#680).
+#[derive(Default)]
+struct Beat {
+    due: Option<Instant>,
+    fired: bool,
+    waker: Option<std::task::Waker>,
+}
+
+/// How often the hub's ticker checks the heartbeat deadlines: a deadline
+/// fires at most this late (pings every 30 s, pongs within 10 s).
+pub const HEARTBEAT_TICK: Duration = Duration::from_secs(1);
 
 /// The close, and the tasks waiting for it (a waker each, not a `Notify`:
 /// the `closed()` future of an idle connection stays small, B14).
@@ -190,6 +210,42 @@ impl Conn {
 
     pub fn hub(&self) -> &Arc<Hub> {
         &self.hub
+    }
+
+    pub(crate) fn signal(&self) -> &Arc<CloseSignal> {
+        &self.signal
+    }
+
+    /// Sets the transport's next heartbeat deadline; [`Conn::beat`]
+    /// resolves at or after it (within [`HEARTBEAT_TICK`]).
+    pub fn set_beat(&self, at: Instant) {
+        let mut b = lock(&self.signal.beat);
+        if b.due != Some(at) {
+            b.due = Some(at);
+        }
+    }
+
+    /// Resolves once the deadline of [`Conn::set_beat`] passed. One ticker
+    /// per hub checks the deadlines and wakes only the connections due, so
+    /// an idle connection holds no timer of its own (#680).
+    pub fn beat(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let signal = self.signal.clone();
+        let hub = self.hub.clone();
+        std::future::poll_fn(move |cx| {
+            {
+                let mut b = lock(&signal.beat);
+                if b.fired {
+                    b.fired = false;
+                    return std::task::Poll::Ready(());
+                }
+                match &b.waker {
+                    Some(w) if w.will_wake(cx.waker()) => {}
+                    _ => b.waker = Some(cx.waker().clone()),
+                }
+            }
+            hub.ensure_ticker();
+            std::task::Poll::Pending
+        })
     }
 
     /// Records the end of the connection: `code` and `reason` as sent or
@@ -259,6 +315,8 @@ pub struct Hub {
     counters: Mutex<Counters>,
     next_conn: AtomicU64,
     next_event: AtomicU64,
+    /// The heartbeat ticker runs (while the hub has connections, #680).
+    ticking: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -285,7 +343,53 @@ impl Hub {
             counters: Mutex::new(Counters::default()),
             next_conn: AtomicU64::new(1),
             next_event: AtomicU64::new(1),
+            ticking: AtomicBool::new(false),
         })
+    }
+
+    /// Starts the heartbeat ticker unless it runs. It holds the hub weakly
+    /// and stops when the hub has no connection left.
+    fn ensure_ticker(self: &Arc<Self>) {
+        if self.ticking.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let hub = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(HEARTBEAT_TICK).await;
+                match hub.upgrade() {
+                    Some(h) if h.tick() => {}
+                    _ => break,
+                }
+            }
+        });
+    }
+
+    /// One tick: wakes the connections whose heartbeat deadline passed.
+    /// `false` (and the ticker stops) when no connection is left.
+    fn tick(&self) -> bool {
+        let now = Instant::now();
+        let st = lock(&self.state);
+        if st.conns.is_empty() {
+            self.ticking.store(false, Ordering::Release);
+            return false;
+        }
+        for c in st.conns.values() {
+            let waker = {
+                let mut b = lock(&c.signal.beat);
+                if b.due.is_some_and(|d| d <= now) {
+                    b.due = None;
+                    b.fired = true;
+                    b.waker.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(w) = waker {
+                w.wake();
+            }
+        }
+        true
     }
 
     pub fn limits(&self) -> &Limits {
