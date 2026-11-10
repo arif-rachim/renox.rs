@@ -6,6 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **Worker**
 
+- Pins `renox-worker` 0.7.1.
 - The gateway drops a `security.csp.*` source that holds `;` or `,` at load, with a platform warning, and never merges it into the `Content-Security-Policy` header: `;` ends a directive and `,` starts a second policy, so a source must not change the policy's structure (artifact 1.9.2, manifest 1.6.2, MF17) (#679).
 
 **CLI**
