@@ -175,3 +175,26 @@ test("MF17: a module source cannot carry ';' or ',' (a directive of its own), an
   ]);
   expect(permissionProblems("pay", { csp: { script_src: ["https://js.psp.example/v3/"], frame_src: ["https://*.psp.example", "data:"] } }, where)).toEqual([]);
 });
+
+// #678: approve resolves the whole [modules] table, so a module with dependencies is not MF5.
+test("renox approve works for a module with dependencies (no MF5)", async () => {
+  const dir = app({}, [
+    { name: "pay", version: "1.0.0" },
+    { name: "shop", version: "1.0.0", dependencies: { pay: "^1.0" }, extra: `[permissions]\nnetwork = ["a.example"]\n` },
+  ]);
+  await capture(() => addModule(dir, "pay", { source: "path:modules/pay", yes: true }));
+  await capture(() => addModule(dir, "shop", { source: "path:modules/shop", yes: true }));
+  const manifest = join(dir, "modules", "shop", "module.toml");
+  writeFileSync(manifest, readFileSync(manifest, "utf8").replace('["a.example"]', '["a.example", "b.example"]'));
+  expect(projectProblems(dir).map((p) => p.rule)).toContain("MF12");
+  const shown: string[] = [];
+  const r = await approve(dir, "shop", async (lines) => {
+    shown.push(...lines);
+    return true;
+  });
+  expect(r.written).toBe(true);
+  expect(shown).toContain("  + network: b.example");
+  expect(readLock(dir).entries?.find((e) => e.name === "shop")?.approved.network).toEqual(["a.example", "b.example"]);
+  expect(projectProblems(dir)).toEqual([]);
+  rmSync(dir, { recursive: true });
+});
