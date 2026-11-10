@@ -35,8 +35,10 @@ B1's warm request is an anonymous `GET /api/products`. On it, the principal look
 
 ```sh
 CARGO_PROFILE_RELEASE_DEBUG=0 cargo build --release --locked -p renox-cell --bin renox-worker
-RENOX_WORKER_PATH=$PWD/target/release/renox-worker B1_APPS=shop B1_SIZES=100 BENCH_RUNS=3 \
+RENOX_BUILD_LAZY_MODULES=1 RENOX_WORKER_PATH=$PWD/target/release/renox-worker B1_APPS=shop B1_SIZES=100 BENCH_RUNS=3 \
   BENCH_WORKER_EXTRA_TOML=$'[tiers.free]\ncpu_ms = 1000\n' bench/run.sh B1 --profile dev-laptop
 ```
+
+`RENOX_BUILD_LAZY_MODULES=1`: since f136974, `renox build` writes lazy module entries only when the pinned worker is 0.8.0 or later. Until that pin, this variable makes the CLI build the artifacts these runs measured. The runs above predate the gate and built them lazy.
 
 Run it once at `main` and once at the branch. The CLI of the same checkout builds the artifact, so each run measures its own `renox build`.

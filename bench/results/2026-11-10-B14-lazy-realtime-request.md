@@ -45,3 +45,5 @@ Candidates, not done here:
 - the gateway's per-connection idle timer after an upgrade (`renox-gateway`);
 - folding the outbound queue into the connection's shared state (needs a `queue` API change, about 32 bytes);
 - the size of the connection task's future (`crates/renox-cell/src/realtime/mod.rs`).
+
+`RENOX_BUILD_LAZY_MODULES=1`: since f136974, `renox build` writes lazy module entries only when the pinned worker is 0.8.0 or later. Until that pin, this variable makes the CLI build the artifacts these runs measured. The runs above predate the gate and built them lazy.

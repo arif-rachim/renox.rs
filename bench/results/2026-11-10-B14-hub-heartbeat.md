@@ -39,7 +39,9 @@ Raw: `bench/results/raw/2026-11-10-B14-680-task2*.json`, `bench/results/raw/2026
 ```sh
 CARGO_PROFILE_RELEASE_DEBUG=0 cargo build --release --locked -p renox-cell --bin renox-worker
 ulimit -n 20000
-RENOX_WORKER_PATH=$PWD/target/release/renox-worker bench/run.sh B14 --runs 3
-B14_HOLD_S=30 RENOX_WORKER_PATH=$PWD/target/release/renox-worker bench/run.sh B14 --runs 1
+RENOX_BUILD_LAZY_MODULES=1 RENOX_WORKER_PATH=$PWD/target/release/renox-worker bench/run.sh B14 --runs 3
+RENOX_BUILD_LAZY_MODULES=1 B14_HOLD_S=30 RENOX_WORKER_PATH=$PWD/target/release/renox-worker bench/run.sh B14 --runs 1
 cargo test --release -p renox-realtime --test scale -- --nocapture
 ```
+
+`RENOX_BUILD_LAZY_MODULES=1`: since f136974, `renox build` writes lazy module entries only when the pinned worker is 0.8.0 or later. Until that pin, this variable makes the CLI build the artifacts these runs measured. The runs above predate the gate and built them lazy.
