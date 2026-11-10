@@ -53,4 +53,4 @@ If in doubt about whether something is allowed, ask at security@renoxium.com fir
 
 ## Bug bounty
 
-There is no paid bounty programme yet; one is planned after the platform takes external customers (F7). We credit reporters in the advisory.
+There is no paid bounty programme yet; one is planned after the platform takes external customers (F7). We credit reporters in the advisory. The scope, severity ladder and rules are drafted in [`ops/security/bounty-scope.md`](ops/security/bounty-scope.md) (a draft, not published, no rewards set).
