@@ -20,7 +20,8 @@ import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
 import { contrastFailures, loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
 import { ALTERNATIVES, ASKS, CONVERSATION, countText, load as homeLoad, NOT_FOR, STATS } from "../pages/index.ts";
-import { LINKS, whatsappLink } from "../lib/contact.ts";
+import { API_ORIGIN, LINKS, SITE_ORIGIN, WAITLIST_FORM, whatsappLink } from "../lib/contact.ts";
+import { stateOf } from "../pages/thanks.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
 setDefaultTimeout(120_000);
@@ -196,6 +197,30 @@ describe("pricing and legal", () => {
     expect(() => whatsappLink("call us")).toThrow();
   });
 
+  test("the waitlist form (#691): four fields, posted to the API, back to /thanks on the site's own origin", () => {
+    const page = readFileSync(join(import.meta.dir, "../pages/index.html"), "utf8");
+    const form = page.slice(page.indexOf("<form "), page.indexOf("</form>"));
+    expect(form).toContain('method="post" :action="links.waitlist"');
+    const names = [...form.matchAll(/<input [^>]*name="([a-z_]+)"/gu)].map((m) => m[1]);
+    expect(names).toEqual(["email", "interest", "locale", "return_to"]);
+    expect(form).toMatch(/name="email" type="email" required/u);
+    expect(form).toContain('name="interest" value="connector"');
+    expect(form).toContain('name="locale" value="en"');
+    expect(form).toContain(':value="links.waitlistReturn"');
+    expect(LINKS.waitlist).toBe(`${API_ORIGIN}/v1/waitlist`);
+    expect(new URL(LINKS.waitlistReturn).origin).toBe(SITE_ORIGIN);
+    expect(new URL(LINKS.waitlistReturn).pathname).toBe("/thanks");
+    // While the worker's CSP keeps form-action 'self', the ask is the mail button (lib/contact.ts).
+    expect(homeLoad().waitlistForm).toBe(WAITLIST_FORM);
+  });
+
+  test("/thanks has three states, read from the query the API sets", () => {
+    expect(stateOf(new URLSearchParams("confirmed=1&list=connector"))).toBe("confirmed");
+    expect(stateOf(new URLSearchParams("confirmed=0"))).toBe("invalid");
+    expect(stateOf(new URLSearchParams("list=connector"))).toBe("check_email");
+    expect(stateOf(new URLSearchParams("confirmed=yes"))).toBe("check_email");
+  });
+
   test("the legal pages carry the versions sign-up records", () => {
     expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`Version ${DPA_VERSION}.`);
     expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
@@ -234,7 +259,7 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
   const app = join(import.meta.dir, "..");
   const out = mkdtempSync(join(tmpdir(), "renox-www-"));
   const built = await buildArtifact(app, out);
-  expect(built.manifest.routes.map((r) => ("path" in r ? r.path : "")).sort()).toEqual(["/", "/docs", "/docs/:slug", "/legal/dpa", "/legal/terms", "/pricing"]);
+  expect(built.manifest.routes.map((r) => ("path" in r ? r.path : "")).sort()).toEqual(["/", "/docs", "/docs/:slug", "/legal/dpa", "/legal/terms", "/pricing", "/thanks"]);
   expect(await check(app)).toEqual({ errors: [], findings: [] });
   const port = 21000 + Math.floor(Math.random() * 9000);
   const dev = await startDev({ project: app, port, log: () => {} });
@@ -267,6 +292,13 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     const home = await get("/");
     expect(home.status).toBe(200);
     checkLanding(home.text);
+    // #691: the three states of /thanks, no script of the site's own.
+    for (const [query, heading] of [["?confirmed=1&list=connector", "You are on the list."], ["?confirmed=0", "This link no longer works."], ["?list=connector", "Check your mail."]] as const) {
+      const t = await get(`/thanks${query}`);
+      expect(t.status).toBe(200);
+      expect(t.text).toContain(`<h1 id="thanks-title">${heading}</h1>`);
+      expect(t.text.match(/<script(?![^>]*src="\/__renox\/)[^>]*>/gu) ?? []).toEqual([]);
+    }
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);
@@ -334,7 +366,8 @@ function checkLanding(html: string): void {
   expect(html.match(/href="https:\/\/github\.com\/arif-rachim\/renox\.rs\/blob\/main\/docs\/14-benchmarks\.md">How we measured it</gu)?.length).toBe(2);
   // Links: sign in to the dashboard; the list as a mail until the form exists; WhatsApp from lib/contact.ts.
   expect(html).toContain('<a class="button" href="https://dashboard.renoxium.com/signin">Sign in</a>');
-  expect(html).toContain(`href="${LINKS.connectorList.replaceAll("&", "&amp;")}">Join the connector list</a>`);
+  if (WAITLIST_FORM) expect(html).toContain(`<form class="waitlist" method="post" action="${LINKS.waitlist}">`);
+  else expect(html).toContain(`href="${LINKS.connectorList.replaceAll("&", "&amp;")}">Join the connector list</a>`);
   expect(html.split(`href="${LINKS.whatsapp}"`).length - 1).toBe(2);
   // Nothing of the previous page remains.
   for (const old of ["Deploy. Run.", "installed, not rewritten", "TLS at the edge", "Built for coding agents", "Stop rebuilding", "dot-idle"]) expect(html, old).not.toContain(old);

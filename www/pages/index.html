@@ -228,8 +228,19 @@ renox deploy</pre>
   <section id="ask" class="ask" aria-labelledby="ask-title">
     <h2 id="ask-title">Start with a conversation.</h2>
     <p>Join the list for the ChatGPT and Claude connector, or write to us today and we set your app up with you in an hour, on the Free plan, at &lt;name&gt;.renoxium.app.</p>
+    <!-- The list: a plain form that posts to the API and comes back to /thanks (#691), or a mail while the form is off (lib/contact.ts, WAITLIST_FORM). -->
+    <form r-if="waitlistForm" class="waitlist" method="post" :action="links.waitlist">
+      <label for="waitlist-email">Your email</label>
+      <span class="waitlist-row">
+        <input id="waitlist-email" name="email" type="email" required autocomplete="email" maxlength="254">
+        <button class="primary" type="submit">Join the connector list</button>
+      </span>
+      <input type="hidden" name="interest" value="connector">
+      <input type="hidden" name="locale" value="en">
+      <input type="hidden" name="return_to" :value="links.waitlistReturn">
+    </form>
     <p class="actions">
-      <a class="button primary" :href="links.connectorList">Join the connector list</a>
+      <a r-if="!waitlistForm" class="button primary" :href="links.connectorList">Join the connector list</a>
       <a class="button" :href="links.whatsapp">Write to us on WhatsApp</a>
     </p>
   </section>

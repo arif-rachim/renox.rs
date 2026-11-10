@@ -6,7 +6,7 @@
 // from pricing.toml (the pricing page's source), so the page never states a
 // price or a quota the billing plans do not have. The proof numbers are the
 // measured ones of docs/14-benchmarks.md.
-import { LINKS } from "../lib/contact.ts";
+import { LINKS, WAITLIST_FORM } from "../lib/contact.ts";
 import { PRICING, quotaText, type PricedPlan } from "../lib/pricing.ts";
 
 /** Numbers that are true and measured (docs/14-benchmarks.md, "F1 results"), with the deck's plain sentence and its link. */
@@ -129,6 +129,7 @@ export function planText(p: PricedPlan): string {
 export function load() {
   return {
     links: LINKS,
+    waitlistForm: WAITLIST_FORM,
     conversation: CONVERSATION,
     asks: ASKS,
     alternatives: ALTERNATIVES,

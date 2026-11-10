@@ -130,6 +130,10 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   // Accounts (src/auth/accounts.ts).
   signup: "public",
   verifyEmail: "public",
+  // deploy-api.md 0.10 section 21 (#691): the site's waitlists; the export is ops:read.
+  joinWaitlist: "public",
+  confirmWaitlist: "public",
+  exportWaitlist: "operator",
   resendVerification: "account",
   login: "public",
   logout: "account",

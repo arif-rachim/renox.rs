@@ -254,3 +254,12 @@ ul.plain li:last-child { border-block-end: 0; }
   .alt-table th, .alt-table td { border: 0; padding: var(--rx-1) 0; }
   .alt-table td::before { content: attr(data-label); display: block; font-size: 1rem; color: var(--rx-ink-2); }
 }
+
+/* The waitlist form of the ask (#691) and the /thanks page. */
+.waitlist { display: grid; gap: var(--rx-2); max-inline-size: 36rem; margin-block-start: var(--rx-5); }
+.waitlist label { font-size: 1rem; }
+.waitlist-row { display: flex; flex-wrap: wrap; gap: var(--rx-3); }
+.waitlist input[type="email"] { flex: 1 1 16rem; min-inline-size: 0; min-block-size: 2.75rem; font-size: 1rem; border-radius: var(--rx-r-pill); padding-inline: 1rem; }
+.waitlist button { min-block-size: 2.75rem; font-size: 1rem; padding-inline: 1.25rem; }
+.thanks { max-inline-size: 40rem; padding-block: var(--rx-8); }
+.thanks h1 { font-size: clamp(1.75rem, 4vw, 3rem); letter-spacing: -.035em; }

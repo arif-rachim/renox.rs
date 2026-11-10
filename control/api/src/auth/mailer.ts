@@ -35,7 +35,9 @@ export type MailKind =
   // An off-session charge of an invoice failed (src/billing/collect.ts, #350).
   | "invoice_payment_failed"
   // An abuse takedown (src/abuse/takedown.ts, #123).
-  | "abuse_takedown";
+  | "abuse_takedown"
+  // The site's waitlist confirmation (src/waitlist/routes.ts, #691).
+  | "waitlist_confirm";
 
 export interface Mail {
   to: string;

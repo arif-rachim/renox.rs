@@ -1,5 +1,6 @@
-// How the site reaches people (#675): the platform's mail and WhatsApp, the
-// dashboard's sign-in, and the public places the proof section points at. One
+// How the site reaches people (#675, #691): the platform's mail and WhatsApp,
+// the dashboard's sign-in, the API the waitlist form posts to, and the public
+// places the proof section points at. One
 // place, so no page hard-codes an address. The site has no secrets and no
 // environment of its own (renox.toml), so these are constants; a change of
 // number or address is a change here and a deploy.
@@ -18,6 +19,21 @@ export const WHATSAPP_NUMBER: string | null = null;
 /** The dashboard's origin (`control/api` `CONTROL_DASHBOARD_URL`). */
 export const DASHBOARD_ORIGIN = "https://dashboard.renoxium.com";
 
+/** The public origin of the control-plane API (`CONTROL_API_URL`), where the waitlist form posts (#691). */
+export const API_ORIGIN = "https://api.renoxium.com";
+
+/** The site's own origin: the API's `CONTROL_SITE_URL`, the only origin its `return_to` may name. */
+export const SITE_ORIGIN = "https://renoxium.com";
+
+/**
+ * Whether the ask section shows the waitlist form (#691) instead of the
+ * `mailto:` button. Off until the site's Content-Security-Policy lets a form
+ * post to `API_ORIGIN`: the worker sends `form-action 'self'` and `renox.toml`
+ * cannot widen it yet, so a browser would refuse to submit the form. Turn it
+ * on with that change (the decision issue linked from #691).
+ */
+export const WAITLIST_FORM = false;
+
 /** The public repository: the code, the measurements, the open problems. */
 export const REPOSITORY = "https://github.com/arif-rachim/renox.rs";
 
@@ -34,6 +50,8 @@ export function whatsappLink(number: string | null = WHATSAPP_NUMBER): string {
 export const LINKS = {
   signIn: `${DASHBOARD_ORIGIN}/signin`,
   connectorList: mailto("Connector list"),
+  waitlist: `${API_ORIGIN}/v1/waitlist`,
+  waitlistReturn: `${SITE_ORIGIN}/thanks?list=connector`,
   whatsapp: whatsappLink(),
   code: REPOSITORY,
   benchmarks: `${REPOSITORY}/blob/main/docs/14-benchmarks.md`,
