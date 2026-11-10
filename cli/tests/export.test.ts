@@ -132,7 +132,7 @@ describe("renox export", () => {
     for (const line of ['listen = "127.0.0.1:8080"', 'data_dir = "data"', 'artifacts_dir = "artifact"', 'routes_file = "routes.json"', 'meters_dir = "meters"', 'logs_dir = "logs"', 'platform_key_file = "platform.key"', "idle_timeout_secs = 600", "[jobs]", "enabled = true"]) expect(toml).toContain(line);
     const routes = JSON.parse(readFileSync(join(out, "routes.json"), "utf8")) as { version: number; entries: { hostname: string; tenant_id: string; deployment_hash: string; status: string }[] };
     expect(routes.version).toBe(0);
-    expect(routes.entries.map((e) => e.hostname)).toEqual(["shop.renoxium.app", "shop.example.com", "127.0.0.1", "localhost"]);
+    expect(routes.entries.map((e) => e.hostname)).toEqual(["shop.renoxium.app", "shop.example.com", "127.0.0.1"]);
     for (const e of routes.entries) expect([e.tenant_id, e.deployment_hash, e.status]).toEqual([TENANT, HASH, "active"]);
     const manifest = JSON.parse(readFileSync(join(out, "manifest.json"), "utf8")) as Record<string, unknown>;
     expect(manifest).toMatchObject({

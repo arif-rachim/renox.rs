@@ -127,6 +127,13 @@ impl Drop for FileBody {
 /// The largest file `import` takes: the paid tier's database quota.
 pub const IMPORT_LIMIT: u64 = renox_data::PAID_QUOTA_BYTES;
 
+/// Removes the staging file and any `-wal`/`-shm` next to it (#645).
+fn remove_import_files(dir: &std::path::Path) {
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(dir.join(format!(".import.db{suffix}")));
+    }
+}
+
 /// An import refused (`RENOX_IMPORT_REJECTED`, `deploy-api.md` section 14).
 fn import_rejected(field: &str, reason: &str) -> Resp {
     error(
@@ -795,6 +802,8 @@ impl NodeListener {
             return backup_unavailable("database", "not writable");
         }
         let tmp = dir.join(".import.db");
+        // A stale -wal/-shm (a crash during an earlier import's check) must never pair with this upload (#645).
+        remove_import_files(&dir);
         let mut out = match tokio::fs::File::create(&tmp).await {
             Ok(f) => f,
             Err(_) => return backup_unavailable("database", "not writable"),
@@ -803,14 +812,14 @@ impl NodeListener {
         let mut size: u64 = 0;
         while let Some(frame) = body.frame().await {
             let Ok(frame) = frame else {
-                let _ = std::fs::remove_file(&tmp);
+                remove_import_files(&dir);
                 return validation("body", "the upload was cut off");
             };
             if let Ok(data) = frame.into_data() {
                 size += data.len() as u64;
                 if size > IMPORT_LIMIT {
                     drop(out);
-                    let _ = std::fs::remove_file(&tmp);
+                    remove_import_files(&dir);
                     return error(
                         StatusCode::PAYLOAD_TOO_LARGE,
                         "RENOX_BODY_TOO_LARGE",
@@ -819,7 +828,7 @@ impl NodeListener {
                     );
                 }
                 if out.write_all(&data).await.is_err() {
-                    let _ = std::fs::remove_file(&tmp);
+                    remove_import_files(&dir);
                     return backup_unavailable("database", "not writable");
                 }
             }
@@ -865,11 +874,11 @@ impl NodeListener {
         let (tables, sha) = match checked {
             Ok(Ok(v)) => v,
             Ok(Err((field, reason))) => {
-                let _ = std::fs::remove_file(&tmp);
+                remove_import_files(&dir);
                 return import_rejected(&field, &reason);
             }
             Err(_) => {
-                let _ = std::fs::remove_file(&tmp);
+                remove_import_files(&dir);
                 return import_rejected("file", "not a SQLite database");
             }
         };
@@ -884,7 +893,7 @@ impl NodeListener {
             let _ = std::fs::remove_file(format!("{}{suffix}", target.display()));
         }
         if std::fs::rename(&tmp, &target).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+            remove_import_files(&dir);
             return backup_unavailable("database", "not writable");
         }
         tracing::info!(tenant_id = tenant, database, size, "database imported");

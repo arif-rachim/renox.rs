@@ -729,3 +729,96 @@ async fn node_listener_snapshot_and_import() {
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// #645: an import never pairs its upload with a stale `.import.db-wal` /
+/// `-shm` (RUSTSEC-2026-0459 vector): they are deleted before the upload is
+/// written and on every error path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn import_deletes_a_stale_import_wal() {
+    let root = scratch("stale_wal");
+    let worker = Worker::start(worker_config(&root, false)).await.unwrap();
+    let token = Arc::new(renox_cell::control::node_listener::CallbackToken::default());
+    token.set(Some("renox_cb_abcdefghijklmnopqrstuvwxyz234567".into()));
+    let listener = Arc::new(renox_cell::control::node_listener::NodeListener {
+        node_id: "node-local".into(),
+        token,
+        replication: None,
+        manager: worker.manager.clone(),
+        microvm_hook: None,
+    });
+    let (addr, _task) = listener
+        .serve("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
+    let auth = "Bearer renox_cb_abcdefghijklmnopqrstuvwxyz234567";
+    let put = |bytes: Vec<u8>| async move {
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        s.write_all(format!("PUT /nodes/node-local/tenants/t_repl/import?database=t_repl.stale HTTP/1.1\r\nHost: node\r\nAuthorization: {auth}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).as_bytes()).await.unwrap();
+        s.write_all(&bytes).await.unwrap();
+        let mut buf = Vec::new();
+        s.read_to_end(&mut buf).await.unwrap();
+        String::from_utf8_lossy(&buf)
+            .split(' ')
+            .nth(1)
+            .and_then(|c| c.parse::<u16>().ok())
+            .unwrap_or(0)
+    };
+    let make = |name: &str, table: &str, rows: i64| {
+        let path = root.join(name);
+        let db = renox_data::TenantDb::open(&path, renox_data::DbOptions::default()).unwrap();
+        db.execute(
+            &format!("create table {table} (id integer primary key)"),
+            &[],
+        )
+        .unwrap();
+        for i in 0..rows {
+            db.execute(&format!("insert into {table} (id) values ({i})"), &[])
+                .unwrap();
+        }
+        (db, path)
+    };
+    let stale = root.join("data/t_repl.stale/.import.db-wal");
+    let stale_shm = root.join("data/t_repl.stale/.import.db-shm");
+    let leftovers = || {
+        [".import.db", ".import.db-wal", ".import.db-shm"]
+            .iter()
+            .filter(|n| root.join("data/t_repl.stale").join(n).exists())
+            .count()
+    };
+
+    // The stale WAL holds frames of another database (copied while it is open).
+    let (other, other_path) = make("other.db", "app__other", 50);
+    std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+    std::fs::copy(format!("{}-wal", other_path.display()), &stale).unwrap();
+    std::fs::write(&stale_shm, vec![0x5A; 32768]).unwrap();
+    assert!(std::fs::metadata(&stale).unwrap().len() > 0);
+    let _ = other.close();
+
+    // The upload: a checkpointed file with exactly three rows.
+    let (up, up_path) = make("upload.db", "app__upload", 3);
+    up.checkpoint(renox_data::CheckpointMode::Truncate).unwrap();
+    let _ = up.close();
+    assert_eq!(put(std::fs::read(&up_path).unwrap()).await, 200);
+    assert_eq!(leftovers(), 0, "no .import.db* remain after an import");
+    let imported = root.join("data/t_repl.stale/app.db");
+    let db = renox_data::TenantDb::open(&imported, renox_data::DbOptions::default()).unwrap();
+    let n = db
+        .query_one("select count(*) as n from app__upload", &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(n.get("n"), Some(&renox_data::Value::Integer(3)));
+    assert!(
+        db.query("select 1 from app__other", &[]).is_err(),
+        "nothing of the stale WAL's database is visible"
+    );
+    let _ = db.close();
+
+    // A rejected import (not SQLite) with a stale WAL planted: nothing remains.
+    std::fs::write(&stale, vec![0x37; 8192]).unwrap();
+    std::fs::write(&stale_shm, vec![0x5A; 32768]).unwrap();
+    assert_eq!(put(vec![0xAB; 4096]).await, 422);
+    assert_eq!(leftovers(), 0, "no .import.db* remain after a rejection");
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
