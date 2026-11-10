@@ -1,5 +1,57 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
+exports[`/admin per role normal case: the owner sees the module's dashboard with the app's sidebar links and its tile: role: admin sidebar and tile, owner, en 1`] = `
+"<nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">Dashboard</a>
+    <a href="users">Users</a>
+    <a href="audit">Audit trail</a>
+    <a href="/billing/invoices" class="renox-admin-link">All invoices</a><a href="/jobs" class="renox-admin-link">Jobs</a><a href="/notifications/prefs" class="renox-admin-link">Notifications</a><a class="renox-org-admin" href="/org/members">Members and invitations</a><a href="/files" class="renox-admin-link">Files</a><a href="/admin/branches" id="nav-branches">Branches</a>
+<a href="/admin/import" id="nav-import">Import</a>
+<a href="/admin/people" id="nav-people">People</a>
+<a href="/admin/settings" id="nav-branding">Branding</a>
+<a href="/admin/audit" id="nav-audit">Audit trail</a>
+<a href="/" id="nav-work">Work list</a>
+  </nav>
+<article id="home-services-tile" class="tile-card" hx-get="/admin/tile" hx-trigger="load" hx-swap="outerHTML"><h2>Today in this branch</h2><p><a href="/admin/tile">Open</a></p></article>"
+`;
+
+exports[`/admin per role the tile's fragment holds the branch's three numbers: role: admin tile fragment, owner, en 1`] = `
+"<article id="home-services-tile" class="tile-card">
+    <h2>Branch: Dubai</h2>
+    <section class="tiles" id="tiles">
+      <article class="tile" id="tile-jobs"><span>Jobs today</span><strong dir="ltr"><n></strong><a href="/jobs">Jobs</a></article>
+      <article class="tile" id="tile-invoices"><span>Open invoices</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">Invoices</a></article>
+      <article class="tile" id="tile-amc"><span>Contracts ending this month</span><strong dir="ltr"><n></strong><a href="/reports/amc">Contract renewals</a></article>
+    </section>
+  </article>"
+`;
+
+exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin sidebar and tile, owner, ar 1`] = `
+"<nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">لوحة التحكم</a>
+    <a href="users">المستخدمون</a>
+    <a href="audit">سجل التدقيق</a>
+    <a href="/billing/invoices" class="renox-admin-link">كل الفواتير</a><a href="/jobs" class="renox-admin-link">المهام</a><a href="/notifications/prefs" class="renox-admin-link">الإشعارات</a><a class="renox-org-admin" href="/org/members">الأعضاء والدعوات</a><a href="/files" class="renox-admin-link">الملفات</a><a href="/admin/branches" id="nav-branches">الفروع</a>
+<a href="/admin/import" id="nav-import">الاستيراد</a>
+<a href="/admin/people" id="nav-people">الأشخاص</a>
+<a href="/admin/settings" id="nav-branding">الهوية</a>
+<a href="/admin/audit" id="nav-audit">سجل التدقيق</a>
+<a href="/" id="nav-work">قائمة العمل</a>
+  </nav>
+<article id="home-services-tile" class="tile-card" hx-get="/admin/tile" hx-trigger="load" hx-swap="outerHTML"><h2>اليوم في هذا الفرع</h2><p><a href="/admin/tile">فتح</a></p></article>"
+`;
+
+exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin tile fragment, owner, ar 1`] = `
+"<article id="home-services-tile" class="tile-card">
+    <h2>الفرع: دبي</h2>
+    <section class="tiles" id="tiles">
+      <article class="tile" id="tile-jobs"><span>أعمال اليوم</span><strong dir="ltr"><n></strong><a href="/jobs">المهام</a></article>
+      <article class="tile" id="tile-invoices"><span>فواتير مفتوحة</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">الفواتير</a></article>
+      <article class="tile" id="tile-amc"><span>عقود تنتهي هذا الشهر</span><strong dir="ltr"><n></strong><a href="/reports/amc">تجديد العقود</a></article>
+    </section>
+  </article>"
+`;
+
 exports[`people the users page lists the branch with roles and who has a second factor: role: users table, owner, en 1`] = `
 "<table id="staff">
     <thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Second factor</th><th></th></tr></thead>
@@ -77,54 +129,4 @@ exports[`people the users page lists the branch with roles and who has a second 
       </tr>
     </tbody>
   </table>"
-`;
-
-exports[`/admin per role normal case: the owner sees the module's dashboard with the app's sidebar links and its tile: role: admin sidebar and tile, owner, en 1`] = `
-"<nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">Dashboard</a>
-    <a href="users">Users</a>
-    <a href="audit">Audit trail</a>
-    <a href="/billing/invoices" class="renox-admin-link">All invoices</a><a href="/jobs" class="renox-admin-link">Jobs</a><a href="/notifications/prefs" class="renox-admin-link">Notifications</a><a class="renox-org-admin" href="/org/members">Members and invitations</a><a href="/files" class="renox-admin-link">Files</a><a href="/admin/branches" id="nav-branches">Branches</a>
-<a href="/admin/people" id="nav-people">People</a>
-<a href="/admin/settings" id="nav-branding">Branding</a>
-<a href="/admin/audit" id="nav-audit">Audit trail</a>
-<a href="/" id="nav-work">Work list</a>
-  </nav>
-<article id="home-services-tile" class="tile-card" hx-get="/admin/tile" hx-trigger="load" hx-swap="outerHTML"><h2>Today in this branch</h2><p><a href="/admin/tile">Open</a></p></article>"
-`;
-
-exports[`/admin per role the tile's fragment holds the branch's three numbers: role: admin tile fragment, owner, en 1`] = `
-"<article id="home-services-tile" class="tile-card">
-    <h2>Branch: Dubai</h2>
-    <section class="tiles" id="tiles">
-      <article class="tile" id="tile-jobs"><span>Jobs today</span><strong dir="ltr"><n></strong><a href="/jobs">Jobs</a></article>
-      <article class="tile" id="tile-invoices"><span>Open invoices</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">Invoices</a></article>
-      <article class="tile" id="tile-amc"><span>Contracts ending this month</span><strong dir="ltr"><n></strong><a href="/reports/amc">Contract renewals</a></article>
-    </section>
-  </article>"
-`;
-
-exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin sidebar and tile, owner, ar 1`] = `
-"<nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">لوحة التحكم</a>
-    <a href="users">المستخدمون</a>
-    <a href="audit">سجل التدقيق</a>
-    <a href="/billing/invoices" class="renox-admin-link">كل الفواتير</a><a href="/jobs" class="renox-admin-link">المهام</a><a href="/notifications/prefs" class="renox-admin-link">الإشعارات</a><a class="renox-org-admin" href="/org/members">الأعضاء والدعوات</a><a href="/files" class="renox-admin-link">الملفات</a><a href="/admin/branches" id="nav-branches">الفروع</a>
-<a href="/admin/people" id="nav-people">الأشخاص</a>
-<a href="/admin/settings" id="nav-branding">الهوية</a>
-<a href="/admin/audit" id="nav-audit">سجل التدقيق</a>
-<a href="/" id="nav-work">قائمة العمل</a>
-  </nav>
-<article id="home-services-tile" class="tile-card" hx-get="/admin/tile" hx-trigger="load" hx-swap="outerHTML"><h2>اليوم في هذا الفرع</h2><p><a href="/admin/tile">فتح</a></p></article>"
-`;
-
-exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin tile fragment, owner, ar 1`] = `
-"<article id="home-services-tile" class="tile-card">
-    <h2>الفرع: دبي</h2>
-    <section class="tiles" id="tiles">
-      <article class="tile" id="tile-jobs"><span>أعمال اليوم</span><strong dir="ltr"><n></strong><a href="/jobs">المهام</a></article>
-      <article class="tile" id="tile-invoices"><span>فواتير مفتوحة</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">الفواتير</a></article>
-      <article class="tile" id="tile-amc"><span>عقود تنتهي هذا الشهر</span><strong dir="ltr"><n></strong><a href="/reports/amc">تجديد العقود</a></article>
-    </section>
-  </article>"
 `;

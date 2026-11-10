@@ -1,0 +1,75 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`/admin/import the page and the report render in Arabic, right to left: role: import page, owner, ar 1`] = `
+"<main>
+      
+  
+  <h1>الاستيراد من إكسل</h1>
+  <p>أدخل عملاءك ومواقعك وخدماتك وعقودك من ملفات إكسل. ارفع ملف ‎.xlsx‎ واحداً لكل نوع بهذا الترتيب (حتى 10 ميغابايت و10٬000 صف لكل ملف، الورقة الأولى فقط، والصف الأول هو العناوين). يُفحص الملف أولاً ولا يُكتب شيء حتى تستورد ملفاً بلا أخطاء.</p>
+  
+  <ol id="import-kinds">
+    <li id="kind-customers" dir="auto">
+      <strong dir="auto">العملاء</strong>: الشركات والمنازل، كلٌّ في فرع واحد، برقم هاتف وبريد إلكتروني ورقم ضريبي ولغة اختيارياً.
+      <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">branch*, kind*, name*, phone*, email, trn, language</span></small>
+      <a href="/admin/import/template/customers" id="template-customers">تنزيل النموذج</a>
+    </li><li id="kind-sites" dir="auto">
+      <strong dir="auto">المواقع</strong>: أماكن عمل العميل، ويُعثر على العميل برقم هاتفه: الاسم والإمارة والمنطقة والعنوان.
+      <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">customer_phone*, label*, emirate*, area*, address*, makani, access_notes</span></small>
+      <a href="/admin/import/template/sites" id="template-sites">تنزيل النموذج</a>
+    </li><li id="kind-services" dir="auto">
+      <strong dir="auto">الخدمات</strong>: قائمة الأسعار: رمز وأسماء بالعربية والإنجليزية ووحدة وسعر بالدرهم. يُحدَّث الرمز الموجود.
+      <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">code*, name_en*, name_ar*, unit*, price_aed*, vat_rate, branch</span></small>
+      <a href="/admin/import/template/services" id="template-services">تنزيل النموذج</a>
+    </li><li id="kind-contracts" dir="auto">
+      <strong dir="auto">العقود</strong>: عقود الصيانة كمسودات، صف لكل خدمة في موقع؛ الصفوف التي لها الرقم نفسه تكوّن عقداً واحداً.
+      <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">number*, customer_phone*, starts_on*, ends_on*, price_aed*, site_label*, service_code*, visits_per_year*, next_visit_on, notes</span></small>
+      <a href="/admin/import/template/contracts" id="template-contracts">تنزيل النموذج</a>
+    </li>
+  </ol>
+  <form method="post" action="?/check" hx-post="?/check" class="stack narrow" id="import-form"><input type="hidden" name="_csrf" value="<csrf>">
+    <p><label>محتوى الملف
+      <select name="kind"><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="contracts" dir="auto">العقود</option></select></label></p>
+    <p><label>ملف إكسل (‎.xlsx‎) <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required> <span data-upload-status="" class="muted"></span></label>
+      <input type="hidden" name="file_key"></p>
+    <p><button type="submit" class="btn-brand">افحص الملف</button></p>
+  </form>
+  <h2>آخر عمليات الاستيراد</h2>
+  <table id="imports">(the latest imports)</table>
+  <script src="/upload.<hash>.js" defer nonce="<nonce>"></script>
+
+    </main>"
+`;
+
+exports[`/admin/import the page and the report render in Arabic, right to left: role: import report, owner, ar 1`] = `
+"<main>
+      
+  
+  <h1>تقرير الفحص</h1>
+  <p><strong dir="auto">العملاء</strong> · <span dir="ltr" id="import-file">customers.xlsx</span> · <span id="import-status" dir="auto">تم فحصه</span></p>
+  
+  <dl id="import-totals">
+    <dt>الصفوف</dt><dd dir="ltr" id="total-rows">1</dd>
+    <dt>للإضافة</dt><dd dir="ltr" id="total-insert">0</dd>
+    <dt>للتحديث</dt><dd dir="ltr" id="total-update">0</dd>
+    <dt>موجودة مسبقاً</dt><dd dir="ltr" id="total-exists">0</dd>
+    <dt>الأخطاء</dt><dd dir="ltr" id="total-errors">1</dd>
+  </dl>
+  <table id="import-errors">
+    <thead><tr><th>الصف</th><th>العمود</th><th>المشكلة</th></tr></thead>
+    <tbody>
+      <tr>
+        <td dir="ltr">2</td>
+        <td dir="ltr">phone</td>
+        <td dir="auto">ليس رقم هاتف إماراتياً، مثل ‎+971 50 123 4567‎.</td>
+      </tr>
+    </tbody>
+  </table>
+  
+  <section>
+    <p id="fix-file">أصلح الملف ثم افحصه من جديد.</p>
+    <form method="post" action="?/discard" hx-post="?/discard" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تجاهل هذا الملف</button></form>
+  </section>
+  <p><a href="/admin/import">العودة إلى عمليات الاستيراد</a></p>
+
+    </main>"
+`;
