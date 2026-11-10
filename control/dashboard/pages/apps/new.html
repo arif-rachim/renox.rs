@@ -13,6 +13,10 @@ renox dev
 renox login
 renox deploy</pre>
       <p class="muted small"><r-t key="dash.install.windows" /></p>
+      <r-group r-if="created.invited">
+        <h2><r-t key="dash.new.hs_invited" /></h2>
+        <ul><li r-for="p in created.invited">{{ p.email }} <span class="muted">{{ p.role }}</span></li></ul>
+      </r-group>
       <p><a href="/apps/{{ created.app }}"><r-t key="dash.common.open" /> {{ created.app }}</a></p>
     </r-group>
     <r-group r-if="!created">
@@ -28,6 +32,27 @@ renox deploy</pre>
         <p class="muted"><r-t key="dash.new.we_create" /> <code>&lt;name&gt;.{{ platform_domain }}</code> <r-t key="dash.new.we_create_after" /></p>
         <button type="submit" class="primary"><r-t key="dash.apps.create" /></button>
       </x-form>
+      <r-group r-if="home_services">
+        <h2>{{ home_services.name }}</h2>
+        <p class="muted">{{ home_services.about }}</p>
+        <p class="notice" r-if="partial"><a :href="partial.url">{{ partial.url }}</a> <a href="/apps/{{ partial.app }}"><r-t key="dash.common.open" /> {{ partial.app }}</a></p>
+        <x-form action="create_home_services" hx-target="#page" hx-swap="outerHTML">
+          <label><r-t key="dash.common.name" /> <input name="name" :value="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" spellcheck="false"></label>
+          <label><r-t key="dash.new.hs_company_name" /> <input name="company_name" :value="hs.company_name" required maxlength="80"></label>
+          <label><r-t key="dash.new.hs_company_trn" /> <input name="company_trn" :value="hs.company_trn" inputmode="numeric" pattern="[0-9]{15}" maxlength="15"></label>
+          <label><r-t key="dash.new.hs_company_phone" /> <input name="company_phone" :value="hs.company_phone" required type="tel" placeholder="+971501234567"></label>
+          <label><r-t key="dash.new.hs_company_emirate" />
+            <select name="company_emirate"><option r-for="e in emirates" :value="e.id" :selected="e.id == hs.company_emirate">{{ e.name }}</option></select>
+          </label>
+          <label><r-t key="dash.new.hs_branches" /> <textarea name="branches" rows="3" required>{{ hs.branches }}</textarea></label>
+          <p class="muted small"><r-t key="dash.new.hs_branches_hint" /></p>
+          <label><r-t key="dash.new.hs_services" /> <textarea name="services" rows="5" required>{{ hs.services }}</textarea></label>
+          <p class="muted small"><r-t key="dash.new.hs_services_hint" /></p>
+          <label><r-t key="dash.new.hs_people" /> <textarea name="people" rows="3">{{ hs.people }}</textarea></label>
+          <p class="muted small"><r-t key="dash.new.hs_people_hint" /></p>
+          <button type="submit" class="primary"><r-t key="dash.apps.create" /></button>
+        </x-form>
+      </r-group>
     </r-group>
   </section>
 </r-layout>

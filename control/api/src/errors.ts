@@ -22,6 +22,8 @@ export const MESSAGES = {
   // deploy-api.md 0.5 section 23 (#327).
   RENOX_AI_QUOTA: "The service is temporarily unavailable.",
   RENOX_AI_UNAVAILABLE: "The service is temporarily unavailable.",
+  // deploy-api.md 0.9 section 21 (#689).
+  RENOX_SETUP_FAILED: "The app was created, but its setup did not complete.",
 } as const;
 
 export type ErrorCode = keyof typeof MESSAGES;
@@ -45,6 +47,8 @@ export const STATUS: Record<ErrorCode, number> = {
   // deploy-api.md 0.5 section 23 (#327).
   RENOX_AI_QUOTA: 429,
   RENOX_AI_UNAVAILABLE: 503,
+  // deploy-api.md 0.9 section 21 (#689).
+  RENOX_SETUP_FAILED: 502,
 };
 
 export type Detail = Record<string, string | number>;

@@ -14,6 +14,8 @@ renox db seed
 renox dev
 ```
 
+**On the platform, with your own company** (#689): the dashboard's first-app page and the platform MCP tool `create_app_from_template` create a live copy in one call, `POST /v1/apps/from-template` with `template: "home-services"` and a `setup` (`deploy-api.md` section 21): the company (name, optional TRN, phone, emirate), 1 to 5 branches, 1 to 50 services and 0 to 20 people to invite. The app starts with that data and **without the demo seed**; the signed-in account's verified email becomes its first user, with the role `owner`, and each person listed is invited through `org`. The platform does this by calling the app's `POST /api/setup` once, with a one-time token (`deploy-api.md` section 21); that route is `functions/api/setup.ts` and answers 409 when the settings already exist.
+
 `renox db seed` loads `seeds/001_demo.sql` into the local database, so `renox dev` shows the demo company "FixIt Services" with two branches (Dubai and Sharjah), customers, quotations, jobs and invoices. Every demo user signs in with the password written in the seed's comments (for example `owner@fixit.example`, `dispatcher.dubai@fixit.example`, `ali.dubai@fixit.example`).
 
 ## Roles

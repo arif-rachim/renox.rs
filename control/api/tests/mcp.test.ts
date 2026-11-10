@@ -8,19 +8,23 @@
 // (tool outputs labelled as data, confirmation for mutations, audit of every
 // tool call).
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // The SDK is a dev dependency of the CLI (cli/package.json); control/api uses it only here.
 import { Client } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js";
 import { UnauthorizedError, type OAuthClientProvider } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js";
 import { StreamableHTTPClientTransport } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
+import { buildArtifact } from "../../../cli/src/lib/build.ts";
 import { SESSION_COOKIE } from "../src/auth/sessions.ts";
 import { ConfigError, loadConfig } from "../src/config.ts";
 import { tick } from "../src/domains/jobs.ts";
 import { configureDomains } from "../src/domains/service.ts";
 import { logIngest } from "../src/ingest/logs.ts";
 import { EDGE, StubCloudflare } from "./domain-stubs.ts";
-import { addMember, assertScoped, auditRows, createApp_, harness, type Harness, PASSWORD, type Session, signup } from "./helpers.ts";
+import { addMember, assertScoped, auditRows, createApp_, harness, type Harness, PASSWORD, registeredNode, type Session, signup } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -224,7 +228,7 @@ describe("tools", () => {
     try {
       const { client } = await connect(srv.url, s);
       const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-      expect(tools).toEqual(["activate", "add_domain", "create_app", "domain_status", "get_app", "get_deployment", "get_logs", "get_usage", "list_apps", "list_deployments", "list_domains", "list_secrets", "remove_domain", "rollback"]);
+      expect(tools).toEqual(["activate", "add_domain", "create_app", "create_app_from_template", "domain_status", "get_app", "get_deployment", "get_logs", "get_usage", "list_apps", "list_deployments", "list_domains", "list_secrets", "remove_domain", "rollback"]);
       expect(structured(await client.callTool({ name: "list_apps", arguments: {} }))).toEqual({ apps: [] });
 
       // An app made through the deploy API, a secret and a log line written with a prompt-injection attempt.
@@ -460,3 +464,105 @@ describe("custom domains (#477)", () => {
 
 // Keeps the helper import used when the suite is filtered.
 export { createApp_ };
+
+// The owner connector's first tool (#689; docs/20-ai-agents-mcp.md section 1b). The app side is stubbed: `deps.callApp`.
+describe("create_app_from_template (#689)", () => {
+  const SETUP = {
+    company: { name: "CoolAir", phone: "+971501234567", emirate: "dubai" },
+    branches: [
+      { name: "Dubai", emirate: "dubai" },
+      { name: "Sharjah", emirate: "sharjah" },
+    ],
+    services: Array.from({ length: 5 }, (_, i) => ({ name: `Service ${i + 1}`, price_aed: 100 + i })),
+    people: [
+      { email: "a@coolair.ae", role: "technician" },
+      { email: "b@coolair.ae", role: "accountant" },
+      { email: "c@coolair.ae", role: "dispatcher" },
+    ],
+  };
+  const savedDir = process.env.CONTROL_TEMPLATES_DIR;
+  let dir = "";
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "renox-templates-mcp-"));
+    await buildArtifact(new URL("../../../examples/home-services", import.meta.url).pathname, join(dir, "home-services"));
+    process.env.CONTROL_TEMPLATES_DIR = dir;
+  });
+  afterAll(() => {
+    if (savedDir === undefined) delete process.env.CONTROL_TEMPLATES_DIR;
+    else process.env.CONTROL_TEMPLATES_DIR = savedDir;
+  });
+
+  test("the first call returns the plan in words, the second creates the app and returns the URL and the invitations; bad input and a missing scope are refused", async () => {
+    const h = await harness();
+    const s = await signup(h, "owner@coolair.ae", "t-cool");
+    await registeredNode(h, "node-1");
+    const calls: { url: string; headers: Record<string, string>; body: string }[] = [];
+    h.deps.callApp = async (url, init) => {
+      calls.push({ url, ...init });
+      return { status: 200, body: { invited: SETUP.people, skipped: [] } };
+    };
+    const srv = serve(h);
+    try {
+      // A viewer's agent holds no apps:write: the tool is not offered and a call is refused.
+      await signup(h, "viewer@coolair.ae");
+      await addMember(h, "t-cool", "viewer@coolair.ae", "viewer");
+      const login = await h.request("POST", "/v1/account/login", { json: { email: "viewer@coolair.ae", password: PASSWORD } });
+      const csrf = ((await login.json()) as { csrf: string }).csrf;
+      const cookie = /__Host-renox_session=([^;]+)/u.exec(login.headers.get("set-cookie") ?? "")?.[1] as string;
+      await h.request("POST", "/v1/account/tenant", { session: { cookie, csrf }, json: { tenant_id: "t-cool" } });
+      const ro = (await connect(srv.url, { cookie, csrf })).client;
+      expect((await ro.listTools()).tools.map((t) => t.name)).not.toContain("create_app_from_template");
+      const refused = await ro.callTool({ name: "create_app_from_template", arguments: { name: "coolair", template: "home-services", setup: SETUP } });
+      expect(structured(refused).error).toMatchObject({ code: "insufficient_scope" });
+      await ro.close();
+
+      const { client } = await connect(srv.url, s, "apps:read apps:write");
+      expect((await client.listTools()).tools.map((t) => t.name)).toContain("create_app_from_template");
+      const args = { name: "coolair", template: "home-services", setup: SETUP };
+      const first = await client.callTool({ name: "create_app_from_template", arguments: args });
+      expect(first.isError).toBe(true);
+      const plan = structured(first);
+      expect(plan.error).toMatchObject({ code: "confirmation_required" });
+      expect(plan.plan).toContain("CoolAir: 2 branches (Dubai, Sharjah), 5 services, 3 people invited, live at coolair.renox.app");
+      expect(structured(await client.callTool({ name: "list_apps", arguments: {} }))).toEqual({ apps: [] }); // nothing happened
+      expect(calls).toEqual([]);
+
+      // Out-of-range or malformed setup never reaches the plan.
+      const bad = await client.callTool({ name: "create_app_from_template", arguments: { ...args, setup: { ...SETUP, branches: [] } } });
+      expect(structured(bad).error).toMatchObject({ code: "invalid_input" });
+      const wrongTemplate = await client.callTool({ name: "create_app_from_template", arguments: { ...args, template: "hello" } });
+      expect(structured(wrongTemplate).error).toMatchObject({ code: "invalid_input" });
+      // The token is bound to the arguments.
+      const other = await client.callTool({ name: "create_app_from_template", arguments: { ...args, name: "other", confirmation_token: plan.confirmation_token as string } });
+      expect(structured(other).error).toMatchObject({ code: "confirmation_required" });
+
+      const done = await client.callTool({ name: "create_app_from_template", arguments: { ...args, confirmation_token: plan.confirmation_token as string } });
+      expect(done.isError).toBe(false);
+      expect(structured(done)).toMatchObject({ untrusted: true, app: "coolair", url: "https://coolair.renox.app", invitations: SETUP.people });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.url).toBe("https://coolair.renox.app/api/setup");
+      expect(JSON.parse(calls[0]?.body as string)).toMatchObject({ company: { name: "CoolAir" }, owner: { email: "owner@coolair.ae" } });
+      expect(structured(await client.callTool({ name: "get_app", arguments: { app: "coolair" } }))).toMatchObject({ name: "coolair" });
+
+      const rows = (await auditRows(h)).filter((r) => r.action === "mcp.create_app_from_template").map((r) => [(r.target as Record<string, string>).outcome, (r.target as Record<string, string>).app]);
+      expect(rows).toEqual([
+        ["insufficient_scope", "coolair"],
+        ["confirmation_required", "coolair"],
+        ["invalid_input", "coolair"],
+        ["invalid_input", "coolair"],
+        ["confirmation_invalid", "other"],
+        ["ok", "coolair"],
+      ]);
+      // A failed setup is a tool error that still names the live app.
+      h.deps.callApp = async () => ({ status: 404, body: null });
+      const again = { ...args, name: "coolair2" };
+      const p2 = structured(await client.callTool({ name: "create_app_from_template", arguments: again }));
+      const failed = await client.callTool({ name: "create_app_from_template", arguments: { ...again, confirmation_token: p2.confirmation_token as string } });
+      expect(failed.isError).toBe(true);
+      expect(structured(failed)).toMatchObject({ error: { code: "RENOX_SETUP_FAILED", status: 502 }, app: "coolair2", url: "https://coolair2.renox.app" });
+      await client.close();
+    } finally {
+      srv.stop();
+    }
+  });
+});

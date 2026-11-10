@@ -27,6 +27,8 @@ export interface Deps {
   mailer: Mailer;
   /** Unix milliseconds; replaced in tests. */
   now: () => number;
+  /** The call to a new app's `/api/setup` (src/signup/templates.ts, #689); unset: `fetch`. Replaced in tests. */
+  callApp?: (url: string, init: { headers: Record<string, string>; body: string }) => Promise<{ status: number; body: unknown }>;
 }
 
 export type Env = {

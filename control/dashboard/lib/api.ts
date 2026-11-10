@@ -528,8 +528,13 @@ export class Api {
   }
 
   /** `createAppFromTemplate` (deploy-api.md 0.5 section 21, #326): the app, uploaded and activated. */
-  createAppFromTemplate(name: string, template: string): Promise<Result<{ app: string; template: string; hash: string; url: string }>> {
-    return this.json("POST", "/v1/apps/from-template", { name, template });
+  createAppFromTemplate(
+    name: string,
+    template: string,
+    setup?: unknown,
+  ): Promise<Result<{ app: string; template: string; hash: string; url: string; setup?: { invited: { email: string; role?: string }[]; skipped: { email: string; reason?: string }[] } }>> {
+    // `setup` (0.9, #689): only for home-services; the API calls the new app's /api/setup with it.
+    return this.json("POST", "/v1/apps/from-template", setup === undefined ? { name, template } : { name, template, setup });
   }
 
   /** `getTenant` (deploy-api.md 0.4 section 3): the tenant and its erasure record (the tombstone after an erasure). */
