@@ -21,14 +21,16 @@ Not the gate's verdict: the dev container is for relative comparison only.
 | Worker | RSS delta, 3 runs (10 s hold) | Median | 30 s hold, RSS at 10 s / at 30 s |
 | --- | --- | --- | --- |
 | task 1 | 86.4, 85.0, 85.7 MB | **85.7 MB** | 85.9 / 85.9 MB |
-| task 2 | 83.0, 80.2, 79.7 MB | **80.2 MB** | 80.0 / **80.0 MB** |
-| **change** | | **−5.5 MB** | |
+| task 2 | 83.2, 83.0, 85.5 MB | **83.2 MB** | 83.3 / **83.3 MB** |
+| **change** | | **−2.5 MB** | |
 
-The crate-side count of `cargo test --release -p renox-realtime --test scale per_connection_heap_budget` went from **1,896** to **1,841** heap bytes per idle connection, budget 2,048. The RSS gain is larger than those 55 bytes × 10,000. The counting allocator sees only the crate's own allocations, and this was not profiled further. The likely rest: tokio's timer driver no longer holds an entry for each connection, and 10,000 fewer small long-lived allocations mean less fragmentation in the malloc arenas.
+The crate-side count of `cargo test --release -p renox-realtime --test scale per_connection_heap_budget` went from **1,896** to **1,841** heap bytes per idle connection, budget 2,048. The RSS gain (2.5 MB, 250 bytes per connection) is larger than those 55 bytes × 10,000. The counting allocator sees only the crate's own allocations, and this was not profiled further. The likely rest: tokio's timer driver no longer holds an entry for each connection, and 10,000 fewer small long-lived allocations mean less fragmentation in the malloc arenas.
 
-B1 (`shop`, N = 100): 9.89, 9.90, 9.90 MB, **9.90 MB**, V8 heap 3.95 MB. Unchanged, since B1 opens no realtime connections.
+B1 (`shop`, N = 100): 9.89, 9.87, 9.89 MB, **9.89 MB**, V8 heap 3.93 MB. Unchanged, since B1 opens no realtime connections.
 
-Gap to the refinement's 75 MB: **5.2 MB**.
+Gap to the refinement's 75 MB: **8.2 MB**.
+
+**Measurement note.** A release `renox-worker` built from a checkout reads `crates/renox-runtime/src/js/bootstrap.js` from that checkout when it creates an isolate; the file is not embedded at build time. The binary embeds the path, and changing the file does not rebuild it. A first set of task 2 runs (80.2 MB) had task 3's `bootstrap.js` on disk, and was thrown away. The numbers above are the same binary with the committed `bootstrap.js` of task 2 (`c8533d2`).
 
 Raw: `bench/results/raw/2026-11-10-B14-680-task2*.json`, `bench/results/raw/2026-11-10-B1-680-task2.json`.
 
