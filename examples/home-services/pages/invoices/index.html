@@ -9,9 +9,10 @@
       </select></label>
     <button type="submit"><r-t key="invoices.filter" /></button>
   </form>
-  <table id="invoice-list">
+  <div class="table-scroll" tabindex="0"><table id="invoice-list">
+    <caption class="visually-hidden"><r-t key="invoices.title" /></caption>
     <thead>
-      <tr><th><r-t key="invoices.f.number" /></th><th><r-t key="invoices.f.customer" /></th><th><r-t key="invoices.f.status" /></th><th><r-t key="invoices.f.total" /></th><th><r-t key="invoices.f.balance" /></th><th><r-t key="invoices.f.due" /></th></tr>
+      <tr><th scope="col"><r-t key="invoices.f.number" /></th><th scope="col"><r-t key="invoices.f.customer" /></th><th scope="col"><r-t key="invoices.f.status" /></th><th scope="col"><r-t key="invoices.f.total" /></th><th scope="col"><r-t key="invoices.f.balance" /></th><th scope="col"><r-t key="invoices.f.due" /></th></tr>
     </thead>
     <tbody>
       <tr r-for="i in invoices" :id="'invoice-' ~ i.id">
@@ -24,5 +25,5 @@
       </tr>
       <tr r-empty="invoices"><td colspan="6"><r-t key="invoices.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
 </r-layout>

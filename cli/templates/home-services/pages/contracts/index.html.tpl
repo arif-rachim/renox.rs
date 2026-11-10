@@ -10,9 +10,10 @@
       </select></label>
     <button type="submit"><r-t key="contracts.filter" /></button>
   </form>
-  <table id="contract-list">
+  <div class="table-scroll" tabindex="0"><table id="contract-list">
+    <caption class="visually-hidden"><r-t key="contracts.title" /></caption>
     <thead>
-      <tr><th><r-t key="contracts.f.number" /></th><th><r-t key="contracts.f.customer" /></th><th><r-t key="contracts.f.status" /></th><th><r-t key="contracts.f.term" /></th><th><r-t key="contracts.f.price" /></th><th><r-t key="contracts.f.items" /></th></tr>
+      <tr><th scope="col"><r-t key="contracts.f.number" /></th><th scope="col"><r-t key="contracts.f.customer" /></th><th scope="col"><r-t key="contracts.f.status" /></th><th scope="col"><r-t key="contracts.f.term" /></th><th scope="col"><r-t key="contracts.f.price" /></th><th scope="col"><r-t key="contracts.f.items" /></th></tr>
     </thead>
     <tbody>
       <tr r-for="c in contracts" :id="'contract-' ~ c.number">
@@ -25,5 +26,5 @@
       </tr>
       <tr r-empty="contracts"><td colspan="6"><r-t key="contracts.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
 </r-layout>

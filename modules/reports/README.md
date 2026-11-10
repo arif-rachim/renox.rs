@@ -53,6 +53,7 @@ The CSV has a UTF-8 BOM, so Excel opens Arabic text correctly. A cell that start
 | Service | What it does |
 | --- | --- |
 | `xlsx(sheet, rows)` | Rows (`string \| number \| null` cells) as a one-sheet `.xlsx`, returned as bytes. Numbers stay numbers and strings are never formulas. `sheet` is 1 to 31 characters without `[ ] : * ? / \`; at most 100,000 cells; anything else is a `ValidationError` |
+| `readXlsx(bytes)` | The first sheet of an `.xlsx` (the writer's, Excel's or LibreOffice's) as rows of `string \| number \| null` cells. A formula gives its cached value, a gap is `null`, rows are padded with `null` to the widest and trailing empty rows are dropped. `bytes` must be a `Uint8Array` (`TypeError`), at most 10 MiB and 100,000 cells (`RangeError`); anything that is not an `.xlsx` throws `Error("reports.readXlsx: not an .xlsx file")` |
 
 ## Not built
 
@@ -67,6 +68,7 @@ The CSV has a UTF-8 BOM, so Excel opens Arabic text correctly. A cell that start
   - the CSV's BOM, quoting, Arabic and formula guard;
   - each accounting layout;
   - an `.xlsx` opened by the reader, with its CRCs checked, numbers as numbers and text as text;
+  - `readXlsx` on the writer's output, on a LibreOffice file (`tests/fixtures/customers.xlsx`: deflate, shared strings, a gap, formula cells) and on its refusals;
   - the cash ledger counting a redelivered event once.
 - With `RENOX_WORKER_PATH`, `tests/app.test.ts` runs in an app with billing, tax_gcc and email on the worker:
   - a PSP invoice issued and paid shows as the day's sales and cash;

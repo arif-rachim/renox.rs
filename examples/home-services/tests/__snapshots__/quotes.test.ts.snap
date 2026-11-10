@@ -7,6 +7,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Quotations · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -16,6 +17,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,7 +36,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
       <strong lang="en">English</strong><a href="/quotes?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Quotations</h1>
@@ -47,9 +49,10 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
     <button type="submit">Filter</button>
     <a class="btn-brand" href="/quotes/new">New quotation</a>
   </form>
-  <table id="quote-list">
+  <div class="table-scroll" tabindex="0"><table id="quote-list">
+    <caption class="visually-hidden">Quotations</caption>
     <thead>
-      <tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Valid until</th></tr>
+      <tr><th scope="col">Number</th><th scope="col">Customer</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col">Valid until</th></tr>
     </thead>
     <tbody>
       <tr id="quote-qt_seed_05">
@@ -90,7 +93,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
         <td dir="ltr">2026-10-26</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
@@ -106,6 +109,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>عروض الأسعار · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -115,6 +119,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -129,11 +134,11 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
     <a href="/org/members">الأعضاء</a>
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/quotes?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>عروض الأسعار</h1>
@@ -146,9 +151,10 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
     <button type="submit">تصفية</button>
     <a class="btn-brand" href="/quotes/new">عرض سعر جديد</a>
   </form>
-  <table id="quote-list">
+  <div class="table-scroll" tabindex="0"><table id="quote-list">
+    <caption class="visually-hidden">عروض الأسعار</caption>
     <thead>
-      <tr><th>الرقم</th><th>العميل</th><th>الحالة</th><th>الإجمالي</th><th>صالح حتى</th></tr>
+      <tr><th scope="col">الرقم</th><th scope="col">العميل</th><th scope="col">الحالة</th><th scope="col">الإجمالي</th><th scope="col">صالح حتى</th></tr>
     </thead>
     <tbody>
       <tr id="quote-qt_seed_05">
@@ -189,7 +195,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
         <td dir="ltr">2026-10-26</td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
@@ -205,6 +211,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Q-000002 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -214,6 +221,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -232,7 +240,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
       <strong lang="en">English</strong><a href="/quotes/qt_seed_02?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/quotes">All quotations</a></p>
@@ -248,33 +256,34 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
     
     
   </dl>
-  <table id="lines">
-    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th><th>Total</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">Lines</caption>
+    <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th></tr></thead>
     <tbody>
       <tr id="line-2">
         <td dir="auto">Deep cleaning</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 450.00</td>
         <td dir="ltr">AED 450.00</td>
-        <td dir="ltr">AED 22.50 (5%)</td>
+        <td dir="ltr">AED 22.50 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 472.50</td>
       </tr><tr id="line-3">
         <td dir="auto">Pest control</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 250.00</td>
         <td dir="ltr">AED 250.00</td>
-        <td dir="ltr">AED 12.50 (5%)</td>
+        <td dir="ltr">AED 12.50 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 262.50</td>
       </tr>
     </tbody>
     <tfoot>
-      <tr><th colspan="5">Subtotal</th><td dir="ltr" id="subtotal">AED 700.00</td></tr>
-      <tr><th colspan="5">VAT</th><td dir="ltr" id="vat">AED 35.00</td></tr>
-      <tr><th colspan="5">Total</th><td dir="ltr" id="total"><strong dir="auto">AED 735.00</strong></td></tr>
+      <tr><th scope="row" colspan="5">Subtotal</th><td dir="ltr" id="subtotal">AED 700.00</td></tr>
+      <tr><th scope="row" colspan="5">VAT</th><td dir="ltr" id="vat">AED 35.00</td></tr>
+      <tr><th scope="row" colspan="5">Total</th><td dir="ltr" id="total"><strong dir="auto">AED 735.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   
-  <p id="pdf-links">PDF: <a href="/quotes/qt_seed_02/pdf?lang=en">English</a> · <a href="/quotes/qt_seed_02/pdf?lang=ar">العربية</a></p>
+  <p id="pdf-links">PDF: <a href="/quotes/qt_seed_02/pdf?lang=en" lang="en">English</a> · <a href="/quotes/qt_seed_02/pdf?lang=ar" lang="ar">العربية</a></p>
   <section>
     <form method="post" action="?/send" hx-post="?/send" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
       <button type="submit">Issue a new approval link</button>
@@ -296,6 +305,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Q-000004 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -305,6 +315,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -313,7 +324,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
       <strong lang="en">English</strong><a href="/l/approve/demo-q000004-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Quotation Q-000004</h1>
@@ -321,24 +332,25 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
   <p class="notice" id="state-approved">This quotation is already approved. Thank you.</p>
   
   
-  <table id="lines">
-    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th><th>Total</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">Lines</caption>
+    <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th></tr></thead>
     <tbody>
       <tr>
         <td dir="auto">AC repair</td>
         <td dir="ltr">2</td>
         <td dir="ltr">AED 180.00</td>
         <td dir="ltr">AED 360.00</td>
-        <td dir="ltr">AED 18.00 (5%)</td>
+        <td dir="ltr">AED 18.00 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 378.00</td>
       </tr>
     </tbody>
     <tfoot>
-      <tr><th colspan="5">Subtotal</th><td dir="ltr">AED 360.00</td></tr>
-      <tr><th colspan="5">VAT</th><td dir="ltr">AED 18.00</td></tr>
-      <tr><th colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 378.00</strong></td></tr>
+      <tr><th scope="row" colspan="5">Subtotal</th><td dir="ltr">AED 360.00</td></tr>
+      <tr><th scope="row" colspan="5">VAT</th><td dir="ltr">AED 18.00</td></tr>
+      <tr><th scope="row" colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 378.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <p>Valid until: <span dir="ltr">2033-05-18</span></p>
   
   
@@ -357,6 +369,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Q-000003 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -366,6 +379,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -374,7 +388,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
       <strong lang="en">English</strong><a href="/l/approve/demo-q000003-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Quotation Q-000003</h1>
@@ -382,31 +396,32 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
   
   
   
-  <table id="lines">
-    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th><th>Total</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">Lines</caption>
+    <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th></tr></thead>
     <tbody>
       <tr>
         <td dir="auto">Plumbing</td>
         <td dir="ltr">2</td>
         <td dir="ltr">AED 160.00</td>
         <td dir="ltr">AED 320.00</td>
-        <td dir="ltr">AED 16.00 (5%)</td>
+        <td dir="ltr">AED 16.00 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 336.00</td>
       </tr><tr>
         <td dir="auto">Electrical</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 160.00</td>
         <td dir="ltr">AED 160.00</td>
-        <td dir="ltr">AED 8.00 (5%)</td>
+        <td dir="ltr">AED 8.00 <bdi dir="ltr">(5%)</bdi></td>
         <td dir="ltr">AED 168.00</td>
       </tr>
     </tbody>
     <tfoot>
-      <tr><th colspan="5">Subtotal</th><td dir="ltr">AED 480.00</td></tr>
-      <tr><th colspan="5">VAT</th><td dir="ltr">AED 24.00</td></tr>
-      <tr><th colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 504.00</strong></td></tr>
+      <tr><th scope="row" colspan="5">Subtotal</th><td dir="ltr">AED 480.00</td></tr>
+      <tr><th scope="row" colspan="5">VAT</th><td dir="ltr">AED 24.00</td></tr>
+      <tr><th scope="row" colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 504.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <p>Valid until: <span dir="ltr">2033-05-18</span></p>
   <p dir="auto">Tower A, level 12 pantry leak.</p>
   <section id="answer">
@@ -428,6 +443,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>New quotation · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -437,6 +453,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -455,7 +472,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
       <strong lang="en">English</strong><a href="/quotes/new?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/quotes">All quotations</a></p>
@@ -463,15 +480,15 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
   <form method="post" action="?/create" hx-post="?/create" class="stack"><input type="hidden" name="_csrf" value="<csrf>">
     <section class="stack narrow">
       <p><label>Site
-        <select name="site_id" required>
+        <select name="site_id" required id="f-site_id" aria-invalid="false" aria-describedby="" aria-required="true">
           <option value="">—</option>
           <option value="st_dxb_05a" dir="auto">Al Barsha Facilities LLC · Building 9</option><option value="st_dxb_03a" dir="auto">Fatima Al Suwaidi · Home</option><option value="st_dxb_01a" dir="auto">Layla Haddad · Apartment</option><option value="st_dxb_04a" dir="auto">Marina Heights Property Management · Tower A</option><option value="st_dxb_04b" dir="auto">Marina Heights Property Management · Tower B</option><option value="st_dxb_02b" dir="auto">Peter Nowak · Office</option><option value="st_dxb_02a" dir="auto">Peter Nowak · Villa</option>
         </select></label></p>
-      <p><label>Valid for (days) <input name="valid_days" type="number" min="1" max="365" value="30" dir="ltr"></label></p>
+      <p><label>Valid for (days) <input name="valid_days" type="number" min="1" max="365" value="30" dir="ltr" id="f-valid_days" aria-invalid="false" aria-describedby=""></label></p>
     </section>
     <section class="stack narrow" id="ai-draft">
       <h2>AI draft</h2>
-      <p><label>What did the customer ask for? <textarea name="request" rows="3" maxlength="2000" dir="auto"></textarea></label></p>
+      <p><label>What did the customer ask for? <textarea name="request" rows="3" maxlength="2000" id="f-request" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
       <p><button type="submit" formaction="?/draft" id="draft-button">Draft the lines</button></p>
       
       
@@ -479,45 +496,46 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
       
     </section>
     <h2>Lines</h2>
-    <table id="lines">
-      <thead><tr><th>Service</th><th>Description</th><th>Qty</th><th>Price (AED)</th></tr></thead>
+    <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">Lines</caption>
+      <thead><tr><th scope="col">Service</th><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Price (AED)</th></tr></thead>
       <tbody>
         <tr id="row-0">
-          <td><select name="service_0">
+          <td><select name="service_0" aria-label="Service, line 1" id="f-service_0" aria-invalid="false" aria-describedby="">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_0" value="" maxlength="200" dir="auto"><input name="desc_ar_0" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
-          <td><input name="qty_0" value="1" size="5" dir="ltr" inputmode="decimal"></td>
-          <td><input name="price_0" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+          <td><input name="desc_0" aria-label="Description, line 1" value="" maxlength="200" id="f-desc_0" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_0" aria-label="Description in Arabic, line 1" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_0" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="qty_0" aria-label="Qty, line 1" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_0" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="price_0" aria-label="Price (AED), line 1" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_0" aria-invalid="false" aria-describedby=""></td>
         </tr><tr id="row-1">
-          <td><select name="service_1">
+          <td><select name="service_1" aria-label="Service, line 2" id="f-service_1" aria-invalid="false" aria-describedby="">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_1" value="" maxlength="200" dir="auto"><input name="desc_ar_1" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
-          <td><input name="qty_1" value="1" size="5" dir="ltr" inputmode="decimal"></td>
-          <td><input name="price_1" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+          <td><input name="desc_1" aria-label="Description, line 2" value="" maxlength="200" id="f-desc_1" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_1" aria-label="Description in Arabic, line 2" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_1" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="qty_1" aria-label="Qty, line 2" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_1" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="price_1" aria-label="Price (AED), line 2" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_1" aria-invalid="false" aria-describedby=""></td>
         </tr><tr id="row-2">
-          <td><select name="service_2">
+          <td><select name="service_2" aria-label="Service, line 3" id="f-service_2" aria-invalid="false" aria-describedby="">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_2" value="" maxlength="200" dir="auto"><input name="desc_ar_2" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
-          <td><input name="qty_2" value="1" size="5" dir="ltr" inputmode="decimal"></td>
-          <td><input name="price_2" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+          <td><input name="desc_2" aria-label="Description, line 3" value="" maxlength="200" id="f-desc_2" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_2" aria-label="Description in Arabic, line 3" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_2" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="qty_2" aria-label="Qty, line 3" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_2" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="price_2" aria-label="Price (AED), line 3" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_2" aria-invalid="false" aria-describedby=""></td>
         </tr><tr id="row-3">
-          <td><select name="service_3">
+          <td><select name="service_3" aria-label="Service, line 4" id="f-service_3" aria-invalid="false" aria-describedby="">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_3" value="" maxlength="200" dir="auto"><input name="desc_ar_3" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
-          <td><input name="qty_3" value="1" size="5" dir="ltr" inputmode="decimal"></td>
-          <td><input name="price_3" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+          <td><input name="desc_3" aria-label="Description, line 4" value="" maxlength="200" id="f-desc_3" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_3" aria-label="Description in Arabic, line 4" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_3" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="qty_3" aria-label="Qty, line 4" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_3" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="price_3" aria-label="Price (AED), line 4" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_3" aria-invalid="false" aria-describedby=""></td>
         </tr>
       </tbody>
-    </table>
-    <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" dir="auto"></textarea></label></p>
+    </table></div>
+    <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
     <p><button type="submit" class="btn-brand">Create quotation</button> <a href="/quotes">Cancel</a></p>
   </form>
 

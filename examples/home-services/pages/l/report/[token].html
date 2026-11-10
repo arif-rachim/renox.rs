@@ -16,12 +16,13 @@
   </section>
   <section id="report-parts" r-if="has_parts">
     <h2><r-t key="report_page.parts" /></h2>
-    <table>
-      <thead><tr><th><r-t key="quotes.f.desc" /></th><th><r-t key="quotes.f.qty" /></th><th><r-t key="quotes.f.total" /></th></tr></thead>
+    <div class="table-scroll" tabindex="0"><table>
+    <caption class="visually-hidden"><r-t key="report_page.parts" /></caption>
+      <thead><tr><th scope="col"><r-t key="quotes.f.desc" /></th><th scope="col"><r-t key="quotes.f.qty" /></th><th scope="col"><r-t key="quotes.f.total" /></th></tr></thead>
       <tbody>
         <tr r-for="p in parts"><td>{{ p.description }}</td><td dir="ltr">{{ p.qty }}</td><td dir="ltr">{{ p.total | money }}</td></tr>
       </tbody>
-    </table>
+    </table></div>
   </section>
   <p id="report-pdf"><a :href="'/l/report/' ~ token ~ '/pdf'"><r-t key="report_page.pdf" /></a></p>
 </r-layout>

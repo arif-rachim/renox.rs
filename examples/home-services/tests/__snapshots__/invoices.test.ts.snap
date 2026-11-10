@@ -7,6 +7,7 @@ exports[`the seed the accountant's list shows it as open, with its balance: role
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Invoices · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -16,6 +17,7 @@ exports[`the seed the accountant's list shows it as open, with its balance: role
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,7 +36,7 @@ exports[`the seed the accountant's list shows it as open, with its balance: role
       <strong lang="en">English</strong><a href="/invoices?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <h1>Invoices</h1>
@@ -46,9 +48,10 @@ exports[`the seed the accountant's list shows it as open, with its balance: role
       </select></label>
     <button type="submit">Filter</button>
   </form>
-  <table id="invoice-list">
+  <div class="table-scroll" tabindex="0"><table id="invoice-list">
+    <caption class="visually-hidden">Invoices</caption>
     <thead>
-      <tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Total</th><th>Balance</th><th>Due</th></tr>
+      <tr><th scope="col">Invoice</th><th scope="col">Customer</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col">Balance</th><th scope="col">Due</th></tr>
     </thead>
     <tbody>
       <tr id="invoice-INV-000001">
@@ -60,7 +63,7 @@ exports[`the seed the accountant's list shows it as open, with its balance: role
         <td dir="ltr"><day></td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
 
   </main>
   <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
@@ -76,6 +79,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>INV-000001 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -85,6 +89,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -103,7 +108,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
       <strong lang="en">English</strong><a href="/invoices/INV-000001?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/invoices">All invoices</a></p>
@@ -123,36 +128,38 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   </dl>
   <p class="work-links"><a href="/invoices/INV-000001/pdf?lang=en">Invoice (English PDF)</a> <a href="/invoices/INV-000001/pdf?lang=ar">Invoice (Arabic PDF)</a> <a href="/customers/cu_dxb_01/statement.pdf?lang=ar">Customer statement (PDF)</a></p>
 
-  <table id="invoice-lines">
-    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="invoice-lines">
+    <caption class="visually-hidden">Lines</caption>
+    <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col">Net</th><th scope="col">VAT</th></tr></thead>
     <tbody>
       <tr>
         <td dir="auto">Plumbing</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 160.00</td>
         <td dir="ltr">AED 160.00</td>
-        <td dir="ltr">AED 8.00 (5 %)</td>
+        <td dir="ltr">AED 8.00 <bdi dir="ltr">(5 %)</bdi></td>
       </tr><tr>
         <td dir="auto">Kitchen mixer tap</td>
         <td dir="ltr">1</td>
         <td dir="ltr">AED 180.00</td>
         <td dir="ltr">AED 180.00</td>
-        <td dir="ltr">AED 9.00 (5 %)</td>
+        <td dir="ltr">AED 9.00 <bdi dir="ltr">(5 %)</bdi></td>
       </tr>
     </tbody>
     <tfoot>
-      <tr><th colspan="4">Subtotal</th><td dir="ltr">AED 340.00</td></tr>
-      <tr><th colspan="4">VAT</th><td dir="ltr">AED 17.00</td></tr>
-      <tr><th colspan="4">Total</th><td dir="ltr"><strong id="invoice-total" dir="auto">AED 357.00</strong></td></tr>
-      <tr><th colspan="4">Paid</th><td dir="ltr" id="invoice-paid">AED 150.00</td></tr>
-      <tr><th colspan="4">Balance</th><td dir="ltr" id="invoice-balance">AED 207.00</td></tr>
+      <tr><th scope="row" colspan="4">Subtotal</th><td dir="ltr">AED 340.00</td></tr>
+      <tr><th scope="row" colspan="4">VAT</th><td dir="ltr">AED 17.00</td></tr>
+      <tr><th scope="row" colspan="4">Total</th><td dir="ltr"><strong id="invoice-total" dir="auto">AED 357.00</strong></td></tr>
+      <tr><th scope="row" colspan="4">Paid</th><td dir="ltr" id="invoice-paid">AED 150.00</td></tr>
+      <tr><th scope="row" colspan="4">Balance</th><td dir="ltr" id="invoice-balance">AED 207.00</td></tr>
     </tfoot>
-  </table>
+  </table></div>
 
   <section id="payments">
     <h2>Payments</h2>
-    <table id="payment-list">
-      <thead><tr><th>Date received</th><th>Method</th><th>Amount (AED)</th><th>Reference</th></tr></thead>
+    <div class="table-scroll" tabindex="0"><table id="payment-list">
+    <caption class="visually-hidden">Payments</caption>
+      <thead><tr><th scope="col">Date received</th><th scope="col">Method</th><th scope="col">Amount (AED)</th><th scope="col">Reference</th></tr></thead>
       <tbody>
         <tr id="payment-1">
           <td dir="ltr"><day></td>
@@ -161,7 +168,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
           <td dir="auto">First instalment</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
   </section>
 
   <section id="pay">
@@ -171,11 +178,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
         <select name="method" id="pay-method">
           <option value="cash" dir="auto">Cash</option><option value="transfer" dir="auto">Bank transfer</option><option value="cheque" dir="auto">Cheque</option>
         </select></label></p>
-      <p><label>Amount (AED) <input name="amount" inputmode="decimal" dir="ltr" value="" required></label></p>
-      <p><label>Date received <input type="date" name="received_on" value="<day>" dir="ltr"></label></p>
-      <p><label>Reference <input name="reference" maxlength="120" value="" dir="auto"></label></p>
-      <p><label>Cheque number <input name="cheque_number" maxlength="40" dir="ltr" value=""></label></p>
-      <p><label>Cheque date <input type="date" name="cheque_date" dir="ltr" value=""></label></p>
+      <p><label>Amount (AED) <input name="amount" inputmode="decimal" dir="ltr" value="" required id="f-amount" aria-invalid="false" aria-describedby="" aria-required="true"></label></p>
+      <p><label>Date received <input type="date" name="received_on" value="<day>" dir="ltr" id="f-received_on" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>Reference <input name="reference" maxlength="120" value="" id="f-reference" aria-invalid="false" aria-describedby="" dir="auto"></label></p>
+      <p><label>Cheque number <input name="cheque_number" maxlength="40" dir="ltr" value="" id="f-cheque_number" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>Cheque date <input type="date" name="cheque_date" dir="ltr" value="" id="f-cheque_date" aria-invalid="false" aria-describedby=""></label></p>
       <p><small class="muted">A cheque needs its number and date. More than the balance is refused.</small></p>
       <p><button type="submit" class="btn-brand">Record payment</button></p>
     </form>
@@ -191,7 +198,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
     <h2>Credit note</h2>
     <p class="muted">Credits the whole invoice and cancels the job. Payments already received are not refunded here.</p>
     <form method="post" action="?/credit" hx-post="?/credit" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>Reason <input name="reason" maxlength="200" value="" required dir="auto"></label></p>
+      <p><label>Reason <input name="reason" maxlength="200" value="" required id="f-reason" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
       <p><button type="submit">Issue the credit note</button></p>
     </form>
   </section>
@@ -210,6 +217,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>INV-000001 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -219,6 +227,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -233,11 +242,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
     
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/invoices/INV-000001?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <p><a href="/invoices">كل الفواتير</a></p>
@@ -257,36 +266,38 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   </dl>
   <p class="work-links"><a href="/invoices/INV-000001/pdf?lang=en">الفاتورة (PDF بالإنجليزية)</a> <a href="/invoices/INV-000001/pdf?lang=ar">الفاتورة (PDF بالعربية)</a> <a href="/customers/cu_dxb_01/statement.pdf?lang=ar">كشف حساب العميل (PDF)</a></p>
 
-  <table id="invoice-lines">
-    <thead><tr><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th>الصافي</th><th>الضريبة</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="invoice-lines">
+    <caption class="visually-hidden">البنود</caption>
+    <thead><tr><th scope="col">الوصف</th><th scope="col">الكمية</th><th scope="col">سعر الوحدة</th><th scope="col">الصافي</th><th scope="col">الضريبة</th></tr></thead>
     <tbody>
       <tr>
         <td dir="auto">Plumbing</td>
         <td dir="ltr">1</td>
         <td dir="ltr">160.00 د.إ.</td>
         <td dir="ltr">160.00 د.إ.</td>
-        <td dir="ltr">8.00 د.إ. (5 %)</td>
+        <td dir="ltr">8.00 د.إ. <bdi dir="ltr">(5 %)</bdi></td>
       </tr><tr>
         <td dir="auto">Kitchen mixer tap</td>
         <td dir="ltr">1</td>
         <td dir="ltr">180.00 د.إ.</td>
         <td dir="ltr">180.00 د.إ.</td>
-        <td dir="ltr">9.00 د.إ. (5 %)</td>
+        <td dir="ltr">9.00 د.إ. <bdi dir="ltr">(5 %)</bdi></td>
       </tr>
     </tbody>
     <tfoot>
-      <tr><th colspan="4">المجموع الفرعي</th><td dir="ltr">340.00 د.إ.</td></tr>
-      <tr><th colspan="4">الضريبة</th><td dir="ltr">17.00 د.إ.</td></tr>
-      <tr><th colspan="4">الإجمالي</th><td dir="ltr"><strong id="invoice-total" dir="auto">357.00 د.إ.</strong></td></tr>
-      <tr><th colspan="4">المدفوع</th><td dir="ltr" id="invoice-paid">150.00 د.إ.</td></tr>
-      <tr><th colspan="4">الرصيد</th><td dir="ltr" id="invoice-balance">207.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="4">المجموع الفرعي</th><td dir="ltr">340.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="4">الضريبة</th><td dir="ltr">17.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="4">الإجمالي</th><td dir="ltr"><strong id="invoice-total" dir="auto">357.00 د.إ.</strong></td></tr>
+      <tr><th scope="row" colspan="4">المدفوع</th><td dir="ltr" id="invoice-paid">150.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="4">الرصيد</th><td dir="ltr" id="invoice-balance">207.00 د.إ.</td></tr>
     </tfoot>
-  </table>
+  </table></div>
 
   <section id="payments">
     <h2>الدفعات</h2>
-    <table id="payment-list">
-      <thead><tr><th>تاريخ الاستلام</th><th>الطريقة</th><th>المبلغ (درهم)</th><th>المرجع</th></tr></thead>
+    <div class="table-scroll" tabindex="0"><table id="payment-list">
+    <caption class="visually-hidden">الدفعات</caption>
+      <thead><tr><th scope="col">تاريخ الاستلام</th><th scope="col">الطريقة</th><th scope="col">المبلغ (درهم)</th><th scope="col">المرجع</th></tr></thead>
       <tbody>
         <tr id="payment-1">
           <td dir="ltr"><day></td>
@@ -295,7 +306,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
           <td dir="auto">First instalment</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
   </section>
 
   <section id="pay">
@@ -305,11 +316,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
         <select name="method" id="pay-method">
           <option value="cash" dir="auto">نقداً</option><option value="transfer" dir="auto">تحويل بنكي</option><option value="cheque" dir="auto">شيك</option>
         </select></label></p>
-      <p><label>المبلغ (درهم) <input name="amount" inputmode="decimal" dir="ltr" value="" required></label></p>
-      <p><label>تاريخ الاستلام <input type="date" name="received_on" value="<day>" dir="ltr"></label></p>
-      <p><label>المرجع <input name="reference" maxlength="120" value="" dir="auto"></label></p>
-      <p><label>رقم الشيك <input name="cheque_number" maxlength="40" dir="ltr" value=""></label></p>
-      <p><label>تاريخ الشيك <input type="date" name="cheque_date" dir="ltr" value=""></label></p>
+      <p><label>المبلغ (درهم) <input name="amount" inputmode="decimal" dir="ltr" value="" required id="f-amount" aria-invalid="false" aria-describedby="" aria-required="true"></label></p>
+      <p><label>تاريخ الاستلام <input type="date" name="received_on" value="<day>" dir="ltr" id="f-received_on" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>المرجع <input name="reference" maxlength="120" value="" id="f-reference" aria-invalid="false" aria-describedby="" dir="auto"></label></p>
+      <p><label>رقم الشيك <input name="cheque_number" maxlength="40" dir="ltr" value="" id="f-cheque_number" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>تاريخ الشيك <input type="date" name="cheque_date" dir="ltr" value="" id="f-cheque_date" aria-invalid="false" aria-describedby=""></label></p>
       <p><small class="muted">الشيك يحتاج إلى رقمه وتاريخه. لا يُقبل مبلغ أكبر من الرصيد.</small></p>
       <p><button type="submit" class="btn-brand">تسجيل الدفعة</button></p>
     </form>
@@ -325,7 +336,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
     <h2>إشعار دائن</h2>
     <p class="muted">يلغي الفاتورة كاملة ويلغي المهمة. لا تُرد الدفعات المستلمة من هنا.</p>
     <form method="post" action="?/credit" hx-post="?/credit" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>السبب <input name="reason" maxlength="200" value="" required dir="auto"></label></p>
+      <p><label>السبب <input name="reason" maxlength="200" value="" required id="f-reason" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
       <p><button type="submit">إصدار الإشعار الدائن</button></p>
     </form>
   </section>

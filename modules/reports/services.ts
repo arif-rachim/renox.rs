@@ -2,7 +2,7 @@
 import { ValidationError } from "@renoxium/sdk";
 
 import * as core from "./lib/core.ts";
-import { xlsx as xlsxFile, type Cell } from "./lib/xlsx.ts";
+import { readXlsx as readXlsxFile, xlsx as xlsxFile, type Cell } from "./lib/xlsx.ts";
 
 export const sales = (_ctx: unknown, from: number, to: number, documents: core.Document[]) => core.sales(documents ?? [], from, to);
 export const csv = (_ctx: unknown, rows: Record<string, unknown>[], headers?: string[]) => core.csv(rows ?? [], headers);
@@ -27,6 +27,24 @@ export const xlsx = (_ctx: unknown, sheet: unknown, rows: unknown): Uint8Array =
     });
   });
   return xlsxFile(sheet, rows as Cell[][]);
+};
+
+const MAX_BYTES = 10 * 1024 * 1024;
+
+/** The first sheet of an .xlsx as rows of cells (a formula gives its cached value; a gap is null; rows padded to the widest, trailing empty rows dropped). At most 10 MiB and 100,000 cells. */
+export const readXlsx = (_ctx: unknown, bytes: unknown): Cell[][] => {
+  if (!(bytes instanceof Uint8Array)) throw new TypeError("reports.readXlsx: bytes must be a Uint8Array");
+  if (bytes.byteLength > MAX_BYTES) throw new RangeError("reports.readXlsx: file over 10 MiB");
+  let rows: Cell[][];
+  try {
+    rows = readXlsxFile(bytes);
+  } catch {
+    throw new Error("reports.readXlsx: not an .xlsx file");
+  }
+  const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
+  if (width * rows.length > MAX_CELLS) throw new RangeError("reports.readXlsx: over 100,000 cells");
+  for (const r of rows) while (r.length < width) r.push(null);
+  return rows;
 };
 
 export const cash = (ctx: { db: Db }, from: number, to: number) => cashRows(ctx.db, from, to);

@@ -13,8 +13,9 @@
     <label><r-t key="appreports.to" /> <input type="date" name="to" :value="to" dir="ltr"></label>
     <button type="submit"><r-t key="appreports.show" /></button>
   </form>
-  <table id="report-amc">
-    <thead><tr><th><r-t key="appreports.col.contract" /></th><th><r-t key="appreports.col.customer" /></th><th><r-t key="appreports.col.ends_on" /></th><th><r-t key="appreports.col.price" /></th><th><r-t key="appreports.col.renewal" /></th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="report-amc">
+    <caption class="visually-hidden"><r-t key="appreports.amc.title" /></caption>
+    <thead><tr><th scope="col"><r-t key="appreports.col.contract" /></th><th scope="col"><r-t key="appreports.col.customer" /></th><th scope="col"><r-t key="appreports.col.ends_on" /></th><th scope="col"><r-t key="appreports.col.price" /></th><th scope="col"><r-t key="appreports.col.renewal" /></th></tr></thead>
     <tbody>
       <tr r-for="r in rows" :id="'amc-' ~ r.contract">
         <td dir="ltr"><a :href="'/contracts/' ~ r.id">{{ r.contract }}</a></td>
@@ -25,7 +26,7 @@
       </tr>
       <tr r-empty="rows"><td colspan="5" id="no-data"><r-t key="appreports.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
   <section id="export" r-if="can_export">
     <h2><r-t key="appreports.export" /></h2>
     <x-form action="export" class="stack narrow">

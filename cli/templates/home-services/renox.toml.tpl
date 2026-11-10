@@ -8,8 +8,13 @@ timezone = "Asia/Dubai"
 network = []
 secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET"]
 
+# The platform's default types plus .xlsx: /admin/import stores the owner's
+# spreadsheets under app/imports/ (a list here replaces the defaults).
+[storage]
+allowed_types = ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif", "application/pdf", "text/plain", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+
 [modules]
-i18n = { version = "^1.0.0" }
+i18n ={ version = "^1.0.0" }
 auth = { version = "^1.0.0", config = { phone_login = true } }
 org = { version = "^1.0.0" }
 # twofa reads TWOFA_KEY (renox secrets set; tests: .env.test).

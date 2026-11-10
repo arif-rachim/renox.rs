@@ -1,11 +1,11 @@
-<r-props emirates="object" values="object" />
-<p><label><r-t key="customers.f.site_label" /> <input name="label" maxlength="80" :value="values.label" required></label></p>
-<p><label><r-t key="customers.f.emirate" /> <select name="emirate" required>
+<r-props emirates="object" values="object" errors="object" />
+<p><label><r-t key="customers.f.site_label" /> <input name="label" maxlength="80" :value="values.label" required id="f-label" :aria-invalid="'true' if errors.label else 'false'" :aria-describedby="'err-label' if errors.label else ''" aria-required="true"></label></p>
+<p><label><r-t key="customers.f.emirate" /> <select name="emirate" required id="f-emirate" :aria-invalid="'true' if errors.emirate else 'false'" :aria-describedby="'err-emirate' if errors.emirate else ''" aria-required="true">
   <option r-for="e in emirates" :value="e.code" :selected="e.code == (values.emirate or 'AE-DU')">{{ e.name }}</option>
 </select></label></p>
-<p><label><r-t key="customers.f.area" /> <input name="area" maxlength="80" :value="values.area" required></label></p>
-<p><label><r-t key="customers.f.address" /> <input name="address" maxlength="300" :value="values.address" required></label></p>
-<p><label><r-t key="customers.f.makani" /> <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" :value="values.makani"></label></p>
-<p><label><r-t key="customers.f.lat" /> <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" :value="values.lat"></label></p>
-<p><label><r-t key="customers.f.lng" /> <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" :value="values.lng"></label></p>
-<p><label><r-t key="customers.f.notes" /> <textarea name="access_notes" maxlength="500">{{ values.access_notes }}</textarea></label></p>
+<p><label><r-t key="customers.f.area" /> <input name="area" maxlength="80" :value="values.area" required id="f-area" :aria-invalid="'true' if errors.area else 'false'" :aria-describedby="'err-area' if errors.area else ''" aria-required="true"></label></p>
+<p><label><r-t key="customers.f.address" /> <input name="address" maxlength="300" :value="values.address" required id="f-address" :aria-invalid="'true' if errors.address else 'false'" :aria-describedby="'err-address' if errors.address else ''" aria-required="true"></label></p>
+<p><label><r-t key="customers.f.makani" /> <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" :value="values.makani" id="f-makani" :aria-invalid="'true' if errors.makani else 'false'" :aria-describedby="'err-makani' if errors.makani else ''"></label></p>
+<p><label><r-t key="customers.f.lat" /> <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" :value="values.lat" id="f-lat" :aria-invalid="'true' if errors.lat else 'false'" :aria-describedby="'err-lat' if errors.lat else ''"></label></p>
+<p><label><r-t key="customers.f.lng" /> <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" :value="values.lng" id="f-lng" :aria-invalid="'true' if errors.lng else 'false'" :aria-describedby="'err-lng' if errors.lng else ''"></label></p>
+<p><label><r-t key="customers.f.notes" /> <textarea name="access_notes" maxlength="500" id="f-access_notes" :aria-invalid="'true' if errors.access_notes else 'false'" :aria-describedby="'err-access_notes' if errors.access_notes else ''">{{ values.access_notes }}</textarea></label></p>

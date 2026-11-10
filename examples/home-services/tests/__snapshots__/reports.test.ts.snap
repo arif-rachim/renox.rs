@@ -7,6 +7,7 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Jobs per technician · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -16,6 +17,7 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -34,7 +36,7 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
       <strong lang="en">English</strong><a href="/reports/technicians?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <nav class="work-links" id="report-nav">
@@ -49,12 +51,13 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
     <label>To <input type="date" name="to" value="<day>" dir="ltr"></label>
     <button type="submit">Show</button>
   </form>
-  <table id="report-technicians">
-    <thead><tr><th>Technician</th><th>Jobs done</th><th>Hours on site</th><th>Parts (AED)</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="report-technicians">
+    <caption class="visually-hidden">Jobs per technician</caption>
+    <thead><tr><th scope="col">Technician</th><th scope="col">Jobs done</th><th scope="col">Hours on site</th><th scope="col">Parts (AED)</th></tr></thead>
     <tbody>
       <tr><td dir="auto">Ali Hassan</td><td dir="ltr">1</td><td dir="ltr">0.91</td><td dir="ltr">AED 50.00</td></tr><tr><td dir="auto">Bilal Raza</td><td dir="ltr">2</td><td dir="ltr">2.06</td><td dir="ltr">AED 225.00</td></tr>
     </tbody>
-  </table>
+  </table></div>
   <section id="export">
     <h2>Export</h2>
     <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
@@ -79,6 +82,7 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>الأعمال لكل فني · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -88,6 +92,7 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -102,11 +107,11 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
     <a href="/org/members">الأعضاء</a>
   </form>
 </span>
-    <nav class="i18n-language" aria-label="Language">
+    <nav class="i18n-language" aria-label="اللغة">
       <a href="/reports/technicians?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <nav class="work-links" id="report-nav">
@@ -121,12 +126,13 @@ exports[`jobs per technician normal case: the owner sees the Dubai technicians' 
     <label>إلى <input type="date" name="to" value="<day>" dir="ltr"></label>
     <button type="submit">عرض</button>
   </form>
-  <table id="report-technicians">
-    <thead><tr><th>الفني</th><th>الأعمال المنجزة</th><th>ساعات العمل في الموقع</th><th>القطع (درهم)</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="report-technicians">
+    <caption class="visually-hidden">الأعمال لكل فني</caption>
+    <thead><tr><th scope="col">الفني</th><th scope="col">الأعمال المنجزة</th><th scope="col">ساعات العمل في الموقع</th><th scope="col">القطع (درهم)</th></tr></thead>
     <tbody>
       <tr><td dir="auto">Ali Hassan</td><td dir="ltr">1</td><td dir="ltr">0.91</td><td dir="ltr">50.00 د.إ.</td></tr><tr><td dir="auto">Bilal Raza</td><td dir="ltr">2</td><td dir="ltr">2.06</td><td dir="ltr">225.00 د.إ.</td></tr>
     </tbody>
-  </table>
+  </table></div>
   <section id="export">
     <h2>تصدير</h2>
     <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
@@ -151,6 +157,7 @@ exports[`contract renewals normal case: the Dubai contract ends within 90 days a
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Contract renewals · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -160,6 +167,7 @@ exports[`contract renewals normal case: the Dubai contract ends within 90 days a
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -178,7 +186,7 @@ exports[`contract renewals normal case: the Dubai contract ends within 90 days a
       <strong lang="en">English</strong><a href="/reports/amc?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <nav class="work-links" id="report-nav">
@@ -194,8 +202,9 @@ exports[`contract renewals normal case: the Dubai contract ends within 90 days a
     <label>To <input type="date" name="to" value="<day>" dir="ltr"></label>
     <button type="submit">Show</button>
   </form>
-  <table id="report-amc">
-    <thead><tr><th>Contract</th><th>Customer</th><th>Ends on</th><th>Yearly price (AED)</th><th>Renewal</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="report-amc">
+    <caption class="visually-hidden">Contract renewals</caption>
+    <thead><tr><th scope="col">Contract</th><th scope="col">Customer</th><th scope="col">Ends on</th><th scope="col">Yearly price (AED)</th><th scope="col">Renewal</th></tr></thead>
     <tbody>
       <tr id="amc-AMC-000001">
         <td dir="ltr"><a href="/contracts/ct_seed_01" dir="auto">AMC-000001</a></td>
@@ -205,7 +214,7 @@ exports[`contract renewals normal case: the Dubai contract ends within 90 days a
         <td><span class="status status-renewal-due" dir="auto">Due</span> </td>
       </tr>
     </tbody>
-  </table>
+  </table></div>
   <section id="export">
     <h2>Export</h2>
     <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
@@ -230,6 +239,7 @@ exports[`outstanding invoices normal case: INV-000001's balance is in the first 
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Outstanding invoices · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
   <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
@@ -239,6 +249,7 @@ exports[`outstanding invoices normal case: INV-000001's balance is in the first 
   <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
     <span class="spacer"></span>
@@ -257,7 +268,7 @@ exports[`outstanding invoices normal case: INV-000001's balance is in the first 
       <strong lang="en">English</strong><a href="/reports/outstanding?lang=ar" lang="ar">العربية</a>
     </nav>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
     
   
   <nav class="work-links" id="report-nav">
@@ -268,15 +279,16 @@ exports[`outstanding invoices normal case: INV-000001's balance is in the first 
   </nav>
   <h1>Outstanding invoices</h1>
   <p class="muted">Open invoices by age since issue, in AED, as of <span dir="ltr"><day></span></p>
-  <table id="report-outstanding">
-    <thead><tr><th>Customer</th><th>0-30 days</th><th>31-60 days</th><th>Over 60 days</th><th>Balance</th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="report-outstanding">
+    <caption class="visually-hidden">Outstanding invoices</caption>
+    <thead><tr><th scope="col">Customer</th><th scope="col">0-30 days</th><th scope="col">31-60 days</th><th scope="col">Over 60 days</th><th scope="col">Balance</th></tr></thead>
     <tbody>
       <tr><td><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></td><td dir="ltr">AED 207.00</td><td dir="ltr">AED 0.00</td><td dir="ltr">AED 0.00</td><td dir="ltr"><strong dir="auto">AED 207.00</strong></td></tr>
     </tbody>
     <tfoot>
-      <tr><th>Total</th><td dir="ltr">AED 207.00</td><td dir="ltr">AED 0.00</td><td dir="ltr">AED 0.00</td><td dir="ltr"><strong dir="auto">AED 207.00</strong></td></tr>
+      <tr><th scope="row">Total</th><td dir="ltr">AED 207.00</td><td dir="ltr">AED 0.00</td><td dir="ltr">AED 0.00</td><td dir="ltr"><strong dir="auto">AED 207.00</strong></td></tr>
     </tfoot>
-  </table>
+  </table></div>
   <section id="export">
     <h2>Export</h2>
     <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">

@@ -113,9 +113,10 @@ approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hook
 
 [[module]]
 name = "reports"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "27bcd15c5b6be45c9a42bd035cb429e7b7dc0b686d3527d53cce511a22dae191"
+hash = "69c114ae83737ddd21d18814f1acfb18e6331690663ccddc381b521f351b54e3"
+approved_version = "1.2.0"
 isolation = "shared"
 mount = "/reports"
 dependencies = ["auth", "email", "i18n", "tax_gcc"]

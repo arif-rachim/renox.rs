@@ -12,13 +12,14 @@
     <label><r-t key="appreports.to" /> <input type="date" name="to" :value="to" dir="ltr"></label>
     <button type="submit"><r-t key="appreports.show" /></button>
   </form>
-  <table id="report-technicians">
-    <thead><tr><th><r-t key="appreports.col.technician" /></th><th><r-t key="appreports.col.jobs_done" /></th><th><r-t key="appreports.col.hours" /></th><th><r-t key="appreports.col.parts" /></th></tr></thead>
+  <div class="table-scroll" tabindex="0"><table id="report-technicians">
+    <caption class="visually-hidden"><r-t key="appreports.technicians.title" /></caption>
+    <thead><tr><th scope="col"><r-t key="appreports.col.technician" /></th><th scope="col"><r-t key="appreports.col.jobs_done" /></th><th scope="col"><r-t key="appreports.col.hours" /></th><th scope="col"><r-t key="appreports.col.parts" /></th></tr></thead>
     <tbody>
       <tr r-for="r in rows"><td>{{ r.technician }}</td><td dir="ltr">{{ r.jobs_done }}</td><td dir="ltr">{{ r.hours }}</td><td dir="ltr">{{ r.parts | money }}</td></tr>
       <tr r-empty="rows"><td colspan="4" id="no-data"><r-t key="appreports.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
   <section id="export" r-if="can_export">
     <h2><r-t key="appreports.export" /></h2>
     <x-form action="export" class="stack narrow">

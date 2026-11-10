@@ -2,7 +2,8 @@
   "app": {
     "lang": {
       "en": "English",
-      "ar": "العربية"
+      "ar": "العربية",
+      "label": "Language"
     },
     "home": {
       "lede": "Book a visit, follow your technician and get your report.",
@@ -11,7 +12,9 @@
     "nav": {
       "jobs": "Jobs",
       "board": "Dispatch board"
-    }
+    },
+    "skip": "Skip to main content",
+    "actions": "Actions"
   },
   "customers": {
     "title": "Customers",
@@ -153,7 +156,8 @@
       "qty": "Enter a quantity above 0 with at most two decimals.",
       "price": "Enter the price in AED, for example 120 or 120.50.",
       "price_required": "A line without a service needs a price in AED."
-    }
+    },
+    "link_label": "Approval link"
   },
   "approve": {
     "title": "Quotation {number}",
@@ -252,7 +256,13 @@
     "live": "Live: the board updates when a job changes.",
     "offline": "Not connected. Reload the page.",
     "unassigned": "No technician yet",
-    "empty": "Nothing here."
+    "empty": "Nothing here.",
+    "show_all": "Show all {n}",
+    "announce": {
+      "new": "New job {number} in {column}.",
+      "moved": "Job {number} moved to {column}.",
+      "updated": "Job {number} updated in {column}."
+    }
   },
   "visits": {
     "title": "My visits",
@@ -285,7 +295,8 @@
       "caption": "Caption",
       "add": "Add a photo",
       "limit": "A photo is at most 10 MB (JPEG, PNG or WebP).",
-      "not_stored": "Photo not stored"
+      "not_stored": "Photo not stored",
+      "alt": "Photo of the work"
     },
     "parts": {
       "title": "Parts used",
@@ -308,7 +319,9 @@
       "clear": "Clear",
       "save": "Save signature",
       "saved": "Signed by {name}",
-      "none": "Not signed yet."
+      "none": "Not signed yet.",
+      "typed": "Type the customer's name instead",
+      "typed_hint": "Signs with the name typed above, written as the signature."
     },
     "checkout": {
       "title": "Check out",
@@ -551,9 +564,11 @@
       "dashboard": "Dashboard",
       "settings": "Branding",
       "branches": "Branches",
+      "import": "Import",
       "users": "People",
       "audit": "Audit trail",
-      "menu": "Back office"
+      "menu": "Back office",
+      "label": "Back office"
     },
     "tiles": {
       "jobs_today": "Jobs today",
@@ -659,6 +674,69 @@
       "member": "Choose a member of this branch.",
       "self": "You cannot change or remove yourself.",
       "remove": "The person could not be removed (the last owner stays)."
+    },
+    "import": {
+      "title": "Import from Excel",
+      "intro": "Bring your customers, sites, services and contracts in from Excel. Upload one .xlsx file per kind, in this order (up to {mb} MB and 10,000 rows each, first sheet only, the first row is the header). The file is checked first and nothing is written until you import a file with no errors.",
+      "columns": "Columns (* required):",
+      "template": "Download the template",
+      "f": {
+        "kind": "What the file holds",
+        "file": "Excel file (.xlsx)"
+      },
+      "check": "Check the file",
+      "recent": "Latest imports",
+      "none": "No imports yet.",
+      "col": {
+        "kind": "Kind",
+        "file": "File",
+        "when": "When",
+        "who": "By",
+        "status": "Status",
+        "counts": "Rows"
+      },
+      "counts": "{rows} rows, {ok} to write, {skipped} already there, {errors} errors",
+      "status": {
+        "checked": "Checked",
+        "committed": "Imported",
+        "discarded": "Discarded"
+      },
+      "kinds": {
+        "customers": {
+          "name": "Customers",
+          "desc": "Companies and households, each in one branch, with a phone, and optionally an email, a TRN and a language."
+        },
+        "sites": {
+          "name": "Sites",
+          "desc": "The places of work of a customer, found by the customer's phone: label, emirate, area and address."
+        },
+        "services": {
+          "name": "Services",
+          "desc": "The price list: a code, names in both languages, a unit and a price in AED. An existing code is updated."
+        },
+        "contracts": {
+          "name": "Contracts",
+          "desc": "Maintenance contracts as drafts, one row per service at a site; rows with the same number are one contract."
+        }
+      },
+      "report": "Check report",
+      "committed": "Imported: {inserted} added, {updated} updated, {exists} already there.",
+      "open": "See the result",
+      "total": {
+        "rows": "Rows",
+        "insert": "To add",
+        "update": "To update",
+        "exists": "Already there",
+        "errors": "Errors"
+      },
+      "err_row": "Row",
+      "err_column": "Column",
+      "err_message": "Problem",
+      "truncated": "Only the first 200 errors are shown.",
+      "commit": "Import {n} rows",
+      "discard": "Discard this file",
+      "fix": "Fix the file and check it again.",
+      "back": "Back to the imports"
     }
   },
   "fields": {
@@ -720,10 +798,43 @@
     "name_ar": "Name (Arabic)",
     "role": "Role",
     "user_id": "Person",
-    "branch": "Branch"
+    "branch": "Branch",
+    "file_key": "File"
   },
   "problem": {
     "title": "The form could not be saved",
     "line": "line"
+  },
+  "import": {
+    "err": {
+      "required": "A value is required.",
+      "unknown_branch": "No branch has this name (see Branches).",
+      "bad_kind": "Use company or household.",
+      "bad_phone": "Not a UAE phone number, for example +971 50 123 4567.",
+      "bad_trn": "A TRN has 15 digits.",
+      "bad_language": "Use en or ar.",
+      "unknown_customer": "No customer has this phone number: import the customers first.",
+      "ambiguous_customer": "More than one customer has this phone number.",
+      "bad_emirate": "Use one of the seven emirates, for example AE-DU.",
+      "bad_area": "The area is missing or too long (80 characters at most).",
+      "bad_makani": "A Makani number has 10 digits.",
+      "bad_code": "A code is 1 to 32 characters: capital letters, digits and hyphens.",
+      "bad_unit": "Use visit, hour or unit.",
+      "bad_price": "Enter a price in AED with at most two decimals, for example 120 or 120.50.",
+      "bad_vat": "Use 0 or 5.",
+      "bad_date": "Use a date written YYYY-MM-DD.",
+      "bad_range": "The date is outside the contract's term, or the contract ends before it starts.",
+      "bad_visits": "Use a whole number from 1 to 52.",
+      "unknown_site": "This customer has no site with this label: import the sites first.",
+      "unknown_service": "No active service of this branch has this code: import the services first.",
+      "inconsistent_contract": "Rows with the same number must have the same customer, dates and price.",
+      "missing_column": "The first row has no column with this name.",
+      "too_many_rows": "The file has too many rows: 10,000 at most.",
+      "not_xlsx": "This is not an Excel .xlsx file.",
+      "too_long": "The value is too long.",
+      "bad_email": "Not a valid email address.",
+      "bad_number": "A contract number is 1 to 32 characters: letters, digits and . _ / -",
+      "no_file": "Choose an Excel file and wait until its name appears."
+    }
   }
 }

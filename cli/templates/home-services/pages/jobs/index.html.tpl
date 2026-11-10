@@ -17,9 +17,10 @@
     <a class="btn-brand" href="/jobs/new" r-can="job.write"><r-t key="jobs.new" /></a>
     <a href="/dispatch" r-can="job.dispatch"><r-t key="jobs.board" /></a>
   </form>
-  <table id="job-list">
+  <div class="table-scroll" tabindex="0"><table id="job-list">
+    <caption class="visually-hidden"><r-t key="jobs.title" /></caption>
     <thead>
-      <tr><th><r-t key="jobs.f.number" /></th><th><r-t key="jobs.f.customer" /></th><th><r-t key="jobs.f.service" /></th><th><r-t key="jobs.f.status" /></th><th><r-t key="jobs.f.technician" /></th><th><r-t key="jobs.f.when" /></th></tr>
+      <tr><th scope="col"><r-t key="jobs.f.number" /></th><th scope="col"><r-t key="jobs.f.customer" /></th><th scope="col"><r-t key="jobs.f.service" /></th><th scope="col"><r-t key="jobs.f.status" /></th><th scope="col"><r-t key="jobs.f.technician" /></th><th scope="col"><r-t key="jobs.f.when" /></th></tr>
     </thead>
     <tbody>
       <tr r-for="j in jobs" :id="'job-' ~ j.id">
@@ -32,5 +33,5 @@
       </tr>
       <tr r-empty="jobs"><td colspan="6"><r-t key="jobs.none" /></td></tr>
     </tbody>
-  </table>
+  </table></div>
 </r-layout>

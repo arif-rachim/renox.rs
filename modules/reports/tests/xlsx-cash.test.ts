@@ -54,3 +54,38 @@ test("the xlsx service: bytes the reader reads back; a bad sheet name or cell is
   expect(() => services.xlsx({}, "ok", [[{}]] as never)).toThrow(ValidationError);
   expect(() => services.xlsx({}, "ok", [new Array(100_001).fill(1)])).toThrow(ValidationError);
 });
+
+// readXlsx (#724): the service reads what the writer and a real spreadsheet program make.
+const read = (b: unknown) => services.readXlsx({}, b);
+
+test("readXlsx: a round trip of the writer keeps strings (Arabic), integers, decimals and null", () => {
+  const rows = [["name", "n", "x", "note"], ["محمد", 12, 1.5, null], ["Layla", 0, -3.25, "a & <b>"]];
+  expect(read(services.xlsx({}, "s", rows))).toEqual(rows);
+});
+
+test("readXlsx: a LibreOffice file (deflate, shared strings, a gap, formulas with cached values)", () => {
+  const bytes = new Uint8Array(readFileSync(join(import.meta.dir, "fixtures/customers.xlsx")));
+  expect(read(bytes)).toEqual([
+    ["id", "name", "city", "balance", "total"],
+    [1, "محمد", "Dubai", 12, 2],
+    [2, "Layla", null, 1.5, 4],
+    [3, "Omar Al-Said", "Doha", null, 6],
+  ]);
+});
+
+test("readXlsx: an empty sheet is [], a gap is null, a short row is padded, trailing empty rows go", () => {
+  expect(read(xlsx("s", []))).toEqual([]);
+  expect(read(xlsx("s", [[null, null]]))).toEqual([]);
+  expect(read(xlsx("s", [["a", "b", "c"], [1, null, 3], ["x"], [null, null, null]]))).toEqual([["a", "b", "c"], [1, null, 3], ["x", null, null]]);
+});
+
+test("readXlsx: refusals", () => {
+  expect(() => read(new Uint8Array([1, 2, 3]))).toThrow("reports.readXlsx: not an .xlsx file");
+  expect(() => read("text")).toThrow(TypeError);
+  expect(() => read("text")).toThrow("reports.readXlsx: bytes must be a Uint8Array");
+  expect(() => read(new Uint8Array(10 * 1024 * 1024 + 1))).toThrow(new RangeError("reports.readXlsx: file over 10 MiB"));
+  const wide = Array.from({ length: 1000 }, (_, i) => Array.from({ length: 100 }, (_, j) => i * j));
+  expect(read(xlsx("s", wide))).toHaveLength(1000);
+  wide.push([1]);
+  expect(() => read(xlsx("s", wide))).toThrow(new RangeError("reports.readXlsx: over 100,000 cells"));
+});

@@ -47,6 +47,8 @@ declare module "renox:modules" {
     csv(rows: readonly Record<string, unknown>[], headers?: string[]): Promise<string>;
     /** Rows as a one-sheet .xlsx (bytes): numbers stay numbers, strings are never formulas; `sheet` is 1 to 31 characters. */
     xlsx(sheet: string, rows: readonly (readonly (string | number | null)[])[]): Promise<Uint8Array>;
+    /** The first sheet of an .xlsx as rows of cells (a gap is null, rows padded to the widest); throws for a file that is no .xlsx, over 10 MiB or over 100,000 cells. */
+    readXlsx(bytes: Uint8Array): Promise<(string | number | null)[][]>;
     /** The nightly report for the day before `nowMs`: kept as a snapshot and emailed to the addresses of the `reports.nightly_to` fillers (else `email_to`). */
     nightly(nowMs: number): Promise<{ day: string; sent_to: string | null }>;
   };
