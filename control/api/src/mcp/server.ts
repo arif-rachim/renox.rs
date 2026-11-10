@@ -307,7 +307,7 @@ async function agentOf(deps: Deps, header: string | undefined): Promise<Agent | 
   const bearer = parseBearer(header);
   if (bearer === null || bearer.kind !== "pat") return null;
   const rows = await deps.db.query<{ id: string; tenant_id: string; name: string; scopes: string[]; expires_at: unknown; revoked_at: unknown }>(
-    "select id, tenant_id, name, scopes, expires_at, revoked_at from tokens where token_sha256 = $1",
+    "select id, tenant_id, name, scopes, expires_at, revoked_at from tokens where token_sha256 = $1 and kind = 'access'",
     [sha256hex(bearer.value)],
   );
   const t = rows[0];

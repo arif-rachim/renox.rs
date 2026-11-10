@@ -18,12 +18,13 @@ async function send(deps: Deps, mail: Mail): Promise<void> {
 
 const base = (deps: Deps): string => deps.config.dashboardUrl;
 
-export const sendVerification = (deps: Deps, to: string, token: string): Promise<void> =>
+/** `url`: where the link leads instead of the dashboard (the sign-up of the OAuth consent flow, #688). */
+export const sendVerification = (deps: Deps, to: string, token: string, url?: string): Promise<void> =>
   send(deps, {
     to,
     kind: "verify_email",
     subject: "Verify your Renox email address",
-    text: `Open this link within 24 hours to verify your address:\n\n${link(base(deps), "signup/verify", token)}\n\nYou can deploy once the address is verified.`,
+    text: `Open this link within 24 hours to verify your address:\n\n${url ?? link(base(deps), "signup/verify", token)}\n\nYou can deploy once the address is verified.`,
   });
 
 export const sendSignupExists = (deps: Deps, to: string): Promise<void> =>

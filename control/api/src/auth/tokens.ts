@@ -85,13 +85,32 @@ export async function createTenantToken(
   days: number,
   now: number,
   userId: string | null = null,
+  familyId: string | null = null,
+  ttlMs: number = days * DAY_MS,
 ): Promise<CreatedToken> {
   const value = newTokenValue("pat");
   const id = `tok_${ulid(now)}`;
-  const expires = now + days * DAY_MS;
+  const expires = now + ttlMs;
   await db.query(
-    "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at, user_id) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8)",
-    [id, tenantId, name, sha256hex(value), jsonb(scopes), now, expires, userId],
+    "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at, user_id, family_id) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9)",
+    [id, tenantId, name, sha256hex(value), jsonb(scopes), now, expires, userId, familyId],
   );
   return { id, name, token: value, scopes, created_at: now, expires_at: expires };
+}
+
+/** The life of a refresh token (RFC 6749 section 6; docs/20-ai-agents-mcp.md 1b, "Sessions: refresh tokens"). */
+export const REFRESH_TTL_MS = 30 * DAY_MS;
+
+/**
+ * Revokes the token `id` of the tenant and everything of its family: the other
+ * access tokens and the refresh tokens of the same OAuth connection. A row
+ * without a family is its own family. `userId`: only a token of that user (the
+ * members' own-token rule of the token API). False when there is no such row.
+ */
+export async function revokeTokenFamily(db: Db, tenantId: string, id: string, now: number, userId: string | null = null): Promise<boolean> {
+  const rows = await db.query<{ id: string; family_id: string | null }>("select id, family_id from tokens where tenant_id = $1 and id = $2 and ($3::text is null or user_id = $3)", [tenantId, id, userId]);
+  const row = rows[0];
+  if (row === undefined) return false;
+  await db.query("update tokens set revoked_at = $2 where tenant_id = $1 and revoked_at is null and (id = $3 or family_id = $3)", [tenantId, now, row.family_id ?? row.id]);
+  return true;
 }

@@ -66,7 +66,7 @@ async function membership(deps: Deps, tenantId: string, userId: string): Promise
 /** A tenant principal from a `renox_pat_` token, or 401. */
 async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ principal: Principal & { kind: "tenant"; via: "token" }; verified: boolean; impersonated: boolean }> {
   const rows = await deps.db.query<{ id: string; tenant_id: string; scopes: string[]; expires_at: unknown; revoked_at: unknown; user_id: string | null }>(
-    "select id, tenant_id, scopes, expires_at, revoked_at, user_id from tokens where token_sha256 = $1",
+    "select id, tenant_id, scopes, expires_at, revoked_at, user_id from tokens where token_sha256 = $1 and kind = 'access'",
     [sha256hex(value)],
   );
   const token = rows[0];

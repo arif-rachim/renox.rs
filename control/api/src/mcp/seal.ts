@@ -10,7 +10,7 @@ import { ApiError } from "../errors.ts";
 import type { Deps } from "../context.ts";
 import { masterKeys, type MasterKey } from "../secrets/master.ts";
 
-export type Purpose = "client" | "consent" | "code" | "confirm";
+export type Purpose = "client" | "consent" | "code" | "confirm" | "authreq" | "refresh";
 
 const mcpKey = (master: MasterKey): Buffer => Buffer.from(hkdfSync("sha256", master.key, "renox-mcp", "renox-mcp-seal-v1", 32));
 

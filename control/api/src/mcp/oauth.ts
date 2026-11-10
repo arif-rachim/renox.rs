@@ -8,7 +8,8 @@
 //   POST /oauth/register                               RFC 7591, public clients only
 //   GET  /oauth/authorize                              consent page (dashboard session)
 //   POST /oauth/authorize                              approve or deny
-//   POST /oauth/token                                  authorization_code + PKCE S256
+//   POST /oauth/token                                  authorization_code + PKCE S256, refresh_token
+//   POST /oauth/revoke                                 RFC 7009
 //
 // An access token is a tenant token (`renox_pat_`, deploy-api.md section 2)
 // named `mcp: <client name>`, created for the approving user, so it carries
@@ -17,17 +18,28 @@
 // consent request and the code are sealed values (seal.ts); the code holds the
 // token, which lives CODE_TTL_MS until the code is exchanged: the exchange
 // extends it with a compare-and-set on `expires_at`, so a code works once.
+//
+// The exchange also answers a refresh token (`rnxrt_…`, #688): a sealed
+// reference to a row of kind `refresh` that lives 30 days, is bound to the
+// client id and shares the `family_id` of the access tokens. The refresh grant
+// rotates it with a compare-and-set on `used_at`; a refresh token used twice
+// revokes the family (RFC 6819 5.2.2.3).
 
 import type { Context, Hono } from "hono";
 import { createHash } from "node:crypto";
 import { writeAudit } from "../audit.ts";
 import { clientIp } from "../auth/ip.ts";
 import { findSession, readCookie, SESSION_COOKIE } from "../auth/sessions.ts";
-import { createTenantToken, parseScope } from "../auth/tokens.ts";
+import { createTenantToken, parseScope, REFRESH_TTL_MS, revokeTokenFamily, sameDigest, sha256hex } from "../auth/tokens.ts";
+import { ulid } from "../ids.ts";
+import { jsonb, num } from "../db/db.ts";
 import type { Deps, Env } from "../context.ts";
 import { isRole, roleAllows, type Role } from "../tenancy/roles.ts";
 import { withTenant } from "../tenancy/scope.ts";
+import { escapeHtml, htmlPage, openAuthRequest, originOf, sealAuthRequest } from "./return.ts";
 import { open, seal } from "./seal.ts";
+
+export { originOf };
 
 /** Scopes an MCP client may ask for. Never `secrets:write` or `tokens:write`: an agent does not set secrets or mint tokens. `domains:write` is offered but never in the default grant. */
 export const MCP_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "domains:write"] as const;
@@ -55,7 +67,14 @@ interface ConsentRequest {
   sc: string[]; // scopes
   res: string; // resource
   ses: string; // session id
+  su: boolean; // the user signed up in this flow
   e: number; // expires
+}
+
+interface Refresh {
+  id: string; // row id of the refresh token
+  ten: string; // tenant
+  c: string; // client_id it is bound to
 }
 
 interface Code {
@@ -71,12 +90,6 @@ interface Code {
   e: number;
 }
 
-/**
- * The origin clients use for this API (the issuer): `CONTROL_MCP_URL` when set,
- * which it must be behind a TLS terminator that hands the request on as plain
- * http; otherwise the request's own origin.
- */
-export const originOf = (c: Context<Env>, deps: Deps): string => deps.config.mcpUrl ?? new URL(c.req.url).origin;
 export const resourceOf = (c: Context<Env>, deps: Deps): string => `${originOf(c, deps)}/mcp`;
 export const resourceMetadataUrl = (c: Context<Env>, deps: Deps): string => `${originOf(c, deps)}/.well-known/oauth-protected-resource/mcp`;
 
@@ -107,22 +120,8 @@ export function parseScopes(scope: string | undefined): string[] | null {
   return out.slice(0, 32);
 }
 
-const escapeHtml = (s: string): string => s.replace(/[&<>"']/gu, (ch) => `&#${ch.charCodeAt(0)};`);
-
 /** A small HTML page: no script, no external resource, never framed. */
-function page(c: Context<Env>, status: number, title: string, body: string): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title></head><body style="font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem"><h1>${escapeHtml(title)}</h1>${body}</body></html>`;
-  return new Response(html, {
-    status,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
-      "x-frame-options": "DENY",
-      "cache-control": "no-store",
-      "referrer-policy": "no-referrer",
-    },
-  });
-}
+const page = (_c: Context<Env>, status: number, title: string, body: string): Response => htmlPage(status, title, body);
 
 function oauthError(c: Context<Env>, status: number, error: string, description: string): Response {
   return c.json({ error, error_description: description }, status as 400, { "cache-control": "no-store" });
@@ -148,10 +147,16 @@ async function sessionOf(deps: Deps, c: Context<Env>): Promise<{ id: string; use
   return { id: s.id, userId: s.user_id, tenantId: s.tenant_id, role: isRole(role) ? role : null };
 }
 
+/** When the user was created (0 when unknown): a user created after the request was sealed signed up in the flow. */
+async function createdAt(deps: Deps, userId: string): Promise<number> {
+  const rows = await deps.db.query<{ created_at: unknown }>("select created_at from users where id = $1", [userId]);
+  return rows[0] === undefined ? 0 : num(rows[0].created_at);
+}
+
 /** The scopes the user's role allows, of those asked for. */
 const grantable = (scopes: string[], role: Role): string[] => scopes.filter((s) => roleAllows(role, (parseScope(s) as { action: (typeof MCP_SCOPES)[number] }).action));
 
-async function audit(deps: Deps, c: Context<Env>, action: string, tenantId: string | null, actor: string, target: Record<string, string>, status: number): Promise<void> {
+async function audit(deps: Deps, c: Context<Env>, action: string, tenantId: string | null, actor: string, target: Record<string, string | boolean>, status: number): Promise<void> {
   try {
     await writeAudit(deps.db, { at: deps.now(), tenantId, actor, action, target, status, requestId: c.get("requestId"), ip: clientIp(c) });
   } catch (e) {
@@ -186,7 +191,9 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       registration_endpoint: `${o}/oauth/register`,
       scopes_supported: [...MCP_SCOPES],
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      revocation_endpoint: `${o}/oauth/revoke`,
+      revocation_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
       authorization_response_iss_parameter_supported: true,
@@ -220,7 +227,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
         client_name: name,
         redirect_uris: uris,
         token_endpoint_auth_method: "none",
-        grant_types: ["authorization_code"],
+        grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
       },
       201,
@@ -229,7 +236,16 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
 
   app.get("/oauth/authorize", async (c) => {
     c.set("action", "showOAuthConsent");
-    const q = c.req.query();
+    let q: Record<string, string> = c.req.query();
+    // #688: after sign-up the verification link comes back with the sealed authorization request instead of the parameters.
+    let resumed: { issuedAt: number } | null = null;
+    if (q.request !== undefined) {
+      const r = openAuthRequest(deps, q.request, deps.now());
+      if (r === null) return page(c, 400, "Invalid request", "<p>This link is not valid. Start the sign-in from the application again.</p>");
+      if (r.expired) return page(c, 400, "This request expired", "<p>Start the sign-in from the application again.</p>");
+      q = r.query;
+      resumed = { issuedAt: r.issuedAt };
+    }
     const client = clientOf(deps, q.client_id);
     // Before the redirect URI is known to be the client's, errors are shown here, never redirected.
     if (client === null) return page(c, 400, "Unknown client", "<p>This application is not registered with Renoxium.</p>");
@@ -244,11 +260,26 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
 
     const session = await sessionOf(deps, c);
     if (session === null) {
+      // #688: the request is sealed for 30 minutes and travels as `return_to` through sign-up and the verification email.
+      const returnTo = sealAuthRequest(deps, q, deps.now());
+      const dashboard = escapeHtml(deps.config.dashboardUrl);
+      // A script-free page cannot show a CAPTCHA widget: with one configured, sign-up happens in the dashboard.
+      const signup =
+        (process.env.RENOX_CAPTCHA_SECRET ?? "") !== ""
+          ? `<p>New here? <a href="${dashboard}/signup?${escapeHtml(new URLSearchParams({ return_to: returnTo }).toString())}">Create an account</a>: the email link brings you back here.</p>`
+          : `<form method="post" action="/v1/account/signup"><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}">
+<p><label>Email<br><input type="email" name="email" required maxlength="254" autocomplete="email"></label></p>
+<p><label>Password<br><input type="password" name="password" required autocomplete="new-password"></label></p>
+<p><label>Team id (letters, digits, - and _)<br><input name="tenant_id" required maxlength="63" pattern="[a-z0-9][a-z0-9_\\-]{0,62}"></label></p>
+<p><label><input type="checkbox" name="dpa_accepted" value="true" required> I accept the <a href="${dashboard}/legal/dpa">Data Processing Agreement</a> and the <a href="${dashboard}/legal/terms">terms</a>.</label></p>
+<p><button>Create account</button></p></form>
+<p>We email a link to verify your address. It brings you back here to review the access.</p>`;
       return page(
         c,
         401,
         "Sign in to Renoxium",
-        `<p>Sign in to the <a href="${escapeHtml(deps.config.dashboardUrl)}">Renoxium dashboard</a> in this browser, then reload this page to review the access <strong>${escapeHtml(client.n)}</strong> asks for.</p>`,
+        `<p>Sign in to the <a href="${dashboard}">Renoxium dashboard</a> in this browser, then reload this page to review the access <strong>${escapeHtml(client.n)}</strong> asks for.</p>
+<h2>Create an account</h2>${signup}`,
       );
     }
     if (session.tenantId === null || session.role === null) return page(c, 403, "No team selected", "<p>Choose a team in the dashboard first, then reload this page.</p>");
@@ -262,6 +293,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       sc: granted,
       res: resourceOf(c, deps),
       ses: session.id,
+      su: resumed !== null && (await createdAt(deps, session.userId)) > resumed.issuedAt,
       e: deps.now() + CONSENT_TTL_MS,
     } satisfies ConsentRequest);
     const target = new URL(q.redirect_uri);
@@ -271,7 +303,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       `Allow ${client.n} to use Renoxium?`,
       `<p><strong>${escapeHtml(client.n)}</strong> (returns to <code>${escapeHtml(target.host)}</code>) asks to act in team <code>${escapeHtml(session.tenantId)}</code> as an agent, with at most your role (<code>${escapeHtml(session.role)}</code>):</p>
 <ul>${granted.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join("")}</ul>
-<p>Tools that change something (create an app, activate, roll back) still ask for a confirmation on each call. Secret values are never readable. The access lasts one hour; you can revoke it under Tokens.</p>
+<p>Tools that change something (create an app, activate, roll back) still ask for a confirmation on each call. Secret values are never readable. The access token lasts one hour and is renewed without asking you for up to 30 days; you can revoke it under Tokens.</p>
 <form method="post" action="/oauth/authorize"><input type="hidden" name="request" value="${escapeHtml(request)}"><button name="decision" value="approve">Allow</button> <button name="decision" value="deny">Deny</button></form>`,
     );
   });
@@ -305,11 +337,77 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     const token = await createTenantToken(db, session.tenantId, `${TOKEN_PREFIX_NAME}${client.n}`, scopes, 1, now, session.userId);
     // The token is dead until the code is exchanged (see the header comment).
     const pending = now + CODE_TTL_MS;
-    await db.query("update tokens set expires_at = $3 where tenant_id = $1 and id = $2", [session.tenantId, token.id, pending]);
+    // Its own id is the family of the connection (refresh tokens and later access tokens join it).
+    await db.query("update tokens set expires_at = $3, family_id = id where tenant_id = $1 and id = $2", [session.tenantId, token.id, pending]);
     const code = seal(deps, "code", "rnxcode_", { t: token.token, id: token.id, ten: session.tenantId, x: pending, c: req.c, r: req.r, ch: req.ch, res: req.res, sc: scopes, e: pending } satisfies Code);
-    await audit(deps, c, "mcpAuthorize", session.tenantId, actor, { client: client.n, decision: "approve", token_id: token.id, scopes: scopes.join(" ") }, 302);
+    await audit(deps, c, "mcpAuthorize", session.tenantId, actor, { client: client.n, decision: "approve", token_id: token.id, scopes: scopes.join(" "), ...(req.su ? { signup: true } : {}) }, 302);
     return redirectWith(req.r, { code, state: req.st, iss: originOf(c, deps) });
   });
+
+  /** A new refresh token of the family: a sealed reference to a row of kind `refresh` (only its hash is stored). */
+  async function issueRefresh(db: ReturnType<typeof withTenant>, tenantId: string, family: string, userId: string | null, scopes: string[], clientId: string, clientName: string, now: number): Promise<{ id: string; value: string }> {
+    const id = `tok_${ulid(now)}`;
+    const value = seal(deps, "refresh", "rnxrt_", { id, ten: tenantId, c: clientId } satisfies Refresh);
+    await db.query(
+      "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at, user_id, kind, family_id) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, 'refresh', $9)",
+      [id, tenantId, `refresh: ${clientName}`, sha256hex(value), jsonb(scopes), now, now + REFRESH_TTL_MS, userId, family],
+    );
+    return { id, value };
+  }
+
+  const tokenHeaders = { "cache-control": "no-store", pragma: "no-cache" };
+
+  /** grant_type=refresh_token: validates, rotates (compare-and-set on `used_at`) and issues a new pair. */
+  async function refreshGrant(c: Context<Env>, f: (k: string) => string | undefined): Promise<Response> {
+    const client = clientOf(deps, f("client_id"));
+    if (client === null) return oauthError(c, 401, "invalid_client", "unknown client_id");
+    const ref = open<Refresh>(deps, "refresh", "rnxrt_", f("refresh_token"));
+    const now = deps.now();
+    if (ref === null || typeof ref.id !== "string" || typeof ref.ten !== "string" || ref.c !== f("client_id")) return oauthError(c, 400, "invalid_grant", "the refresh token is invalid");
+    const resource = f("resource");
+    if (resource !== undefined && resource !== resourceOf(c, deps)) return oauthError(c, 400, "invalid_target", "resource must be this server's MCP endpoint");
+    const db = withTenant(deps.db, { kind: "tenant", via: "token", tenantId: ref.ten, tokenId: ref.id, scopes: [], userId: null, role: null });
+    type Row = { id: string; scopes: string[]; expires_at: unknown; revoked_at: unknown; used_at: unknown; user_id: string | null; family_id: string | null; token_sha256: string };
+    const read = async (): Promise<Row | undefined> =>
+      (await db.query<Row>("select id, scopes, expires_at, revoked_at, used_at, user_id, family_id, token_sha256 from tokens where tenant_id = $1 and id = $2 and kind = 'refresh'", [ref.ten, ref.id]))[0];
+    const row = await read();
+    if (row === undefined || !sameDigest(row.token_sha256, sha256hex(f("refresh_token") as string))) return oauthError(c, 400, "invalid_grant", "the refresh token is invalid");
+    const family = row.family_id ?? row.id;
+    // A refresh token used twice: the whole family is revoked (RFC 6819 5.2.2.3).
+    const reuse = async (): Promise<Response> => {
+      await revokeTokenFamily(db, ref.ten, row.id, now);
+      await audit(deps, c, "mcpRefresh", ref.ten, `token:${row.id}`, { client: client.n, outcome: "reuse_detected" }, 400);
+      return oauthError(c, 400, "invalid_grant", "the refresh token was already used");
+    };
+    if (row.used_at !== null) return reuse();
+    if (row.revoked_at !== null || num(row.expires_at) <= now) return oauthError(c, 400, "invalid_grant", "the refresh token is expired or revoked");
+    // The user's role now, not the one at consent: a member who left or lost a scope loses it here too.
+    const m = row.user_id === null ? [] : await db.query<{ role: string }>("select role from memberships where tenant_id = $1 and user_id = $2", [ref.ten, row.user_id]);
+    const role = m[0]?.role;
+    if (!isRole(role)) {
+      await revokeTokenFamily(db, ref.ten, row.id, now);
+      return oauthError(c, 400, "invalid_grant", "the user no longer belongs to the team");
+    }
+    let scopes = grantable(row.scopes, role);
+    const asked = f("scope");
+    if (asked !== undefined && asked.trim() !== "") {
+      const want = asked.trim().split(/\s+/u);
+      if (!want.every((s) => scopes.includes(s))) return oauthError(c, 400, "invalid_scope", "scope exceeds the original grant");
+      scopes = want;
+    }
+    if (scopes.length === 0) return oauthError(c, 400, "invalid_grant", "your role holds none of the granted scopes");
+    // The compare-and-set: of two concurrent refreshes with the same token only one marks it used.
+    const claimed = await db.query("update tokens set used_at = $3 where tenant_id = $1 and id = $2 and kind = 'refresh' and used_at is null and revoked_at is null and expires_at > $3 returning id", [ref.ten, row.id, now]);
+    if (claimed.length === 0) {
+      const again = await read();
+      return again !== undefined && again.used_at !== null ? reuse() : oauthError(c, 400, "invalid_grant", "the refresh token is expired or revoked");
+    }
+    const access = await createTenantToken(db, ref.ten, `${TOKEN_PREFIX_NAME}${client.n}`, scopes, 0, now, row.user_id, family, ACCESS_TTL_MS);
+    const next = await issueRefresh(db, ref.ten, family, row.user_id, scopes, ref.c, client.n, now);
+    await audit(deps, c, "mcpRefresh", ref.ten, `token:${access.id}`, { client: client.n, outcome: "ok", token_id: access.id }, 200);
+    await audit(deps, c, "mcpRefresh", ref.ten, `token:${access.id}`, { client: client.n, outcome: "rotated", token_id: row.id, next_token_id: next.id }, 200);
+    return c.json({ access_token: access.token, token_type: "Bearer", expires_in: ACCESS_TTL_MS / 1000, refresh_token: next.value, scope: scopes.join(" ") }, 200, tokenHeaders);
+  }
 
   app.post("/oauth/token", async (c) => {
     c.set("action", "exchangeOAuthCode");
@@ -320,7 +418,8 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       return oauthError(c, 400, "invalid_request", "the body must be application/x-www-form-urlencoded");
     }
     const f = (k: string): string | undefined => (typeof form[k] === "string" ? (form[k] as string) : undefined);
-    if (f("grant_type") !== "authorization_code") return oauthError(c, 400, "unsupported_grant_type", "only authorization_code is supported");
+    if (f("grant_type") === "refresh_token") return refreshGrant(c, f);
+    if (f("grant_type") !== "authorization_code") return oauthError(c, 400, "unsupported_grant_type", "only authorization_code and refresh_token are supported");
     const client = clientOf(deps, f("client_id"));
     if (client === null) return oauthError(c, 401, "invalid_client", "unknown client_id");
     const code = open<Code>(deps, "code", "rnxcode_", f("code"));
@@ -332,14 +431,49 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     const resource = f("resource");
     if (resource !== undefined && resource !== code.res) return oauthError(c, 400, "invalid_target", "resource must be this server's MCP endpoint");
     const db = withTenant(deps.db, { kind: "tenant", via: "token", tenantId: code.ten, tokenId: code.id, scopes: code.sc, userId: null, role: null });
-    const claimed = await db.query("update tokens set expires_at = $3 where tenant_id = $1 and id = $2 and expires_at = $4 and revoked_at is null returning id", [code.ten, code.id, now + ACCESS_TTL_MS, code.x]);
+    const claimed = await db.query<{ user_id: string | null }>("update tokens set expires_at = $3 where tenant_id = $1 and id = $2 and expires_at = $4 and revoked_at is null returning user_id", [code.ten, code.id, now + ACCESS_TTL_MS, code.x]);
     if (claimed.length === 0) {
-      // A code used twice: revoke what it issued (OAuth 2.1 section 4.1.3).
-      await db.query("update tokens set revoked_at = $3 where tenant_id = $1 and id = $2 and revoked_at is null", [code.ten, code.id, now]);
+      // A code used twice: revoke what it issued, its refresh tokens too (OAuth 2.1 section 4.1.3).
+      await revokeTokenFamily(db, code.ten, code.id, now);
       await audit(deps, c, "mcpToken", code.ten, `token:${code.id}`, { client: client.n, outcome: "code_reused" }, 400);
       return oauthError(c, 400, "invalid_grant", "the code was already used");
     }
+    // The access token's row is the family of the connection (set at consent).
+    const refresh = await issueRefresh(db, code.ten, code.id, (claimed[0] as { user_id: string | null }).user_id, code.sc, code.c, client.n, now);
     await audit(deps, c, "mcpToken", code.ten, `token:${code.id}`, { client: client.n, outcome: "issued" }, 200);
-    return c.json({ access_token: code.t, token_type: "Bearer", expires_in: ACCESS_TTL_MS / 1000, scope: code.sc.join(" ") }, 200, { "cache-control": "no-store", pragma: "no-cache" });
+    return c.json({ access_token: code.t, token_type: "Bearer", expires_in: ACCESS_TTL_MS / 1000, refresh_token: refresh.value, scope: code.sc.join(" ") }, 200, tokenHeaders);
+  });
+
+  // RFC 7009: an access or a refresh token; either revokes its whole family. The answer is 200 whatever the token was.
+  app.post("/oauth/revoke", async (c) => {
+    c.set("action", "revokeOAuthToken");
+    let form: Record<string, string | File>;
+    try {
+      form = await c.req.parseBody();
+    } catch {
+      return oauthError(c, 400, "invalid_request", "the body must be application/x-www-form-urlencoded");
+    }
+    const value = typeof form.token === "string" ? form.token : "";
+    if (value === "") return oauthError(c, 400, "invalid_request", "token is required");
+    const now = deps.now();
+    let found: { tenant: string; id: string; client: string; kind: string } | null = null;
+    const ref = value.startsWith("rnxrt_") ? open<Refresh>(deps, "refresh", "rnxrt_", value) : null;
+    if (ref !== null && typeof ref.id === "string" && typeof ref.ten === "string") {
+      const clientId = typeof form.client_id === "string" ? form.client_id : undefined;
+      const rows = await deps.db.query<{ token_sha256: string }>("select token_sha256 from tokens where tenant_id = $1 and id = $2 and kind = 'refresh'", [ref.ten, ref.id]);
+      if (rows[0] !== undefined && sameDigest(rows[0].token_sha256, sha256hex(value)) && (clientId === undefined || clientId === ref.c)) {
+        found = { tenant: ref.ten, id: ref.id, client: clientOf(deps, ref.c)?.n ?? "unknown", kind: "refresh_token" };
+      }
+    } else if (/^renox_pat_[a-z2-7]{32}$/u.test(value)) {
+      const rows = await deps.db.query<{ id: string; tenant_id: string; name: string }>("select id, tenant_id, name from tokens where token_sha256 = $1 and kind = 'access'", [sha256hex(value)]);
+      // Only the access tokens this server issued (`mcp: …`): this is not a second way to revoke a deploy-API token.
+      if (rows[0] !== undefined && rows[0].name.startsWith(TOKEN_PREFIX_NAME)) found = { tenant: rows[0].tenant_id, id: rows[0].id, client: rows[0].name.slice(TOKEN_PREFIX_NAME.length), kind: "access_token" };
+    }
+    if (found !== null) {
+      const db = withTenant(deps.db, { kind: "tenant", via: "token", tenantId: found.tenant, tokenId: found.id, scopes: [], userId: null, role: null });
+      await revokeTokenFamily(db, found.tenant, found.id, now);
+      await audit(deps, c, "mcpRevoke", found.tenant, `token:${found.id}`, { client: found.client, token_type: found.kind, token_id: found.id }, 200);
+    }
+    return c.body(null, 200, tokenHeaders);
   });
 }

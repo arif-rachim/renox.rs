@@ -176,3 +176,34 @@ test("the page script fills the id from the name, locks on hand edit, shows the 
     }
   }
 });
+
+test("#688: the sign-up page forwards ?return_to= from an OAuth consent page to the API, and sends nothing when it is absent", async () => {
+  const run = async (search: string) => {
+    const f = { email: fakeEl("a@b.c"), password: fakeEl("x".repeat(12)), tenant_name: fakeEl("T"), tenant_id: fakeEl("t-1"), dpa: fakeEl() };
+    const form = Object.assign(fakeEl(), { elements: f });
+    const root = Object.assign(fakeEl(), { dataset: { api: "https://api.test", page: "signup" } });
+    const els: Record<string, ReturnType<typeof fakeEl>> = { account: root, "signup-form": form, "id-error": fakeEl(), "account-error": fakeEl(), "signup-sent": fakeEl(), "sent-email": fakeEl(), "signup-more": fakeEl() };
+    const g = globalThis as Record<string, unknown>;
+    const saved = { document: g.document, fetch: g.fetch, window: g.window, location: g.location };
+    g.window = {};
+    g.location = { search };
+    let body: Record<string, unknown> = {};
+    g.document = { getElementById: (id: string) => els[id] ?? null, querySelector: () => null };
+    g.fetch = async (_u: string, init: { body?: string }) => {
+      body = JSON.parse(init.body ?? "{}") as Record<string, unknown>;
+      return new Response("{}", { status: 202, headers: { "content-type": "application/json" } });
+    };
+    try {
+      new Function("module", SCRIPT)(undefined);
+      await form.fire("submit", { preventDefault() {} });
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete g[k];
+        else g[k] = v;
+      }
+    }
+    return body;
+  };
+  expect((await run("?return_to=rnxreq_abc-DEF_123")).return_to).toBe("rnxreq_abc-DEF_123");
+  expect(await run("")).not.toHaveProperty("return_to");
+});

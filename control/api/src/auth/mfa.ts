@@ -202,7 +202,7 @@ export function mfaAuth(deps: Deps): MiddlewareHandler<Env> {
     const now = deps.now();
     const rows = await deps.db.query<{ id: string; user_id: string | null; tenant_id: string; imp: string | null }>(
       `select t.id, t.user_id, t.tenant_id, i.id as imp from tokens t left join impersonations i on i.token_id = t.id
-        where t.token_sha256 = $1 and t.revoked_at is null and t.expires_at > $2`,
+        where t.token_sha256 = $1 and t.kind = 'access' and t.revoked_at is null and t.expires_at > $2`,
       [sha256hex(bearer.value), now],
     );
     const t = rows[0];

@@ -116,7 +116,7 @@ describe("discovery and refusals", () => {
     const prm = await h.request("GET", "/.well-known/oauth-protected-resource/mcp");
     expect(await prm.json()).toMatchObject({ resource: "http://localhost/mcp", authorization_servers: ["http://localhost"], bearer_methods_supported: ["header"] });
     const asm = (await (await h.request("GET", "/.well-known/oauth-authorization-server")).json()) as Record<string, unknown>;
-    expect(asm).toMatchObject({ issuer: "http://localhost", code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], grant_types_supported: ["authorization_code"] });
+    expect(asm).toMatchObject({ issuer: "http://localhost", code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], grant_types_supported: ["authorization_code", "refresh_token"] });
     const none = await h.request("POST", "/mcp", { json: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
     expect(none.status).toBe(401);
     expect(none.headers.get("www-authenticate")).toBe('Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp"');
@@ -564,5 +564,184 @@ describe("create_app_from_template (#689)", () => {
     } finally {
       srv.stop();
     }
+  });
+});
+
+describe("refresh tokens (#688)", () => {
+  const form = (o: Record<string, string>) => ({ body: new URLSearchParams(o).toString(), headers: { "content-type": "application/x-www-form-urlencoded" } });
+
+  /** Register a client, consent as `session`, and exchange the code: the token response and what is needed to call again. */
+  async function connected(h: Harness, session: Session, name = "Refresh client") {
+    const reg = await h.request("POST", "/oauth/register", { json: { client_name: name, redirect_uris: [REDIRECT] } });
+    const clientId = ((await reg.json()) as { client_id: string }).client_id;
+    const verifier = verifierOf();
+    const url = `/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: REDIRECT, code_challenge: challengeOf(verifier), code_challenge_method: "S256", state: "s" })}`;
+    const page = await h.request("GET", url, { session });
+    expect(page.status).toBe(200);
+    const request = /name="request" value="([^"]+)"/u.exec(await page.text())?.[1] as string;
+    const decided = await h.request("POST", "/oauth/authorize", { session, ...form({ request, decision: "approve" }) });
+    const code = new URL(decided.headers.get("location") as string).searchParams.get("code") as string;
+    const exchange = await h.request("POST", "/oauth/token", form({ grant_type: "authorization_code", code, client_id: clientId, redirect_uri: REDIRECT, code_verifier: verifier }));
+    expect(exchange.status).toBe(200);
+    const tokens = (await exchange.json()) as { access_token: string; refresh_token: string; expires_in: number; scope: string };
+    return { clientId, tokens };
+  }
+  const refresh = (h: Harness, clientId: string, refreshToken: string, extra: Record<string, string> = {}) => h.request("POST", "/oauth/token", form({ grant_type: "refresh_token", client_id: clientId, refresh_token: refreshToken, ...extra }));
+  const mcpStatus = async (h: Harness, token: string) => (await h.request("POST", "/mcp", { token, json: { jsonrpc: "2.0", id: 1, method: "ping" } })).status;
+  const actions = async (h: Harness, action: string) => (await auditRows(h)).filter((r) => r.action === action).map((r) => r.target as Record<string, unknown>);
+
+  test("the code exchange returns a refresh token; a refresh returns a new pair and kills the old refresh token", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-refresh");
+    const { clientId, tokens } = await connected(h, s);
+    expect(tokens.expires_in).toBe(3600);
+    expect(tokens.refresh_token).toStartWith("rnxrt_");
+    expect(await mcpStatus(h, tokens.access_token)).toBe(200);
+
+    h.clock.now += 3_700_000; // the access token is over; the refresh token (30 days) is not
+    expect(await mcpStatus(h, tokens.access_token)).toBe(401);
+    const res = await refresh(h, clientId, tokens.refresh_token);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const next = (await res.json()) as { access_token: string; refresh_token: string; expires_in: number; scope: string };
+    expect(next.expires_in).toBe(3600);
+    expect(next.scope.split(" ").sort()).toEqual(tokens.scope.split(" ").sort());
+    expect(next.refresh_token).not.toBe(tokens.refresh_token);
+    expect(next.access_token).not.toBe(tokens.access_token);
+    expect(await mcpStatus(h, next.access_token)).toBe(200);
+
+    // The old refresh token is dead.
+    const old = await refresh(h, clientId, tokens.refresh_token);
+    expect(old.status).toBe(400);
+    expect(((await old.json()) as { error: string }).error).toBe("invalid_grant");
+    const outcomes = (await actions(h, "mcpRefresh")).map((t) => t.outcome);
+    expect(outcomes).toEqual(["ok", "rotated", "reuse_detected"]);
+  });
+
+  test("reusing a rotated refresh token revokes the whole family: the newest access token is 401 on /mcp and the newest refresh token is dead", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-reuse");
+    const { clientId, tokens } = await connected(h, s);
+    const second = (await (await refresh(h, clientId, tokens.refresh_token)).json()) as { access_token: string; refresh_token: string };
+    expect(await mcpStatus(h, second.access_token)).toBe(200);
+    expect((await refresh(h, clientId, tokens.refresh_token)).status).toBe(400); // the reuse
+    expect(await mcpStatus(h, second.access_token)).toBe(401);
+    expect(await mcpStatus(h, tokens.access_token)).toBe(401);
+    expect((await refresh(h, clientId, second.refresh_token)).status).toBe(400);
+  });
+
+  test("two concurrent refreshes with one token: only one succeeds", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-race");
+    const { clientId, tokens } = await connected(h, s);
+    const results = await Promise.all([refresh(h, clientId, tokens.refresh_token), refresh(h, clientId, tokens.refresh_token)]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
+  });
+
+  test("a refresh token of another client, a forged one, one past 30 days, and a wrong resource are refused", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-wrong");
+    const { clientId, tokens } = await connected(h, s);
+    const other = ((await (await h.request("POST", "/oauth/register", { json: { client_name: "Other", redirect_uris: [REDIRECT] } })).json()) as { client_id: string }).client_id;
+    const wrong = await refresh(h, other, tokens.refresh_token);
+    expect(wrong.status).toBe(400);
+    expect(((await wrong.json()) as { error: string }).error).toBe("invalid_grant");
+    expect((await refresh(h, clientId, `${tokens.refresh_token.slice(0, -4)}AAAA`)).status).toBe(400);
+    expect((await refresh(h, "rnxmcp_forged", tokens.refresh_token)).status).toBe(401);
+    expect(((await (await refresh(h, clientId, tokens.refresh_token, { resource: "http://localhost/other" })).json()) as { error: string }).error).toBe("invalid_target");
+    // A refresh token is not a bearer token: not on /mcp, not on the deploy API.
+    expect(await mcpStatus(h, tokens.refresh_token)).toBe(401);
+    expect((await h.request("GET", "/v1/apps", { token: tokens.refresh_token })).status).toBe(401);
+    // None of the refusals above used it up; 30 days and a second later it is expired.
+    h.clock.now += 30 * 86_400_000 + 1_000;
+    const late = await refresh(h, clientId, tokens.refresh_token);
+    expect(late.status).toBe(400);
+    expect(((await late.json()) as { error: string }).error).toBe("invalid_grant");
+  });
+
+  test("a refresh keeps the connection alive for weeks, and only narrows scopes", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-weeks");
+    let { clientId, tokens } = await connected(h, s);
+    for (let week = 0; week < 5; week++) {
+      h.clock.now += 7 * 86_400_000;
+      const res = await refresh(h, clientId, tokens.refresh_token);
+      expect(res.status).toBe(200);
+      tokens = (await res.json()) as typeof tokens;
+      expect(await mcpStatus(h, tokens.access_token)).toBe(200);
+    }
+    const wider = await refresh(h, clientId, tokens.refresh_token, { scope: "apps:read apps:write" });
+    expect(((await wider.json()) as { error: string }).error).toBe("invalid_scope");
+    const narrower = await refresh(h, clientId, tokens.refresh_token, { scope: "apps:read" });
+    expect(((await narrower.json()) as { scope: string }).scope).toBe("apps:read");
+  });
+
+  test("a user who left the team cannot refresh", async () => {
+    const h = await harness();
+    await signup(h, "owner@example.com", "t-left");
+    await signup(h, "member@example.com");
+    await addMember(h, "t-left", "member@example.com", "developer");
+    const login = await h.request("POST", "/v1/account/login", { json: { email: "member@example.com", password: PASSWORD } });
+    const member = { cookie: /__Host-renox_session=([^;]+)/u.exec(login.headers.get("set-cookie") ?? "")?.[1] as string, csrf: ((await login.json()) as { csrf: string }).csrf };
+    await h.request("POST", "/v1/account/tenant", { session: member, json: { tenant_id: "t-left" } });
+    const { clientId, tokens } = await connected(h, member);
+    await h.db.query("delete from memberships where tenant_id = 't-left' and user_id = (select id from users where email = 'member@example.com')");
+    expect((await refresh(h, clientId, tokens.refresh_token)).status).toBe(400);
+  });
+
+  test("the token list shows the access tokens only; DELETE of one row kills the family", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-del");
+    const { clientId, tokens } = await connected(h, s);
+    const rotated = (await (await refresh(h, clientId, tokens.refresh_token)).json()) as { access_token: string; refresh_token: string };
+    const list = (await (await h.request("GET", "/v1/tokens", { session: s })).json()) as { tokens: { id: string; name: string }[] };
+    expect(list.tokens.filter((t) => t.name.startsWith("mcp: ")).length).toBe(2); // the two access tokens, no refresh row
+    expect(list.tokens.some((t) => t.name.startsWith("refresh: "))).toBe(false);
+    const first = list.tokens.find((t) => t.name.startsWith("mcp: ")) as { id: string };
+    expect((await h.request("DELETE", `/v1/tokens/${first.id}`, { session: s })).status).toBe(204);
+    expect(await mcpStatus(h, tokens.access_token)).toBe(401);
+    expect(await mcpStatus(h, rotated.access_token)).toBe(401); // the family
+    expect((await refresh(h, clientId, rotated.refresh_token)).status).toBe(400);
+  });
+
+  test("POST /oauth/revoke with a refresh token kills the family; with an access token too; unknown tokens still answer 200; it is audited", async () => {
+    const h = await harness();
+    const s = await signup(h, "dev@example.com", "t-revoke");
+    const a = await connected(h, s);
+    const revoke = (token: string, extra: Record<string, string> = {}) => h.request("POST", "/oauth/revoke", form({ token, ...extra }));
+    expect(await mcpStatus(h, a.tokens.access_token)).toBe(200);
+    // Another client's id does not revoke it.
+    const other = ((await (await h.request("POST", "/oauth/register", { json: { client_name: "Other", redirect_uris: [REDIRECT] } })).json()) as { client_id: string }).client_id;
+    expect((await revoke(a.tokens.refresh_token, { client_id: other })).status).toBe(200);
+    expect(await mcpStatus(h, a.tokens.access_token)).toBe(200);
+    const done = await revoke(a.tokens.refresh_token, { client_id: a.clientId, token_type_hint: "refresh_token" });
+    expect(done.status).toBe(200);
+    expect(await mcpStatus(h, a.tokens.access_token)).toBe(401);
+    expect((await refresh(h, a.clientId, a.tokens.refresh_token)).status).toBe(400);
+
+    const b = await connected(h, s);
+    expect((await revoke(b.tokens.access_token)).status).toBe(200);
+    expect((await refresh(h, b.clientId, b.tokens.refresh_token)).status).toBe(400);
+
+    expect((await revoke("renox_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).status).toBe(200);
+    expect((await revoke("nonsense")).status).toBe(200);
+    expect((await h.request("POST", "/oauth/revoke", form({}))).status).toBe(400);
+    // A deploy-API token is not revoked here.
+    const pat = (await (await h.request("POST", "/v1/tokens", { session: s, json: { name: "ci", scopes: ["apps:read"], expires_in_days: 30 } })).json()) as { token: string };
+    expect((await revoke(pat.token)).status).toBe(200);
+    expect((await h.request("GET", "/v1/apps", { token: pat.token })).status).toBe(200);
+    expect((await actions(h, "mcpRevoke")).map((t) => t.token_type)).toEqual(["refresh_token", "access_token"]);
+  });
+
+  test("metadata lists the refresh grant and the revocation endpoint; nothing secret reaches the audit rows", async () => {
+    const h = await harness();
+    const asm = (await (await h.request("GET", "/.well-known/oauth-authorization-server")).json()) as Record<string, unknown>;
+    expect(asm).toMatchObject({ grant_types_supported: ["authorization_code", "refresh_token"], revocation_endpoint: "http://localhost/oauth/revoke" });
+    const s = await signup(h, "dev@example.com", "t-audit");
+    const { clientId, tokens } = await connected(h, s);
+    const next = (await (await refresh(h, clientId, tokens.refresh_token)).json()) as { access_token: string; refresh_token: string };
+    await refresh(h, clientId, tokens.refresh_token);
+    const dump = JSON.stringify(await auditRows(h));
+    for (const secret of [tokens.access_token, tokens.refresh_token, next.access_token, next.refresh_token]) expect(dump).not.toContain(secret);
   });
 });
