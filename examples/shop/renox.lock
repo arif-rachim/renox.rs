@@ -36,9 +36,9 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 
 [[module]]
 name = "admin"
-version = "1.0.0"
+version = "1.0.1"
 source = "official"
-hash = "9efa4220677750186c5f2e70846746ce477f9da045046f37aaa28df77bf8c5db"
+hash = "6ea462c2602b9d8c81750865a4b8f2a3bb50469282f68250a7ccaa9963dac87e"
 isolation = "shared"
 mount = "/admin"
 dependencies = ["audit", "auth", "i18n"]
