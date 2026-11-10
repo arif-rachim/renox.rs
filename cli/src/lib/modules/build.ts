@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
 import { discoverAppHooks, discoverFunctions, discoverPages, discoverRealtime, discoverWebhooks, type Route } from "../routes.ts";
+import { readHookKeys, unapprovedHookMessage, unreadableMessage } from "../hook-keys.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
@@ -400,7 +401,7 @@ export function storedOverrides(project: string, built: Map<string, Uint8Array>)
 
 /** One broken module contract (`docs/23-failure-modes.md`, "Module contract broken on upgrade"). */
 export interface ContractProblem {
-  rule: "MF7";
+  rule: "MF7" | "V23";
   file: string;
   line: number;
   message: string;
@@ -505,6 +506,14 @@ export function contractProblems(project: string, modules: BuiltModule[]): Contr
     const importedViews = new Set(strings(imports.views));
     const who = owner ? owner.lock.name : "the app";
     const problem = (index: number, message: string) => out.push({ rule: "MF7", file, line: lineOf(src, index), message });
+    // Artifact 1.9 (#640, V23): the keys of the hooks.ts at the root of the module or the app are read statically, and a module fills only approved hooks.
+    if (/^hooks\.(ts|tsx|js|mjs)$/u.test(rel)) {
+      const read = readHookKeys(src);
+      const v23 = (message: string) => out.push({ rule: "V23", file, line: 1, message: message.replace(/^V23: /u, "") });
+      if (!read.ok) {
+        if (!owner?.manifest.eager) v23(unreadableMessage(read.problem, owner?.lock.name));
+      } else if (owner) for (const h of read.keys.hooks) if (!owner.lock.approved.hooks.includes(h)) v23(unapprovedHookMessage(owner.lock.name, h));
+    }
     // import { auth, billing as b } from "renox:modules"
     const bindings = new Map<string, string>();
     for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']renox:modules["']/gu)) {

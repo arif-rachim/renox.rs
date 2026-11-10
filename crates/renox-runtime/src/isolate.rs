@@ -2769,31 +2769,69 @@ async fn create_worker(
     // module's services and hooks against its manifest (fail closed). The
     // app's own `hooks` entry (artifact 1.8, ops.md 1.12.0 section 15.4)
     // registers as module `app`, with or without installed modules.
-    let app_hooks = namespaces
-        .get("hooks")
-        .filter(|_| ctx.is_local(crate::ops::modules::APP));
-    if !ctx.modules.is_empty() || app_hooks.is_some() {
+    // From 1.14.0 (ADR D32) a lazy `services` or `hooks` entry goes to
+    // `register` as `lazy: { services: <specifier>, hooks: { specifier,
+    // hooks, on } }` instead of a namespace: the bootstrap evaluates it on
+    // the first call into the module and routes by the recorded names.
+    let lazy_of = |id: &str| -> Option<serde_json::Value> {
+        let spec = lazy_specifiers.get(id)?;
+        if crate::manifest::is_hooks_entry(id) {
+            let (hooks, on) = manifest.lazy_hook_names(id)?;
+            Some(serde_json::json!({ "specifier": spec, "hooks": hooks, "on": on }))
+        } else {
+            Some(serde_json::Value::String(spec.clone()))
+        }
+    };
+    let app_local = ctx.is_local(crate::ops::modules::APP);
+    let app_hooks = namespaces.get("hooks").filter(|_| app_local);
+    let app_lazy = lazy_of("hooks").filter(|_| app_local);
+    if !ctx.modules.is_empty() || app_hooks.is_some() || app_lazy.is_some() {
         let arg = {
             deno_core::scope!(scope, &mut worker.js_runtime);
             let obj = v8::Object::new(scope);
-            if let Some(ns) = app_hooks {
+            let set_lazy = |scope: &mut v8::PinScope,
+                            entry: v8::Local<v8::Object>,
+                            lazy: serde_json::Map<String, serde_json::Value>|
+             -> Result<(), CreateError> {
+                if lazy.is_empty() {
+                    return Ok(());
+                }
+                let v = serde_v8::to_v8(scope, serde_json::Value::Object(lazy))
+                    .map_err(|e| CreateError::Internal(format!("lazy module entries: {e}")))?;
+                let k = v8::String::new(scope, "lazy").expect("short ASCII string");
+                entry.set(scope, k.into(), v);
+                Ok(())
+            };
+            if app_hooks.is_some() || app_lazy.is_some() {
                 let entry = v8::Object::new(scope);
-                let k = v8::String::new(scope, "hooks").expect("short ASCII string");
-                let v = v8::Local::new(scope, ns);
-                entry.set(scope, k.into(), v.into());
+                if let Some(ns) = app_hooks {
+                    let k = v8::String::new(scope, "hooks").expect("short ASCII string");
+                    let v = v8::Local::new(scope, ns);
+                    entry.set(scope, k.into(), v.into());
+                }
+                let mut lazy = serde_json::Map::new();
+                if let Some(l) = app_lazy {
+                    lazy.insert("hooks".into(), l);
+                }
+                set_lazy(scope, entry, lazy)?;
                 let k =
                     v8::String::new(scope, crate::ops::modules::APP).expect("short ASCII string");
                 obj.set(scope, k.into(), entry.into());
             }
             for m in ctx.modules.modules() {
                 let entry = v8::Object::new(scope);
+                let mut lazy = serde_json::Map::new();
                 for part in ["services", "hooks"] {
-                    if let Some(ns) = namespaces.get(&format!("modules/{}/{part}", m.name)) {
+                    let id = format!("modules/{}/{part}", m.name);
+                    if let Some(ns) = namespaces.get(&id) {
                         let k = v8::String::new(scope, part).expect("short ASCII string");
                         let v = v8::Local::new(scope, ns);
                         entry.set(scope, k.into(), v.into());
+                    } else if let Some(l) = lazy_of(&id) {
+                        lazy.insert(part.into(), l);
                     }
                 }
+                set_lazy(scope, entry, lazy)?;
                 let k = v8::String::new(scope, &m.name)
                     .ok_or_else(|| CreateError::Manifest("module name".into()))?;
                 obj.set(scope, k.into(), entry.into());

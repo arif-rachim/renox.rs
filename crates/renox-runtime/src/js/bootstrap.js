@@ -70,6 +70,8 @@ import {
 const {
   ArrayIsArray,
   ArrayPrototypeFind,
+  ArrayPrototypeFindIndex,
+  ArrayPrototypeIndexOf,
   ArrayPrototypeFilter,
   ArrayPrototypeEvery,
   ArrayPrototypeIncludes,
@@ -730,8 +732,25 @@ const modules = new SafeMap();
 const serviceModules = new SafeMap();
 /** Hook name -> [{ module, priority, handle }], in run order. */
 const hookFillers = new SafeMap();
-/** Module name -> the `on` map of its `hooks.ts` (events, #231). */
+/** Module name -> the `on` map of its `hooks.ts` (events, #231), or a LazyOn of its recorded names. */
 const eventHandlers = new SafeMap();
+/**
+ * ops.md 1.14.0 (ADR D32): module name -> its lazy entries,
+ * `{ services?: specifier, hooks?: { specifier, hooks, on } }`. An entry
+ * leaves this map's role once evaluated: its namespace goes to
+ * serviceModules, hookFillers and eventHandlers as for an eager one.
+ */
+const lazyEntries = new SafeMap();
+/** `${module}/${part}` -> the promise of its checked namespace: one evaluation per isolate, a rejection cached. */
+const entryLoads = new SafeMap();
+/** Hook names some of whose fillers were lazy at registration and are not ordered yet. */
+const pendingHooks = new SafeSet();
+/** The recorded `on` names of a lazy `hooks` entry, until it is evaluated. */
+class LazyOn {
+  constructor(names) {
+    this.names = names;
+  }
+}
 /** Installed module name -> frozen proxies of its services (renox:modules, ctx.services). */
 let serviceProxies = ObjectFreeze({});
 const MAX_CALL_DEPTH = 16;
@@ -791,6 +810,144 @@ function infoOf(module) {
   return modules.get(module);
 }
 
+/** Rolls the current transaction back once (a callee failed; ops.md 1.3.0 section 15.2, "Errors"). */
+async function rollbackCurrent() {
+  const st = stateVar.get();
+  const tx = txVar.get();
+  // A transaction lent by another isolate's caller is the caller's to roll back.
+  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx) && st.borrowedTx !== tx) {
+    st.rolledBack.add(tx);
+    try {
+      await op_db_tx_rollback(currentToken(), tx);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/** Fails if the sorted keys of `obj` differ from the recorded `names`. */
+function sameKeys(obj, names, what) {
+  const keys = ArrayPrototypeSort(ObjectKeys(obj ?? {}));
+  const recorded = ArrayPrototypeSort([...new SafeArrayIterator(names)]);
+  if (keys.length !== recorded.length || ArrayPrototypeSome(keys, (k, i) => k !== recorded[i])) {
+    throw new TypeError(`${what} has keys ${JSONStringify(keys)}, the artifact records ${JSONStringify(recorded)}`);
+  }
+}
+
+/**
+ * Evaluates `module`'s lazy `part` entry ("services" or "hooks") once per
+ * isolate (ops.md 1.14.0 section 11, step 4), inside the current
+ * invocation: its top-level code runs with this request's ops, deadline
+ * and CPU. The evaluated namespace is checked as an eager one is at
+ * creation (step 5), and the `hooks` and `on` keys against the recorded
+ * names. Resolves with the namespace; a failure is logged once as
+ * RENOX_MODULE_EVAL and stays cached for the isolate.
+ */
+function loadEntry(module, part) {
+  const key = `${module}/${part}`;
+  let p = entryLoads.get(key);
+  if (p !== undefined) return p;
+  const lazyOf = lazyEntries.get(module)?.[part];
+  const specifier = part === "hooks" ? lazyOf?.specifier : lazyOf;
+  if (typeof specifier !== "string") return PromiseResolve(undefined);
+  p = within([[moduleVar, module]], () => {
+    let imported = lazyModules.get(specifier);
+    if (imported === undefined) {
+      imported = import(specifier);
+      lazyModules.set(specifier, imported);
+    }
+    return imported;
+  });
+  p = PromisePrototypeThen(p, (ns) => {
+    if (part === "services") {
+      checkServices(module, ns);
+      serviceModules.set(module, ns);
+    } else {
+      sameKeys(ns.hooks, lazyOf.hooks, `${module === "app" ? "app" : `module ${module}`}: hooks.ts hooks`);
+      sameKeys(ns.on, lazyOf.on, `${module === "app" ? "app" : `module ${module}`}: hooks.ts on`);
+      const fillers = checkFillers(module, ns);
+      const on = checkOn(module, ns);
+      for (const f of new SafeArrayIterator(fillers)) {
+        const list = hookFillers.get(f.hook);
+        const i = ArrayPrototypeFindIndex(list ?? [], (x) => x.module === module && x.lazy === true);
+        if (i >= 0) list[i] = f.filler;
+      }
+      if (eventHandlers.get(module) instanceof LazyOn) eventHandlers.set(module, on ?? {});
+    }
+    return ns;
+  });
+  p = PromisePrototypeThen(p, undefined, (e) => {
+    within([[moduleVar, module]], () =>
+      writeLog("error", `module ${module}: ${part}.ts failed to evaluate`, { error: describeThrow(e), code: "RENOX_MODULE_EVAL", entry: part }),
+    );
+    throw e;
+  });
+  entryLoads.set(key, p);
+  return p;
+}
+
+/**
+ * The namespace of `module`'s `part` entry, evaluating a lazy one first.
+ * A failed evaluation fails the invocation as if the module had thrown
+ * there: the current transaction rolls back and the caller gets a
+ * ModuleServiceError with `cause_code: "RENOX_MODULE_EVAL"` (ops.md 1.14.0).
+ */
+async function entryOf(module, part, details) {
+  if (!lazyEntries.get(module)?.[part]) return undefined;
+  try {
+    return await loadEntry(module, part);
+  } catch (e) {
+    await rollbackCurrent();
+    throw new ModuleServiceError(`${module} failed to evaluate`, { ...details, cause_code: "RENOX_MODULE_EVAL" });
+  }
+}
+
+/** Whether `module` has `service`, evaluated or recorded (ops.md 1.14.0). */
+function hasService(module, service) {
+  if (serviceModules.has(module)) return typeof serviceModules.get(module)?.[service] === "function";
+  return typeof lazyEntries.get(module)?.services === "string" && ArrayPrototypeIncludes(infoOf(module)?.exports?.services ?? [], service);
+}
+
+/** The `on[name]` handler of `module`, evaluating its lazy `hooks` entry when it records `name`. */
+async function handlerOf(module, name, details) {
+  const on = eventHandlers.get(module);
+  if (on instanceof LazyOn) {
+    if (!ArrayPrototypeIncludes(on.names, name)) return undefined;
+    await entryOf(module, "hooks", details);
+    return eventHandlers.get(module)?.[name];
+  }
+  return on?.[name];
+}
+
+/**
+ * The fillers of hook `name` in run order. Before a hook's first run on
+ * the isolate its lazy fillers are evaluated, in the modules order (the
+ * app last), and then ordered by their evaluated priority (ops.md 1.14.0
+ * section 15.3, "Lazy fillers").
+ */
+async function fillersOf(name) {
+  if (pendingHooks.has(name)) {
+    const lazy = ArrayPrototypeFilter(hookFillers.get(name) ?? [], (f) => f.lazy === true);
+    const order = [...new SafeArrayIterator([...modules.keys()]), "app"];
+    ArrayPrototypeSort(lazy, (a, b) => ArrayPrototypeIndexOf(order, a.module) - ArrayPrototypeIndexOf(order, b.module));
+    // Each run awaits the shared evaluations, so a failure fails (and rolls back) every run that needs it.
+    for (const f of new SafeArrayIterator(lazy)) {
+      await entryOf(f.module, "hooks", { module: f.module, hook: name });
+    }
+    if (pendingHooks.has(name)) {
+      pendingHooks.delete(name);
+      sortFillers(hookFillers.get(name) ?? []);
+    }
+  }
+  return [...new SafeArrayIterator(hookFillers.get(name) ?? [])];
+}
+
+/** Priority, then module name, the app last on ties (artifact 1.8). */
+function sortFillers(list) {
+  const byModule = (a, b) => (a === b ? 0 : a === "app" ? 1 : b === "app" ? -1 : a < b ? -1 : 1);
+  ArrayPrototypeSort(list, (a, b) => a.priority - b.priority || byModule(a.module, b.module));
+}
+
 /**
  * A callee threw: roll the current transaction back at once (ops.md 1.3.0
  * section 15.2, "Errors"), log the callee's error with its module, and
@@ -828,7 +985,11 @@ async function callService(target, service, args) {
     throw new ModuleServiceError(`${target}.${service} failed: call depth`, { module: target, service, cause_code: null });
   }
   if (!isLocal(target)) return await crossCall("service", target, service, args);
-  const fn = serviceModules.get(target)?.[service];
+  let fn = serviceModules.get(target)?.[service];
+  // ops.md 1.14.0: a lazy services entry is evaluated on its first call, as the callee.
+  if (fn === undefined && !serviceModules.has(target)) {
+    fn = (await within([[depthVar, depth]], () => entryOf(target, "services", { module: target, service })))?.[service];
+  }
   const calleeCtx = st.ctxOf(target);
   // #295: one module.service span per call (caller, callee, name; never the arguments).
   let span = 0;
@@ -860,7 +1021,7 @@ function makeHooks(module) {
       if (!ArrayPrototypeIncludes(infoOf(module)?.exports?.hooks ?? [], name)) {
         throw new ModuleUndeclaredError(`module ${module} does not export hook ${name}`, { module, target: name });
       }
-      for (const f of new SafeArrayIterator(hookFillers.get(name) ?? [])) {
+      for (const f of new SafeArrayIterator(await fillersOf(name))) {
         const fillerCtx = f.remote === true ? null : st.ctxOf(f.module);
         let r;
         try {
@@ -886,8 +1047,91 @@ async function remoteFiller(module, hook, args) {
   return { halt: true, response: new Response(res.body ?? null, { status: res.status ?? 200, headers: res.headers ?? [] }) };
 }
 
-/** Called by Rust after the tenant modules loaded (ops.md 1.3.0 section 11, step 5). */
+/** Step 5 for a `services` namespace: every `exports.services` name is a function export. */
+function checkServices(name, services) {
+  for (const svc of new SafeArrayIterator(infoOf(name)?.exports?.services ?? [])) {
+    if (typeof services?.[svc] !== "function") {
+      throw new TypeError(`module ${name}: service ${svc} is not a function export of services.ts`);
+    }
+  }
+}
+
+/**
+ * Step 5 for a `hooks` namespace's fillers: each filled hook is declared
+ * (the app needs no permissions.hooks, it is the tenant's own code), with a
+ * `handle` function and a priority of 0-1000. Returns `[{ hook, filler }]`.
+ */
+function checkFillers(name, hooksNs) {
+  const label = name === "app" ? "app" : `module ${name}`;
+  const out = [];
+  const fills = hooksNs?.hooks;
+  if (fills === undefined || fills === null) return out;
+  for (const hook of new SafeArrayIterator(ObjectKeys(fills))) {
+    if (name !== "app" && !ArrayPrototypeIncludes(infoOf(name)?.permissions?.hooks ?? [], hook)) {
+      throw new TypeError(`${label}: hooks.ts fills ${hook}, which its manifest does not declare`);
+    }
+    const filler = fills[hook];
+    if (typeof filler?.handle !== "function") throw new TypeError(`${label}: hooks.${hook}.handle is not a function`);
+    const priority = filler.priority ?? 100;
+    if (typeof priority !== "number" || priority < 0 || priority > 1000) throw new TypeError(`${label}: hooks.${hook}.priority must be 0-1000`);
+    ArrayPrototypePush(out, { hook, filler: { module: name, priority, handle: filler.handle } });
+  }
+  return out;
+}
+
+/** Step 5 for a `hooks` namespace's `on`: every value is a function. Returns the map, or undefined. */
+function checkOn(name, hooksNs) {
+  const on = hooksNs?.on;
+  if (on === undefined || on === null) return undefined;
+  for (const [ev, h] of new SafeArrayIterator(ObjectEntries(on))) {
+    if (typeof h !== "function") throw new TypeError(`${name === "app" ? "app" : `module ${name}`}: on["${ev}"] is not a function`);
+  }
+  return on;
+}
+
+/**
+ * Called by Rust after the eager tenant modules loaded (ops.md 1.3.0
+ * section 11, step 5). Each entry is `{ services?, hooks?, lazy? }`: an
+ * eager entry's namespace, checked now (fail closed), or (1.14.0, ADR D32)
+ * a lazy entry's specifier and recorded names, from which the fillers and
+ * handlers are known without evaluating it.
+ */
 function register(namespaces) {
+  const registerOne = (name, ns) => {
+    const lazy = ns.lazy ?? {};
+    if (typeof lazy.services === "string" || lazy.hooks !== undefined) lazyEntries.set(name, lazy);
+    if (ns.services !== undefined) {
+      checkServices(name, ns.services);
+      serviceModules.set(name, ns.services);
+    } else if (typeof lazy.services !== "string" && name !== "app") {
+      checkServices(name, undefined);
+    }
+    if (lazy.hooks !== undefined) {
+      for (const hook of new SafeArrayIterator(lazy.hooks.hooks)) {
+        // The recorded fillers are approved at prepare (V23); checked again here.
+        if (name !== "app" && !ArrayPrototypeIncludes(infoOf(name)?.permissions?.hooks ?? [], hook)) {
+          throw new TypeError(`module ${name}: hooks.ts fills ${hook}, which its manifest does not declare`);
+        }
+        const list = hookFillers.get(hook) ?? [];
+        ArrayPrototypePush(list, { module: name, priority: 100, lazy: true });
+        hookFillers.set(hook, list);
+        pendingHooks.add(hook);
+      }
+      if (name === "app") eventHandlers.delete("app");
+      eventHandlers.set(name, new LazyOn(lazy.hooks.on));
+      return;
+    }
+    for (const f of new SafeArrayIterator(checkFillers(name, ns.hooks))) {
+      const list = hookFillers.get(f.hook) ?? [];
+      ArrayPrototypePush(list, f.filler);
+      hookFillers.set(f.hook, list);
+    }
+    const on = checkOn(name, ns.hooks);
+    if (on !== undefined) {
+      if (name === "app") eventHandlers.delete("app");
+      eventHandlers.set(name, on);
+    }
+  };
   for (const [name, info] of new SafeArrayIterator([...modules])) {
     if (info.local === false) {
       // ops.md 1.7.0 section 15.6: the fillers of a module that runs in
@@ -899,72 +1143,16 @@ function register(namespaces) {
       }
       continue;
     }
-    const ns = namespaces[name] ?? {};
-    const services = ns.services;
-    for (const svc of new SafeArrayIterator(info.exports?.services ?? [])) {
-      if (typeof services?.[svc] !== "function") {
-        throw new TypeError(`module ${name}: service ${svc} is not a function export of services.ts`);
-      }
-    }
-    if (services !== undefined) serviceModules.set(name, services);
-    const hooksNs = ns.hooks;
-    const fills = hooksNs?.hooks;
-    if (fills !== undefined && fills !== null) {
-      for (const hook of new SafeArrayIterator(ObjectKeys(fills))) {
-        if (!ArrayPrototypeIncludes(info.permissions?.hooks ?? [], hook)) {
-          throw new TypeError(`module ${name}: hooks.ts fills ${hook}, which its manifest does not declare`);
-        }
-        const filler = fills[hook];
-        if (typeof filler?.handle !== "function") throw new TypeError(`module ${name}: hooks.${hook}.handle is not a function`);
-        const priority = filler.priority ?? 100;
-        if (typeof priority !== "number" || priority < 0 || priority > 1000) throw new TypeError(`module ${name}: hooks.${hook}.priority must be 0-1000`);
-        const list = hookFillers.get(hook) ?? [];
-        ArrayPrototypePush(list, { module: name, priority, handle: filler.handle });
-        hookFillers.set(hook, list);
-      }
-    }
-    const on = hooksNs?.on;
-    if (on !== undefined && on !== null) {
-      for (const [ev, h] of new SafeArrayIterator(ObjectEntries(on))) {
-        if (typeof h !== "function") throw new TypeError(`module ${name}: on["${ev}"] is not a function`);
-      }
-      eventHandlers.set(name, on);
-    }
+    registerOne(name, namespaces[name] ?? {});
   }
   // ops.md 1.12.0 section 15.4: the app's own hooks.ts, as module "app".
   // It is the tenant's own code, so it needs no permissions.hooks; its
   // `on` is stored last, so the in-memory order runs it after the modules.
-  const appHooks = namespaces.app?.hooks;
-  if (appHooks !== undefined && appHooks !== null) {
-    const fills = appHooks.hooks;
-    if (fills !== undefined && fills !== null) {
-      for (const hook of new SafeArrayIterator(ObjectKeys(fills))) {
-        const filler = fills[hook];
-        if (typeof filler?.handle !== "function") throw new TypeError(`app: hooks.${hook}.handle is not a function`);
-        const priority = filler.priority ?? 100;
-        if (typeof priority !== "number" || priority < 0 || priority > 1000) throw new TypeError(`app: hooks.${hook}.priority must be 0-1000`);
-        const list = hookFillers.get(hook) ?? [];
-        ArrayPrototypePush(list, { module: "app", priority, handle: filler.handle });
-        hookFillers.set(hook, list);
-      }
-    }
-    const on = appHooks.on;
-    if (on !== undefined && on !== null) {
-      for (const [ev, h] of new SafeArrayIterator(ObjectEntries(on))) {
-        if (typeof h !== "function") throw new TypeError(`app: on["${ev}"] is not a function`);
-      }
-      eventHandlers.delete("app");
-      eventHandlers.set("app", on);
-    }
-  }
-  // Priority, then module name, the app last on ties (artifact 1.8).
-  const byModule = (a, b) => (a === b ? 0 : a === "app" ? 1 : b === "app" ? -1 : a < b ? -1 : 1);
-  for (const list of new SafeArrayIterator([...hookFillers.values()])) {
-    ArrayPrototypeSort(list, (a, b) => a.priority - b.priority || byModule(a.module, b.module));
-  }
+  if (namespaces.app !== undefined) registerOne("app", namespaces.app);
+  for (const list of new SafeArrayIterator([...hookFillers.values()])) sortFillers(list);
   // Module -> the events it handles: the cell fans durable events out to them.
   const handled = {};
-  for (const [name, on] of new SafeArrayIterator([...eventHandlers])) handled[name] = ObjectKeys(on);
+  for (const [name, on] of new SafeArrayIterator([...eventHandlers])) handled[name] = on instanceof LazyOn ? [...new SafeArrayIterator(on.names)] : ObjectKeys(on);
   return handled;
 }
 
@@ -975,8 +1163,9 @@ function register(namespaces) {
  * fails the emit.
  */
 async function runInMemory(st, id, name, payload) {
-  for (const [m, on] of new SafeArrayIterator([...eventHandlers])) {
-    const h = on[name];
+  for (const [m] of new SafeArrayIterator([...eventHandlers])) {
+    // ops.md 1.14.0: a lazy handler module is evaluated just before its handler runs.
+    const h = await handlerOf(m, name, { module: m, event: name });
     if (typeof h !== "function") continue;
     const e = ObjectFreeze({ id, name, payload, attempt: 1 });
     const hctx = eventCtx(st.ctxOf(m), m, actionDb("current", m), e);
@@ -1511,9 +1700,8 @@ function freezePrincipal(p) {
 async function resolvePrincipal(token, url, headers) {
   const cached = op_authz_principal_cached(token);
   if (cached.state !== "miss") return cached.principal ?? null;
-  const svc = serviceModules.get("auth")?.principal;
   let answer = null;
-  if (typeof svc === "function") {
+  if (hasService("auth", "principal")) {
     const req = new (requestMod().Request)(url, { method: "GET", headers });
     const st0 = newRequestState({
       req,
@@ -1529,7 +1717,11 @@ async function resolvePrincipal(token, url, headers) {
           [moduleVar, "auth"],
           [stateVar, st0],
         ],
-        () => svc(st0.ctxOf("auth"), cached.session ?? null),
+        async () => {
+          // ops.md 1.14.0: a lazy `auth` services entry is evaluated on the first principal lookup.
+          const svc = serviceModules.get("auth")?.principal ?? (await entryOf("auth", "services", { module: "auth", service: "principal" }))?.principal;
+          return await svc(st0.ctxOf("auth"), cached.session ?? null);
+        },
       );
     } catch (e) {
       within([[moduleVar, "auth"]], () => writeLog("error", "auth.principal threw; the request is anonymous", { error: describeThrow(e), code: "RENOX_INTERNAL" }));
@@ -2134,8 +2326,7 @@ function invoke(token, env, handler, owner) {
     const go = async () => {
       if (env.kind === "cross") return await crossServe(st, env);
       if (env.kind === "service") {
-        const fn = serviceModules.get(env.module)?.[env.name];
-        if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+        if (!hasService(env.module, env.name)) return { kind: KIND_INVOKE, result: "no_handler" };
         const value = await within([[stateVar, st]], () => callService(env.module, env.name, JSONParse(env.args)));
         return { kind: KIND_INVOKE, result: "ok", data_json: JSONStringify(value ?? null, dataReplacer) };
       }
@@ -2206,7 +2397,7 @@ async function crossServe(st, env) {
   const args = JSONParse(env.args);
   let value;
   if (env.what === "hook") {
-    const f = ArrayPrototypeFind(hookFillers.get(env.name) ?? [], (x) => x.module === env.module && x.remote !== true);
+    const f = ArrayPrototypeFind(await within(vars, () => fillersOf(env.name)), (x) => x.module === env.module && x.remote !== true);
     if (f === undefined) return { kind: KIND_INVOKE, result: "no_handler" };
     const r = await within(vars, () => f.handle(st.ctxOf(env.module), args));
     if (r === undefined) value = { halt: false };
@@ -2216,8 +2407,8 @@ async function crossServe(st, env) {
       value = { halt: true, response: { status: r.response.status, headers, body: await r.response.text() } };
     } else throw new TypeError("a hook filler returns undefined or { halt: true, response }");
   } else {
-    const fn = serviceModules.get(env.module)?.[env.name];
-    if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+    if (!hasService(env.module, env.name)) return { kind: KIND_INVOKE, result: "no_handler" };
+    const fn = serviceModules.get(env.module)?.[env.name] ?? (await within(vars, () => entryOf(env.module, "services", { module: env.module, service: env.name })))?.[env.name];
     value = await within(vars, () => fn(st.ctxOf(env.module), ...(ArrayIsArray(args) ? args : [])));
   }
   const json = JSONStringify(value ?? null, dataReplacer);
@@ -2289,8 +2480,9 @@ function deliver(token, id, name, payloadJson, attempt, module, job) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
-    const h = eventHandlers.get(module)?.[name];
-    if (typeof h !== "function") return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
+    const on = eventHandlers.get(module);
+    const recorded = on instanceof LazyOn ? ArrayPrototypeIncludes(on.names, name) : typeof on?.[name] === "function";
+    if (!recorded) return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
     const st = newRequestState({
       deadline: requestDeadline,
       // ops.md 1.5.0 section 17: event handlers run as Renox::System::"<module>".
@@ -2307,6 +2499,9 @@ function deliver(token, id, name, payloadJson, attempt, module, job) {
       const e = ObjectFreeze({ id, name, payload: JSONParse(payloadJson), attempt });
       const hctx = eventCtx(st.ctxOf(module), module, actionDb(tx, module), e);
       try {
+        // ops.md 1.14.0: a lazy handler module is evaluated inside the attempt; a failure is a failed attempt.
+        const h = await within([[txVar, tx]], () => handlerOf(module, name, { module, event: name }));
+        if (typeof h !== "function") throw new TypeError(`${module}: on["${name}"] is not a function`);
         await within([[txVar, tx]], () => h(hctx, e));
         if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} handler of ${name}: a callee failed`, { module, event: name, cause_code: null });
         await op_events_ack(token, tx, id, module);

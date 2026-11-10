@@ -108,7 +108,8 @@ describe.skipIf(!worker)("renox build with hooks.ts, [[slots]] and [events]", ()
       expect(m.code.entry.hooks).toBe("hooks.js");
       expect(r.files.has("code/hooks.js")).toBe(true);
       expect(m.entries?.hooks?.exports).toEqual(["on"]);
-      expect(m.entries?.hooks?.eager).toBeUndefined();
+      // Artifact 1.9 (#640): the app's hooks entry is lazy and records the events it handles.
+      expect(m.entries?.hooks).toEqual({ exports: ["on"], eager: false, hooks: [], on: ["auth.user_registered"] });
       // Used by no route (V7).
       expect(m.routes.some((x) => (x as { module?: string }).module === "hooks")).toBe(false);
       // The module's filler first, the app's two after it (equal priority: the app last; then 100 < 100 tie by order of declaration).

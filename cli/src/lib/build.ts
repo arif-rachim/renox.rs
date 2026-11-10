@@ -37,6 +37,7 @@ import { checkSecurity, mergeModuleCsp, type SecurityConfig } from "../check/sec
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
+import { readHookKeys, unapprovedHookMessage, unreadableMessage } from "./hook-keys.ts";
 import { toPosix } from "./paths.ts";
 import { rewriteAssetRefs } from "./public-assets.ts";
 import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, v25Problems } from "./policies.ts";
@@ -111,25 +112,79 @@ type JsonObjectLike = Record<string, Json>;
 export interface EntryInfo {
   exports: string[];
   eager?: boolean;
+  /** Artifact 1.9 (#640), `hooks` entries only: the sorted hook names its `hooks` export fills. */
+  hooks?: string[];
+  /** Artifact 1.9 (#640), `hooks` entries only: the sorted event names its `on` export handles. */
+  on?: string[];
+}
+
+/** What `entriesOf` needs beyond the bundled code (artifact 1.9, #640). */
+export interface EntrySources {
+  /** `hooks` entry id (`hooks`, `modules/<name>/hooks`) -> the source file whose keys are read. */
+  hookSources?: ReadonlyMap<string, string>;
+  /** Names of the modules whose `module.toml` says `[module] eager = true`. */
+  eagerModules?: ReadonlySet<string>;
+  /** Module name -> its approved `permissions.hooks` (the lock's `approved.hooks`); a recorded hook outside it is V23. */
+  approvedHooks?: ReadonlyMap<string, readonly string[]>;
 }
 
 /**
  * The `entries` field (ops.md 1.4.0 section 11): the export names of each
  * bundled entry, read from its code, and `eager: false` for route modules,
- * which the runtime then evaluates on their first request. A module's
- * `services` and `hooks`, and the error page's module, stay eager.
+ * which the runtime then evaluates on their first request. Artifact 1.9 (ADR
+ * D32, ops.md 1.14.0): a module's `services` and `hooks` and the app's `hooks`
+ * are lazy too, unless the module says `eager = true` (the app has no
+ * opt-out); a `hooks` entry records the hook and event names read from its
+ * source, and a `hooks.ts` whose keys cannot be read is an error unless the
+ * module is eager. The error page's module stays eager.
  */
-export function entriesOf(entry: Record<string, string>, code: ReadonlyMap<string, string>): Record<string, EntryInfo> {
+export function entriesOf(entry: Record<string, string>, code: ReadonlyMap<string, string>, sources: EntrySources = {}): Record<string, EntryInfo> {
   const scanner = new Bun.Transpiler({ loader: "js" });
   const out: Record<string, EntryInfo> = {};
+  // RENOX_BUILD_EAGER=1 keeps every entry eager (the 1.1 behaviour, and no recorded names): the
+  // baseline of B1's lazy-route comparison (#265), not a user setting.
+  const baseline = process.env.RENOX_BUILD_EAGER === "1";
   for (const [id, path] of Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const source = code.get(path);
     if (source === undefined) throw new BuildError(`${path}: no bundled module for code.entry ${id}`);
     const exports = [...new Set(scanner.scan(source).exports)].sort();
-    // RENOX_BUILD_EAGER=1 keeps every entry eager (the 1.1 behaviour): the
-    // baseline of B1's lazy-route comparison (#265), not a user setting.
-    const eager = process.env.RENOX_BUILD_EAGER === "1" || /^modules\/[a-z][a-z0-9_]*\/(services|hooks)$/u.test(id) || id === "hooks" || /(^|\/)pages\/_error$/u.test(id);
-    out[id] = eager ? { exports } : { exports, eager: false };
+    const mod = /^modules\/([a-z][a-z0-9_]*)\/(services|hooks)$/u.exec(id);
+    const isError = /(^|\/)pages\/_error$/u.test(id);
+    if (baseline || isError || (mod === null && id !== "hooks")) {
+      const eager = baseline || isError || mod !== null || id === "hooks";
+      out[id] = eager ? { exports } : { exports, eager: false };
+      continue;
+    }
+    const optedEager = mod !== null && sources.eagerModules?.has(mod[1] as string) === true;
+    if (mod?.[2] === "services") {
+      out[id] = optedEager ? { exports } : { exports, eager: false };
+      continue;
+    }
+    // A `hooks` entry: the module's, or the app's.
+    const file = sources.hookSources?.get(id);
+    if (file === undefined) {
+      // No source to read (a caller that has none): the 1.8 shape.
+      out[id] = { exports };
+      continue;
+    }
+    const read = readHookKeys(readFileSync(file, "utf8"));
+    const where = toPosix(file);
+    if (!read.ok) {
+      if (optedEager) {
+        out[id] = { exports };
+        continue;
+      }
+      throw new BuildError(`${where}: ${unreadableMessage(read.problem, mod?.[1])}`, [], { file: where });
+    }
+    const { hooks, on } = read.keys;
+    const approved = mod === null ? undefined : sources.approvedHooks?.get(mod[1] as string);
+    if (mod !== null && approved !== undefined) {
+      for (const h of hooks) if (!approved.includes(h)) throw new BuildError(`${where}: ${unapprovedHookMessage(mod[1] as string, h)}`, [], { file: where });
+    }
+    for (const [name, list] of [["hooks", hooks], ["on", on]] as const) {
+      if (list.length > 0 && !exports.includes(name)) throw new BuildError(`V23: ${where}: the bundled ${id} does not export \`${name}\`, but its source declares ${list.join(", ")}`, [], { file: where });
+    }
+    out[id] = { exports, ...(optedEager ? {} : { eager: false }), hooks, on };
   }
   return out;
 }
@@ -582,12 +637,21 @@ export async function buildFiles(
   const manifestTemplates = Object.fromEntries(
     Object.entries(templates).map(([id, t]) => [id, t.fragments ? { kind: t.kind, fragments: t.fragments } : { kind: t.kind }]),
   );
+  // Artifact 1.9 (#640): the sources of the `hooks` entries, whose keys are recorded, and the modules that stay eager.
+  const entrySources: EntrySources = {
+    hookSources: new Map<string, string>([
+      ...(mods?.entries ?? []).filter((e) => e.id === `modules/${e.module}/hooks`).map((e): [string, string] => [e.id, join(e.tree, e.source)]),
+      ...(appHooks !== undefined ? [["hooks", join(project, appHooks)] as [string, string]] : []),
+    ]),
+    eagerModules: new Set((mods?.modules ?? []).filter((m) => m.manifest.eager).map((m) => m.lock.name)),
+    approvedHooks: new Map((mods?.modules ?? []).map((m): [string, readonly string[]] => [m.lock.name, m.lock.approved.hooks])),
+  };
   const manifest: Manifest = {
     artifact: { version: 1 },
     app: config.app,
     code: { format: "esm-dir", entry },
     // Artifact 1.6: a code-less app (pages and public/ only) has `code.entry: {}` and no `entries` key.
-    ...(functions.length === 0 && !mods?.entries.length ? {} : { entries: entriesOf(entry, bundled.code) }),
+    ...(functions.length === 0 && !mods?.entries.length ? {} : { entries: entriesOf(entry, bundled.code, entrySources) }),
     routes: [...routes, ...extra.tools, ...extra.jobs],
     ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,

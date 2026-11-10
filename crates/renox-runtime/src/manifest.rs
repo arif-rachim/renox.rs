@@ -489,6 +489,12 @@ pub struct AppEvent {
     pub description: Option<String>,
 }
 
+/// Whether `id` is a `hooks` entry: the app's `hooks` or a module's
+/// `modules/<name>/hooks` (artifact 1.8, 1.1).
+pub fn is_hooks_entry(id: &str) -> bool {
+    id == "hooks" || (id.starts_with("modules/") && id.ends_with("/hooks"))
+}
+
 /// One `entries` record (artifact 1.2).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -498,23 +504,43 @@ pub struct EntryInfo {
     /// `false`: evaluated on the first request that needs it. Default true.
     #[serde(default)]
     pub eager: Option<bool>,
+    /// Artifact 1.9 (`hooks` entries only): the hook names its `hooks`
+    /// export fills, as `renox build` read them.
+    #[serde(default)]
+    pub hooks: Option<Vec<String>>,
+    /// Artifact 1.9 (`hooks` entries only): the event names its `on`
+    /// export handles.
+    #[serde(default)]
+    pub on: Option<Vec<String>>,
 }
 
 impl Manifest {
     /// Whether code entry `id` is evaluated at isolate creation (ops.md
-    /// 1.4.0 section 11, step 4). A module's `services` and `hooks` entries,
-    /// and the app's `hooks` entry (artifact 1.8, V23), are always eager.
+    /// 1.4.0 section 11, step 4). From artifact 1.9 (ops.md 1.14.0, ADR D32)
+    /// a module's `services` entry may be lazy, and a `hooks` entry (a
+    /// module's or the app's) may be lazy only when it records its `hooks`
+    /// and `on` names; without them it stays eager (the 1.8 behaviour).
     pub fn is_eager(&self, id: &str) -> bool {
-        let always = id == "hooks"
-            || (id.starts_with("modules/")
-                && (id.ends_with("/services") || id.ends_with("/hooks")));
-        always
-            || self
-                .entries
-                .as_ref()
-                .and_then(|e| e.get(id))
-                .and_then(|e| e.eager)
-                .unwrap_or(true)
+        let Some(e) = self.entries.as_ref().and_then(|e| e.get(id)) else {
+            return true;
+        };
+        if e.eager != Some(false) {
+            return true;
+        }
+        if is_hooks_entry(id) {
+            return e.hooks.is_none() || e.on.is_none();
+        }
+        false
+    }
+
+    /// The recorded `hooks` and `on` names of a lazy `hooks` entry
+    /// (artifact 1.9), `None` when the entry is eager.
+    pub fn lazy_hook_names(&self, id: &str) -> Option<(&[String], &[String])> {
+        if self.is_eager(id) {
+            return None;
+        }
+        let e = self.entries.as_ref()?.get(id)?;
+        Some((e.hooks.as_deref()?, e.on.as_deref()?))
     }
 
     /// The app's declared events: name -> payload schema (artifact 1.8).
