@@ -38,7 +38,7 @@ import { join, resolve } from "node:path";
 
 import { CliError, EnvironmentError, EXIT, formatError, location } from "../errors.ts";
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
-import { renameRetry } from "../lib/rename.ts";
+import { routeEntries, writeRoutesFile } from "../lib/routes-file.ts";
 import { Symbolicator } from "../lib/sourcemap.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
 import { allHints, CLIENT_EVENTS_PATH, clientLine, handleBatch, injectDevMeta, type PageRoute } from "../dev/client-events.ts";
@@ -97,10 +97,7 @@ export function parseDotenv(text: string): Record<string, string> {
 
 /** Replaces the route table atomically (write, then rename): a reader sees the old or the new table. */
 function writeRoutes(path: string, hostname: string, hash: string): void {
-  const entries = [{ hostname, tenant_id: DEV_TENANT, deployment_hash: hash, status: "active", updated_at: Date.now() }];
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify({ version: 0, entries }, null, 2)}\n`);
-  renameRetry(tmp, path);
+  writeRoutesFile(path, routeEntries({ hostnames: [hostname], tenantId: DEV_TENANT, hash }));
 }
 
 /** Whether something accepts connections on `host:port` (false when the address family is missing). */

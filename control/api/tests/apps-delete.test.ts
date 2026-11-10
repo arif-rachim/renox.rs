@@ -240,6 +240,11 @@ describe("the purge (sweepAppDeletions)", () => {
     );
     await h.store.put(`exports/${T}/${T}/1.db`, new TextEncoder().encode("SQLite format 3\u0000"));
     await h.db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at) values ('exp_01JBQ40000000000000000DEL1', $1, 'shop', $2, $3, 16, $4, $5)", [T, `exports/${T}/${T}/1.db`, "0".repeat(64), h.clock.now, h.clock.now + DAY]);
+    // 0.8 (#671): one export of each other kind.
+    await h.store.put(`exports/${T}/${T}/2.files.tar.gz`, new TextEncoder().encode("files"));
+    await h.store.put(`exports/${T}/${T}/3.artifact.tar.gz`, new TextEncoder().encode("artifact"));
+    await h.db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at, kind) values ('exp_01JBQ40000000000000000DEL2', $1, 'shop', $2, $3, 5, $4, $5, 'files')", [T, `exports/${T}/${T}/2.files.tar.gz`, "0".repeat(64), h.clock.now, h.clock.now + DAY]);
+    await h.db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at, kind, hash) values ('exp_01JBQ40000000000000000DEL3', $1, 'shop', $2, $3, 8, $4, $5, 'artifact', $6)", [T, `exports/${T}/${T}/3.artifact.tar.gz`, "0".repeat(64), h.clock.now, h.clock.now + DAY, hashes.shop]);
     // A second deployment of shop whose hash only shop holds, and notes with a copy of shop's active hash.
     const solo = named("shop", (_m, f) => f.set("code/solo.json", new TextEncoder().encode("1")));
     expect((await upload(h, token, "shop", solo)).status).toBe(201);
@@ -261,6 +266,8 @@ describe("the purge (sweepAppDeletions)", () => {
     expect(h.store.objects.has(`artifacts/${soloHash}.tar`)).toBe(false);
     expect(h.store.objects.has(`artifacts/${hashes.shop}.tar`)).toBe(true);
     expect(h.store.objects.has(`exports/${T}/${T}/1.db`)).toBe(false);
+    expect(h.store.objects.has(`exports/${T}/${T}/2.files.tar.gz`)).toBe(false);
+    expect(h.store.objects.has(`exports/${T}/${T}/3.artifact.tar.gz`)).toBe(false);
     // The shared file was never dropped: no node call for an app without a database of its own.
     // The name is quarantined: another tenant cannot take it; the tenant that deleted it can.
     expect(await slugState(h.db, "shop", "t_other", h.clock.now)).toBe("quarantined");

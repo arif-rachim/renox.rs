@@ -73,6 +73,9 @@ serde = { version = "1", features = ["derive"] }
 # float_roundtrip: loader data parsed exactly as V8 printed it (B9, #40).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.11"
+# The files export (src/control/files_export.rs, #670): a gzip ustar of a tenant's stored files.
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
 # The image pipeline (#321; ops.md 1.7.0 section 21): decode JPEG, PNG,
 # WebP; encode AVIF (ravif, pure Rust), WebP (lossless), JPEG, PNG. Already in
 # the tree through deno_canvas; the `avif` feature above adds ravif and

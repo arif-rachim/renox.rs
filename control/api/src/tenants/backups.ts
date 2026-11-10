@@ -9,7 +9,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { operation } from "../audit.ts";
 import { appViews } from "../apps/repo.ts";
 import { actorOf } from "../context.ts";
-import { deploymentView, type Actor } from "../deployments/repo.ts";
+import { artifactKey, deploymentView, findDeployment, type Actor } from "../deployments/repo.ts";
 import { ApiError, conflict, notFound } from "../errors.ts";
 import { jsonBody, readBody } from "../http.ts";
 import { ulid } from "../ids.ts";
@@ -167,6 +167,66 @@ async function nodeOf(deps: Deps, db: Db, tenantId: string): Promise<{ node: str
   return { node, target };
 }
 
+/** What every export answers (deploy-api.md 0.8 section 14); `exportFiles` adds `files`, `exportBackup` adds `masking`. */
+export interface ExportAnswer {
+  url: string;
+  expires_at: number;
+  created_at: number;
+  size_bytes: number;
+  sha256: string;
+  kind: "database" | "files" | "artifact";
+  hash?: string;
+}
+
+export interface StoreExportInput {
+  tenant: string;
+  app: string;
+  database: string;
+  kind: "database" | "files" | "artifact";
+  /** The deployment of an `artifact` export; null otherwise. */
+  hash: string | null;
+  /** The key's ending after `<created_at>.`: `db`, `files.tar.gz`, `artifact.tar.gz`. */
+  suffix: string;
+  body: Uint8Array;
+  /** The checksum the source claims for `body`; null when the control plane read the source itself (artifact). A different one stores nothing. */
+  expectedSha: string | null;
+  seconds: number;
+}
+
+/**
+ * Stores one export under `exports/<tenant>/<database>/<now>.<suffix>`: checks
+ * the SHA-256 against `expectedSha` first (503 and nothing stored otherwise),
+ * puts the object, inserts the `exports` row and signs the URL. The object
+ * store takes whole objects (no streaming put), so the body is held in memory
+ * as `exportBackup` always did.
+ */
+export async function storeExport(deps: Deps, db: Db, input: StoreExportInput): Promise<ExportAnswer> {
+  const { tenant, app, database, kind, hash, suffix, body, expectedSha, seconds } = input;
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  if (expectedSha !== null && expectedSha !== sha256) throw unavailable(kind === "database" ? "snapshot" : kind, "checksum mismatch");
+  const now = deps.now();
+  const id = `exp_${ulid(now)}`;
+  const key = `exports/${tenant}/${database}/${now}.${suffix}`;
+  // #308: SSE-KMS with the export key (the bucket refuses anything else).
+  const kms = deps.config.exportKmsKeyId ?? null;
+  await deps.store.put(key, body, kms === null ? {} : { sseKmsKeyId: kms });
+  const expires = now + seconds * 1000;
+  await db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at, kind, hash) values ($2, $1, $3, $4, $5, $6, $7, $8, $9, $10)", [
+    tenant,
+    id,
+    app,
+    key,
+    sha256,
+    body.length,
+    now,
+    now + EXPORT_KEEP_MS,
+    kind,
+    hash,
+  ]);
+  const url = deps.store.presign(key, seconds) ?? `https://api.${deps.config.platformDomain}/v1/exports/${id}?expires=${expires}&sig=${signExport(deps, id, expires)}`;
+  return { url, expires_at: expires, created_at: now, size_bytes: body.length, sha256, kind, ...(hash === null ? {} : { hash }) };
+}
+
 export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps/:app/backups/export", operation(deps, "exportBackup"), tenantAuth(deps, "apps:write"), async (c) => {
     const db = tenantDb(deps, c);
@@ -185,29 +245,69 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     }
     if (res.status !== 200) throw unavailable("node", `snapshot answered ${res.status}`);
     const bytes = new Uint8Array(await res.arrayBuffer());
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    if (res.headers.get("x-renox-sha256") !== sha256) throw unavailable("snapshot", "checksum mismatch");
-    const now = deps.now();
-    const id = `exp_${ulid(now)}`;
-    const key = `exports/${tenant}/${database}/${now}.db`;
-    // #308: SSE-KMS with the export key (the bucket refuses anything else).
-    const kms = deps.config.exportKmsKeyId ?? null;
-    await deps.store.put(key, bytes, kms === null ? {} : { sseKmsKeyId: kms });
-    const expires = now + seconds * 1000;
-    await db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at) values ($2, $1, $3, $4, $5, $6, $7, $8)", [
-      tenant,
-      id,
-      row.name,
-      key,
-      sha256,
-      bytes.length,
-      now,
-      now + EXPORT_KEEP_MS,
-    ]);
-    const url = deps.store.presign(key, seconds) ?? `https://api.${deps.config.platformDomain}/v1/exports/${id}?expires=${expires}&sig=${signExport(deps, id, expires)}`;
-    await audited(deps, c, { app: row.name, size_bytes: String(bytes.length), sha256 });
-    await platformLine(deps, db, tenant, row.name, "export", `export of ${database} (${bytes.length} bytes)`);
-    return c.json({ url, expires_at: expires, created_at: now, size_bytes: bytes.length, sha256, masking: "none" }, 201);
+    const stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "database", hash: null, suffix: "db", body: bytes, expectedSha: res.headers.get("x-renox-sha256"), seconds });
+    await audited(deps, c, { app: row.name, size_bytes: String(stored.size_bytes), sha256: stored.sha256 });
+    await platformLine(deps, db, tenant, row.name, "export", `export of ${database} (${stored.size_bytes} bytes)`);
+    return c.json({ ...stored, masking: "none" }, 201);
+  });
+
+  // 0.8 (#671): the app's files as a tar.gz from the owning node.
+  app.post("/v1/apps/:app/files/export", operation(deps, "exportFiles"), tenantAuth(deps, "apps:write"), async (c) => {
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
+    const row = await requireApp(db, tenant, pathParam(c, "app", "AppName"));
+    const { expires_in_seconds: seconds = EXPORT_MAX_SECONDS } = await jsonBody<{ expires_in_seconds?: number }>(c, "ExportRequest");
+    await assertNotMoving(db, tenant);
+    const database = await databaseOf(db, tenant, row.name);
+    const { node, target } = await nodeOf(deps, db, tenant);
+    let res: Response;
+    try {
+      res = await fetchNode(deps, target, "GET", `/nodes/${node}/tenants/${tenant}/files?database=${encodeURIComponent(database)}`);
+    } catch {
+      throw unavailable("node", "unreachable");
+    }
+    if (res.status === 503 && ((await res.clone().json().catch(() => null)) as { error?: { code?: string } } | null)?.error?.code === "RENOX_TENANT_MOVING") {
+      throw new ApiError("RENOX_TENANT_MOVING", undefined, { retryAfter: 30 });
+    }
+    if (res.status !== 200) throw unavailable("node", `files answered ${res.status}`);
+    const header = res.headers.get("x-renox-files");
+    if (header === null || !/^(0|[1-9][0-9]{0,15})$/u.test(header)) throw unavailable("files", "the node did not count the files");
+    const files = Number(header);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "files", hash: null, suffix: "files.tar.gz", body: bytes, expectedSha: res.headers.get("x-renox-sha256"), seconds });
+    await audited(deps, c, { app: row.name, size_bytes: String(stored.size_bytes), sha256: stored.sha256, files: String(files) });
+    await platformLine(deps, db, tenant, row.name, "export", `export of the files of ${database} (${files} files, ${stored.size_bytes} bytes)`);
+    return c.json({ ...stored, files }, 201);
+  });
+
+  // 0.8 (#671): a copy of a deployment's artifact; the artifact object itself is never signed or deleted here.
+  app.post("/v1/apps/:app/deployments/:hash/export", operation(deps, "exportArtifact"), tenantAuth(deps, "apps:write"), async (c) => {
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
+    const row = await requireApp(db, tenant, pathParam(c, "app", "AppName"));
+    const hash = pathParam(c, "hash", "Sha256");
+    // The 404 first: a hash that is not the app's answers 404 whatever the body.
+    const deployment = await findDeployment(db, tenant, row.name, hash);
+    if (deployment === null || (deployment.state !== "active" && deployment.state !== "superseded")) throw notFound();
+    const { expires_in_seconds: seconds = EXPORT_MAX_SECONDS } = await jsonBody<{ expires_in_seconds?: number }>(c, "ExportRequest");
+    const database = await databaseOf(db, tenant, row.name);
+    let bytes: Uint8Array | null;
+    try {
+      bytes = await deps.store.get(artifactKey(hash));
+    } catch {
+      throw unavailable("store", "unreachable");
+    }
+    if (bytes === null) throw unavailable("artifact", "the artifact object is missing");
+    let stored: ExportAnswer;
+    try {
+      stored = await storeExport(deps, db, { tenant, app: row.name, database, kind: "artifact", hash, suffix: "artifact.tar.gz", body: bytes, expectedSha: null, seconds });
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      throw unavailable("store", "the copy could not be written");
+    }
+    await audited(deps, c, { app: row.name, hash, size_bytes: String(stored.size_bytes), sha256: stored.sha256 });
+    await platformLine(deps, db, tenant, row.name, "export", `export of the artifact ${hash} (${stored.size_bytes} bytes)`);
+    return c.json(stored, 201);
   });
 
   // The download of a store that cannot presign (memory store, tests): only

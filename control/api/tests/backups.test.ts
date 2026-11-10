@@ -11,7 +11,7 @@ import { checkMessage } from "../src/contract.ts";
 import { setRawNodeCall } from "../src/tenants/backups.ts";
 import { setNodeCall } from "../src/workers/failover.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { assertScoped, auditRows, createApp_, harness, nodeToken, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, nodeToken, scopedToken, tenant, type Harness } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -159,6 +159,118 @@ describe("backups (deploy-api.md section 14)", () => {
       ["t_bk", 200],
       ["t_bk", 422],
     ]);
+  });
+
+  describe("exportFiles and exportArtifact (0.8, #671)", () => {
+    const TAR = new TextEncoder().encode("pretend gzip tar of three files");
+    const filesNode = (h: Harness, reply: () => Response) => {
+      setRawNodeCall(h.deps, async (_node, method, path) => (method === "GET" && path.includes("/files?database=t_bk") ? reply() : new Response(null, { status: 404 })));
+    };
+    const exportRows = (h: Harness) => h.db.query<{ kind: string; hash: string | null; object_key: string }>("select kind, hash, object_key from exports order by created_at, id");
+    const exportKeys = (h: Harness) => [...h.store.objects.keys()].filter((k) => k.startsWith("exports/"));
+
+    test("exportBackup answers kind database", async () => {
+      const { h, token } = await setup();
+      const body = (await (await h.request("POST", "/v1/apps/shop/backups/export", { token, json: {} })).json()) as { kind: string };
+      expect(body.kind).toBe("database");
+      expect((await exportRows(h)).map((r) => r.kind)).toEqual(["database"]);
+    });
+
+    test("exportFiles stores the node's tar, answers kind files with the count and a URL that downloads the same bytes; audited", async () => {
+      const { h, token } = await setup();
+      filesNode(h, () => new Response(TAR, { headers: { "x-renox-sha256": sha(TAR), "x-renox-files": "3", "x-renox-files-missing": "0" } }));
+      const res = await h.request("POST", "/v1/apps/shop/files/export", { token, json: { expires_in_seconds: 300 } });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { url: string; sha256: string; size_bytes: number; kind: string; files: number; expires_at: number };
+      expect(body).toMatchObject({ kind: "files", files: 3, sha256: sha(TAR), size_bytes: TAR.length, expires_at: h.clock.now + 300_000 });
+      const [row] = await exportRows(h);
+      expect(row).toMatchObject({ kind: "files", hash: null, object_key: `exports/t_bk/t_bk/${h.clock.now}.files.tar.gz` });
+      expect(sha(h.store.objects.get(row?.object_key as string) as Uint8Array)).toBe(body.sha256);
+      const url = new URL(body.url);
+      const got = await h.request("GET", `${url.pathname}${url.search}`);
+      expect(got.status).toBe(200);
+      expect(new Uint8Array(await got.arrayBuffer())).toEqual(TAR);
+      const audit = (await auditRows(h)).filter((r) => r.action === "exportFiles");
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ status: 201, target: { app: "shop", size_bytes: String(TAR.length), sha256: sha(TAR), files: "3" } });
+      expect(JSON.stringify(audit[0]?.target)).not.toContain("sig=");
+    });
+
+    test("a checksum mismatch, a missing or malformed file count: 503 RENOX_BACKUP_UNAVAILABLE, no row, no object", async () => {
+      const { h, token } = await setup();
+      for (const headers of <Record<string, string>[]>[{ "x-renox-sha256": "0".repeat(64), "x-renox-files": "3" }, { "x-renox-sha256": sha(TAR) }, { "x-renox-sha256": sha(TAR), "x-renox-files": "-1" }, { "x-renox-sha256": sha(TAR), "x-renox-files": "3.5" }]) {
+        filesNode(h, () => new Response(TAR, { headers }));
+        const res = await h.request("POST", "/v1/apps/shop/files/export", { token, json: {} });
+        expect(res.status).toBe(503);
+        expect(((await res.json()) as { error: { code: string } }).error.code).toBe("RENOX_BACKUP_UNAVAILABLE");
+        expect(await exportRows(h)).toEqual([]);
+        expect(exportKeys(h)).toEqual([]);
+      }
+    });
+
+    test("exportFiles of a tenant being moved is 503 RENOX_TENANT_MOVING", async () => {
+      const { h, token } = await setup();
+      filesNode(h, () => new Response(TAR, { headers: { "x-renox-sha256": sha(TAR), "x-renox-files": "3" } }));
+      await h.db.query("update tenants set moving_since = $1 where id = 't_bk'", [h.clock.now]);
+      const res = await h.request("POST", "/v1/apps/shop/files/export", { token, json: {} });
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("RENOX_TENANT_MOVING");
+      expect(await exportRows(h)).toEqual([]);
+    });
+
+    test("exportArtifact copies the artifact: kind artifact with the hash, the same bytes, the artifact object stays; audited", async () => {
+      const { h, token } = await setup();
+      const [active] = await h.db.query<{ hash: string }>("select hash from deployments where tenant_id = 't_bk' and app = 'shop' and state = 'active'");
+      const hash = active?.hash as string;
+      const original = h.store.objects.get(`artifacts/${hash}.tar`) as Uint8Array;
+      const res = await h.request("POST", `/v1/apps/shop/deployments/${hash}/export`, { token, json: {} });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { url: string; sha256: string; size_bytes: number; kind: string; hash: string };
+      expect(body).toMatchObject({ kind: "artifact", hash, sha256: sha(original), size_bytes: original.length });
+      const [row] = await exportRows(h);
+      expect(row).toMatchObject({ kind: "artifact", hash, object_key: `exports/t_bk/t_bk/${h.clock.now}.artifact.tar.gz` });
+      const url = new URL(body.url);
+      const got = await h.request("GET", `${url.pathname}${url.search}`);
+      expect(new Uint8Array(await got.arrayBuffer())).toEqual(new Uint8Array(original));
+      expect(h.store.objects.has(`artifacts/${hash}.tar`)).toBe(true);
+      expect(body.url).not.toContain("artifacts/");
+      const audit = (await auditRows(h)).filter((r) => r.action === "exportArtifact");
+      expect(audit[0]).toMatchObject({ status: 201, target: { app: "shop", hash, sha256: sha(original) } });
+    });
+
+    test("exportArtifact: a hash of another app, a pending deployment and an unknown hash are 404; a superseded one works", async () => {
+      const { h, token } = await setup();
+      await createApp_(h, token, "other");
+      const other = helloArtifact((m) => ((m.app as Record<string, string>).name = "other"));
+      await upload(h, token, "other", other);
+      const otherHash = contentHash(other);
+      expect((await h.request("POST", `/v1/apps/shop/deployments/${otherHash}/export`, { token, json: {} })).status).toBe(404);
+      // Uploaded, not activated: `validated`, not exportable.
+      const second = helloArtifact((m, f) => {
+        (m.app as Record<string, string>).name = "shop";
+        f.set("code/second.json", new TextEncoder().encode("2"));
+      });
+      await upload(h, token, "shop", second);
+      const pending = contentHash(second);
+      expect((await h.request("POST", `/v1/apps/shop/deployments/${pending}/export`, { token, json: {} })).status).toBe(404);
+      expect((await h.request("POST", `/v1/apps/shop/deployments/${"a".repeat(64)}/export`, { token, json: {} })).status).toBe(404);
+      expect(await exportRows(h)).toEqual([]);
+      // Activate the second one: the first is superseded and still exportable.
+      expect((await h.request("POST", "/v1/apps/shop/activate", { token, json: { hash: pending } })).status).toBe(200);
+      const [old] = await h.db.query<{ hash: string }>("select hash from deployments where tenant_id = 't_bk' and app = 'shop' and state = 'superseded'");
+      expect((await h.request("POST", `/v1/apps/shop/deployments/${old?.hash}/export`, { token, json: {} })).status).toBe(201);
+      expect((await h.request("POST", `/v1/apps/shop/deployments/${pending}/export`, { token, json: {} })).status).toBe(201);
+    });
+
+    test("a token with apps:read only is 403 on both", async () => {
+      const { h, token } = await setup();
+      void token;
+      const read = await scopedToken(h, "t_bk", ["apps:read"]);
+      const [active] = await h.db.query<{ hash: string }>("select hash from deployments where tenant_id = 't_bk' and app = 'shop' and state = 'active'");
+      expect((await h.request("POST", "/v1/apps/shop/files/export", { token: read, json: {} })).status).toBe(403);
+      expect((await h.request("POST", `/v1/apps/shop/deployments/${active?.hash}/export`, { token: read, json: {} })).status).toBe(403);
+      expect(await exportRows(h)).toEqual([]);
+    });
   });
 
   test("the getBackups answer passes the contract schema shape", async () => {

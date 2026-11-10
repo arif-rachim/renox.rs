@@ -1819,6 +1819,7 @@ paths:
                     size_bytes: 39845888
                     sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
                     masking: none
+                    kind: database
               x-renox-invalid-examples:
                 http-url:
                   x-expect: pattern
@@ -1829,6 +1830,112 @@ paths:
                     size_bytes: 39845888
                     sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
                     masking: none
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/BackupUnavailable" }
+
+  /v1/apps/{app}/files/export:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: exportFiles
+      tags: [backups]
+      summary: A signed URL to a gzip tar of the app's files (section 14)
+      description: >-
+        0.8. The control plane asks the owning node for `nodeFilesTenant` (node listener,
+        `GET /nodes/{node_id}/tenants/{tenant_id}/files?database=`), stores the stream under
+        the private prefix `exports/<tenant_id>/<database>/<created_at>.files.tar.gz`, and
+        answers a signed URL that expires after at most 15 minutes. Tar format: section 14.
+      x-renox-scope: apps:write
+      x-renox-audit: exportFiles (app, size_bytes, sha256, files; never the URL)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_TENANT_MOVING, RENOX_BACKUP_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportRequest" }
+            examples:
+              now: { value: {} }
+              short: { value: { expires_in_seconds: 300 } }
+            x-renox-invalid-examples:
+              too-long: { value: { expires_in_seconds: 86400 }, x-expect: maximum }
+      responses:
+        "201":
+          description: The archive is stored; the URL is the only way to read it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportFilesCreated" }
+              examples:
+                created:
+                  value:
+                    url: "https://backups.renoxium.com/exports/t_hello/t_hello/1793318500000.files.tar.gz?X-Amz-Expires=900&X-Amz-Signature=0a1b2c3d4e5f"
+                    expires_at: 1793319400000
+                    created_at: 1793318500000
+                    size_bytes: 1048576
+                    sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                    kind: files
+                    files: 42
+              x-renox-invalid-examples:
+                wrong-kind:
+                  x-expect: const
+                  value:
+                    url: "https://backups.renoxium.com/exports/t_hello/t_hello/1793318500000.files.tar.gz"
+                    expires_at: 1793319400000
+                    created_at: 1793318500000
+                    size_bytes: 1048576
+                    sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                    kind: database
+                    files: 42
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/BackupUnavailable" }
+
+  /v1/apps/{app}/deployments/{hash}/export:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/Hash"
+    post:
+      operationId: exportArtifact
+      tags: [backups]
+      summary: A signed URL to a copy of a deployment's artifact (section 14)
+      description: >-
+        0.8. `hash` must be a deployment of the app in state `active` or `superseded` (404
+        otherwise). The control plane copies the artifact object to the private prefix
+        `exports/<tenant_id>/<database>/<created_at>.artifact.tar.gz` and signs the copy; it
+        never signs the artifact object itself. No node is involved.
+      x-renox-scope: apps:write
+      x-renox-audit: exportArtifact (app, hash, size_bytes, sha256; never the URL)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_BACKUP_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportRequest" }
+            examples:
+              now: { value: {} }
+              short: { value: { expires_in_seconds: 300 } }
+            x-renox-invalid-examples:
+              too-short: { value: { expires_in_seconds: 10 }, x-expect: minimum }
+      responses:
+        "201":
+          description: The copy is stored; the URL is the only way to read it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportArtifactCreated" }
+              examples:
+                created:
+                  value:
+                    url: "https://backups.renoxium.com/exports/t_hello/t_hello/1793318500000.artifact.tar.gz?X-Amz-Expires=900&X-Amz-Signature=0a1b2c3d4e5f"
+                    expires_at: 1793319400000
+                    created_at: 1793318500000
+                    size_bytes: 482304
+                    sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                    kind: artifact
+                    hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
         "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -4524,14 +4631,41 @@ components:
     ExportCreated:
       type: object
       additionalProperties: false
-      required: [url, expires_at, created_at, size_bytes, sha256, masking]
+      required: [url, expires_at, created_at, size_bytes, sha256, masking, kind]
       properties:
+        kind: { const: database, description: "0.8: always present; optional for readers of 0.7, which treat a missing kind as database." }
         url: { type: string, maxLength: 2048, pattern: "^https://", description: "Signed, expiring; the object is not readable without the signature." }
         expires_at: { $ref: "#/components/schemas/UnixMs" }
         created_at: { $ref: "#/components/schemas/UnixMs" }
         size_bytes: { type: integer, minimum: 1 }
         sha256: { $ref: "#/components/schemas/Sha256" }
         masking: { const: none, description: "Column masking arrives in F7 (Open 12)." }
+
+    ExportFilesCreated:
+      type: object
+      additionalProperties: false
+      required: [url, expires_at, created_at, size_bytes, sha256, kind, files]
+      properties:
+        url: { type: string, maxLength: 2048, pattern: "^https://", description: "Signed, expiring; the object is not readable without the signature." }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        size_bytes: { type: integer, minimum: 1, description: "Of the compressed bytes; an empty store is still a valid tar.gz." }
+        sha256: { $ref: "#/components/schemas/Sha256" }
+        kind: { const: files }
+        files: { type: integer, minimum: 0, description: "Entries in the tar." }
+
+    ExportArtifactCreated:
+      type: object
+      additionalProperties: false
+      required: [url, expires_at, created_at, size_bytes, sha256, kind, hash]
+      properties:
+        url: { type: string, maxLength: 2048, pattern: "^https://", description: "Signed, expiring; the object is not readable without the signature." }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        size_bytes: { type: integer, minimum: 1 }
+        sha256: { $ref: "#/components/schemas/Sha256" }
+        kind: { const: artifact }
+        hash: { $ref: "#/components/schemas/Sha256" }
 
     RestoreRequest:
       type: object

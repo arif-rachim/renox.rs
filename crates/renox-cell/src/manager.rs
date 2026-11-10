@@ -1792,6 +1792,11 @@ impl CellManager {
         *self.inner.image_rate.lock().expect("rate lock") = (per_second, burst);
     }
 
+    /// The node's file store, as cells created now would use it (#670).
+    pub fn file_store(&self) -> Arc<dyn crate::storage::ObjectStore> {
+        self.inner.files.lock().expect("files lock").clone()
+    }
+
     /// The node's file store (#321): a bucket from the worker config, or a
     /// directory. Cells created afterwards use it.
     pub fn set_file_store(&self, store: Arc<dyn crate::storage::ObjectStore>) {
