@@ -21,6 +21,8 @@ This runs the policy cases of `policies/tests/*.json`, then `tests/*.test.ts` on
 
 Lighthouse accessibility and performance of the dispatch board and the technician visit page (`make lighthouse`, nightly): [`bench/README.md`](../../bench/README.md#lighthouse-home-services).
 
+Taking a pilot company from a first visit to its first week: the "Onboarding a pilot" section of the guide (https://renoxium.com/docs/reference-app).
+
 ## Owner steps to go live
 
 1. `renox login`, then `renox deploy` from this folder.

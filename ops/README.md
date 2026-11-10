@@ -16,6 +16,7 @@ Operational files that the build and CI trust. Owned by code owners (`.github/CO
 | `scripts/verify-units.sh` | `systemd-analyze verify` over `systemd/` (CI lint job) |
 | `security/keys.md` | The key inventory (master key, page session key, the R2 tokens, release signing; no TLS keys since ADR D25), custody, rotation procedures and the drill record (#309) |
 | `scripts/*.test.sh` | `fetch-litestream.test.sh` (CI lint job, no network) and `bootstrap-node.test.sh` (CI rust job: a systemd container with the worker just built) |
+| `runbooks/` | Runbooks for people, not hosts: `pilot-support.md` answers a pilot company's first-week support questions (logs, errors, WhatsApp, sign-in, restore, escalation) |
 | `single-host.md` | The runbook of the single host (#366, #420): worker, control plane, Postgres and the tunnel on one machine behind Cloudflare, tunnel-only (ADR D25), from an empty host to live, and the cut-over of an existing host ("Single host" below) |
 | `cloudflared.lock` | cloudflared version and SHA-256 per target (#366); lego is gone with the worker's TLS (#420) |
 | `cloudflared/config.yml.example` | The tunnel's ingress, the host's only way in: `api` and `mcp.renoxium.com` → `http://127.0.0.1:8787`; `*.renoxium.app`, `renoxium.app` and everything else (the Cloudflare for SaaS custom hostnames) → `unix:/run/renox-edge/worker.sock`; `Host` kept |
