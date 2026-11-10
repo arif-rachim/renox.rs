@@ -269,3 +269,38 @@ describe("create_job", () => {
     expect(rows("select count(*) as n from app__jobs")[0]?.n).toBe(jobs);
   });
 });
+
+// #683 (#658): the cell emits `mcp.tool_called` after every App MCP tools/call
+// and the `audit` module stores it as an `agent` row with the client's name.
+// Worker 0.7.0 was tagged before #658 merged, so it emits nothing: the
+// assertion runs on a worker newer than 0.7.0 and is skipped, with the reason
+// printed, on 0.7.0 and older. A worker built from main still reports 0.7.0
+// until the next worker release, so it is skipped there too.
+const WORKER_WITH_TOOL_AUDIT = [0, 7, 1];
+function workerVersion(): number[] | null {
+  const path = process.env.RENOX_WORKER_PATH;
+  if (!path) return null;
+  const out = Bun.spawnSync([path, "--version"]).stdout.toString();
+  const m = /(\d+)\.(\d+)\.(\d+)/u.exec(out);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+const atLeast = (v: number[], min: number[]) => v[0]! !== min[0]! ? v[0]! > min[0]! : v[1]! !== min[1]! ? v[1]! > min[1]! : v[2]! >= min[2]!;
+const worker = workerVersion();
+const toolAudit = worker !== null && atLeast(worker, WORKER_WITH_TOOL_AUDIT);
+if (!toolAudit) console.log(`skip: the audit page assertion for an agent's create_job (#683) needs a renox-worker >= ${WORKER_WITH_TOOL_AUDIT.join(".")} (mcp.tool_called, #658); this worker is ${worker?.join(".") ?? "unknown"}`);
+
+describe("the audit trail of an agent's tool call (#683)", () => {
+  test.skipIf(!toolAudit)("an agent's create_job is on the audit page, as actor kind agent with the client's name", async () => {
+    // dina's agent created a job above (create_job, confirmed). The audit module's row:
+    const row = rows("select actor_kind, actor_id, client, resource_id, result from audit__events where action = 'mcp.tool_called' and resource_id = 'create_job' and actor_id = 'u_dxb_dispatcher' and result = 'ok' order by rowid desc limit 1")[0];
+    expect(row).toEqual({ actor_kind: "agent", actor_id: "u_dxb_dispatcher", client: "renox test agent", resource_id: "create_job", result: "ok" });
+    // And the `admin` module's audit page (the owner holds admin.access and audit.read) lists it.
+    const owner = await signIn("owner-audit", "owner@fixit.example");
+    const page = await owner.page("/admin/audit?action=mcp.tool_called");
+    expect(page.status).toBe(200);
+    // The module's page shows the action and the actor id; it does not yet show the resource, the actor kind
+    // or the client (#709), which the row above holds. Once #709 is fixed, expect create_job, agent and the client here.
+    const line = page.html.split("<tr").find((tr) => tr.includes(">mcp.tool_called<") && tr.includes(">u_dxb_dispatcher<"));
+    expect(line, page.html).toBeDefined();
+  });
+});

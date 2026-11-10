@@ -2,6 +2,18 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.12 (unreleased)
+
+**Worker**
+
+- The gateway drops a `security.csp.*` source that holds `;` or `,` at load, with a platform warning, and never merges it into the `Content-Security-Policy` header: `;` ends a directive and `,` starts a second policy, so a source must not change the policy's structure (artifact 1.9.2, manifest 1.6.2, MF17) (#679).
+
+**CLI**
+
+- `renox check` refuses a `[security].csp.*` source with `;` or `,` with the MF17 message, the same grammar as a module's CSP source; the contract schema's `cspSource` pattern no longer allows them (#679).
+- `renox approve <module>` resolves the whole `[modules]` table, so a module with dependencies (billing with auth and i18n) no longer fails MF5; approving a changed permission set no longer needs `renox add <module> --yes` (#678).
+- `renox new --template home-services` uses the app's `hooks.ts`, `[[slots]]` and `[events]` (artifact 1.8): a customer's WhatsApp "cancel" or "reschedule" becomes the dispatcher's task when `whatsapp.message_received` arrives (the minute `jobs/inbox-sweep.ts` is gone); the app role of an invited person is applied on `org.member_added` (no longer when the owner opens the users page), which emits the app's own `app.member_ready`; the nightly report goes to the settings' accounts email through `reports.nightly_to` (the `reports` config `email_to` is empty); the `admin` module is mounted at `/admin` (was `/system/admin`) and the app fills its `admin.sidebar` and `admin.dashboard` slots, so the app's duplicate dashboard and audit pages are gone, and its users page is now `/admin/people` (#636). Its tests check that an agent's `create_job` reaches the audit trail as an `agent` row with the client's name, on a worker newer than 0.7.0 (skipped with the reason on 0.7.0, #683).
+
 ## 0.1.11 (2026-11-10)
 
 **Install**
@@ -38,7 +50,7 @@ On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/relea
 **Modules**
 
 - billing 1.0.1: an abandoned 3DS challenge no longer leaves the order stuck: `checkout.session.expired` and `payment_intent.canceled` (reason `abandoned`) expire the checkout, cancel its pending subscription and emit `billing.checkout_expired`; a job (`jobs/checkouts.ts`) expires card checkouts open for 24 h; the order gets a new session (#655).
-- billing 1.1.0 declares the CSP sources Stripe's checkout needs (`script_src` and `frame_src` for `js.stripe.com`, `frame_src` for `hooks.stripe.com`): an app no longer lists them in its own `[security]`; re-approve with `renox add billing` (#660).
+- billing 1.1.0 declares the CSP sources Stripe's checkout needs (`script_src` and `frame_src` for `js.stripe.com`, `frame_src` for `hooks.stripe.com`): an app no longer lists them in its own `[security]`; approve a changed set with `renox approve billing` (#660).
 
 **SDK**
 

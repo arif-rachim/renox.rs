@@ -27,6 +27,8 @@ export interface Manifest {
   name: string;
   version: string;
   isolation: "shared" | "isolate";
+  /** `[module] eager = true` (manifest 1.5, ADR D32): `services` and `hooks` are evaluated at isolate creation. Default false. */
+  eager: boolean;
   description: string | undefined;
   dependencies: Record<string, string>;
   /** Checked only when installed; only hooks may be filled from them (manifest.md 1.4). */
@@ -198,6 +200,7 @@ export function readManifest(tree: string, file: string): { manifest: Manifest |
       name: module.name as string,
       version: module.version as string,
       isolation: module.isolation === "isolate" ? "isolate" : "shared",
+      eager: module.eager === true,
       description: typeof module.description === "string" ? module.description : undefined,
       dependencies: Object.fromEntries(Object.entries(obj(doc.dependencies)).map(([k, v]) => [k, String(v)])),
       optionalDependencies: Object.fromEntries(Object.entries(obj(doc.optional_dependencies)).map(([k, v]) => [k, String(v)])),

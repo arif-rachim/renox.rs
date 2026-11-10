@@ -49,6 +49,11 @@ async function setup(): Promise<Setup> {
     h.clock.now,
     h.clock.now + 86_400_000,
   ]);
+  // 0.8 (#671): one export of each other kind.
+  await h.store.put(`exports/${T}/${T}/2.files.tar.gz`, new TextEncoder().encode("files"));
+  await h.store.put(`exports/${T}/${T}/3.artifact.tar.gz`, new TextEncoder().encode("artifact"));
+  await h.db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at, kind) values ('exp_01JBQ40000000000000000EXP2', $1, 'shop', $2, $3, 5, $4, $5, 'files')", [T, `exports/${T}/${T}/2.files.tar.gz`, "0".repeat(64), h.clock.now, h.clock.now + 86_400_000]);
+  await h.db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at, kind, hash) values ('exp_01JBQ40000000000000000EXP3', $1, 'shop', $2, $3, 8, $4, $5, 'artifact', $6)", [T, `exports/${T}/${T}/3.artifact.tar.gz`, "0".repeat(64), h.clock.now, h.clock.now + 86_400_000, contentHash(files)]);
   const calls: { method: string; path: string }[] = [];
   const nodeUp = { up: true };
   setNodeCall(h.deps, async (_target, method, path) => {
@@ -94,6 +99,9 @@ describe("deleteTenant (deploy-api.md 0.4 section 3)", () => {
     expect(await count(h, "deployments")).toBe(0);
     expect(await count(h, "exports")).toBe(0);
     expect([...h.store.objects.keys()].some((k) => k.startsWith(`exports/${T}/`))).toBe(false);
+    // 0.8 (#671): the files and the artifact export objects, by kind.
+    expect(h.store.objects.has(`exports/${T}/${T}/2.files.tar.gz`)).toBe(false);
+    expect(h.store.objects.has(`exports/${T}/${T}/3.artifact.tar.gz`)).toBe(false);
     expect(calls.some((c) => c.method === "DELETE" && c.path === `/nodes/node-1/tenants/${T}?purge_replica=true`)).toBe(true);
     // Every token is revoked.
     expect((await h.request("GET", "/v1/apps", { token })).status).toBe(401);

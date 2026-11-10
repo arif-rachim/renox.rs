@@ -339,10 +339,11 @@ impl ArtifactStore for LocalArtifactStore {
     }
 }
 
-/// V23 at prepare (`artifact.md` 1.2, "Entries"; ops.md 1.4.0 section 11,
-/// step 5): when the manifest records `entries`, they name exactly the
-/// `code.entry` modules, a module's `services` and `hooks` entries stay
-/// eager, and each recorded export list equals the module's static exports
+/// V23 at prepare (`artifact.md` 1.2 and 1.9, "Entries"; ops.md 1.14.0
+/// section 11, step 5): when the manifest records `entries`, they name
+/// exactly the `code.entry` modules, a lazy `hooks` entry records its
+/// `hooks` and `on` names, a module's recorded fillers are approved, and
+/// each recorded export list equals the module's static exports
 /// read from its code. A deployment whose lazy module lacks a route's export
 /// is refused here, before any isolate.
 fn check_entries(dir: &Path, m: &renox_runtime::manifest::Manifest) -> Result<(), ArtifactError> {
@@ -364,10 +365,46 @@ fn check_entries(dir: &Path, m: &renox_runtime::manifest::Manifest) -> Result<()
                 format!("entries {id:?} is not a key of code.entry"),
             ));
         }
-        let always =
-            id.starts_with("modules/") && (id.ends_with("/services") || id.ends_with("/hooks"));
-        if always && e.eager == Some(false) {
-            return Err(invalid("V23", format!("entries {id:?} must be eager")));
+        // Artifact 1.9 (ADR D32): a module's `services` entry may be lazy,
+        // and a `hooks` entry (a module's or the app's) only when it records
+        // the `hooks` it fills and the events it handles (`on`).
+        let hooks_entry = renox_runtime::manifest::is_hooks_entry(id);
+        if hooks_entry && e.eager == Some(false) && (e.hooks.is_none() || e.on.is_none()) {
+            return Err(invalid(
+                "V23",
+                format!("entries {id:?} is lazy, so it must record hooks and on"),
+            ));
+        }
+        if !hooks_entry && (e.hooks.is_some() || e.on.is_some()) {
+            return Err(invalid(
+                "V23",
+                format!("entries {id:?}: hooks and on are for hooks entries only"),
+            ));
+        }
+        for (list, export) in [(&e.hooks, "hooks"), (&e.on, "on")] {
+            if list.as_ref().is_some_and(|l| !l.is_empty())
+                && !e.exports.iter().any(|x| x == export)
+            {
+                return Err(invalid(
+                    "V23",
+                    format!("entries {id:?} records {export} names but does not export {export}"),
+                ));
+            }
+        }
+        if let (Some(hooks), Some(module)) = (
+            &e.hooks,
+            id.strip_prefix("modules/")
+                .and_then(|r| r.strip_suffix("/hooks")),
+        ) {
+            let approved = approved_hooks(m, module);
+            if let Some(h) = hooks.iter().find(|h| !approved.contains(&h.as_str())) {
+                return Err(invalid(
+                    "V23",
+                    format!(
+                        "entries {id:?} fills {h:?}, which module {module} is not approved for"
+                    ),
+                ));
+            }
         }
     }
     if m.code.format != renox_runtime::manifest::CodeFormat::EsmDir {
@@ -394,6 +431,23 @@ fn check_entries(dir: &Path, m: &renox_runtime::manifest::Manifest) -> Result<()
         }
     }
     Ok(())
+}
+
+/// The hooks module `name` is approved to fill (`approved.hooks`, artifact
+/// 1.1 section 3, "Modules"; V22 keeps `permissions` within it).
+fn approved_hooks<'a>(m: &'a renox_runtime::manifest::Manifest, name: &str) -> Vec<&'a str> {
+    m.modules
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|x| x.get("name").and_then(|n| n.as_str()) == Some(name))
+        })
+        .and_then(|x| x.get("approved").or_else(|| x.get("permissions")))
+        .and_then(|p| p.get("hooks"))
+        .and_then(|h| h.as_array())
+        .map(|h| h.iter().filter_map(|x| x.as_str()).collect())
+        .unwrap_or_default()
 }
 
 /// The export names of an ES module, from its syntax alone (nothing runs):
@@ -582,6 +636,128 @@ mod tests {
                     assert!(reason.contains("functions/pay.js"), "{reason}");
                 }
                 other => panic!("expected V23, got {other:?}"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&store_dir);
+    }
+
+    /// #640 (artifact.md 1.9 V23, ADR D32): a module's `services` entry may
+    /// be lazy; a lazy `hooks` entry must record `hooks` and `on`; recorded
+    /// names belong to `hooks` entries, need the matching export, and a
+    /// module's recorded fillers must be approved.
+    #[test]
+    fn lazy_module_entries_follow_v23_at_prepare() {
+        let store_dir =
+            std::env::temp_dir().join(format!("renox-cell-lazy-modules-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&store_dir);
+        let write = |services: serde_json::Value, hooks: serde_json::Value| -> String {
+            let tmp = store_dir.join("tmp");
+            let _ = std::fs::remove_dir_all(&tmp);
+            std::fs::create_dir_all(tmp.join("code/functions")).unwrap();
+            std::fs::create_dir_all(tmp.join("code/modules/mail")).unwrap();
+            std::fs::write(
+                tmp.join("code/functions/f.js"),
+                "export function GET() { return new Response('ok'); }\n",
+            )
+            .unwrap();
+            std::fs::write(
+                tmp.join("code/modules/mail/services.js"),
+                "export function send() {}\n",
+            )
+            .unwrap();
+            std::fs::write(
+                tmp.join("code/modules/mail/hooks.js"),
+                "export const hooks = { 'auth.send_mail': { handle() {} } };\nexport const on = { 'auth.user_registered'() {} };\n",
+            )
+            .unwrap();
+            let perms = serde_json::json!({ "tables": "mail__*", "network": [], "secrets": [], "slots": [], "hooks": ["auth.send_mail"] });
+            let manifest = serde_json::json!({
+                "artifact": { "version": 1 },
+                "app": { "name": "lazy", "timezone": "Asia/Dubai" },
+                "code": { "format": "esm-dir", "entry": {
+                    "functions/f": "functions/f.js",
+                    "modules/mail/services": "modules/mail/services.js",
+                    "modules/mail/hooks": "modules/mail/hooks.js",
+                } },
+                "entries": {
+                    "functions/f": { "exports": ["GET"], "eager": false },
+                    "modules/mail/services": services,
+                    "modules/mail/hooks": hooks,
+                },
+                "routes": [{ "kind": "function", "method": "GET", "path": "/", "module": "functions/f", "export": "GET" }],
+                "permissions": { "network": [], "secrets": [] },
+                "modules": [{
+                    "name": "mail", "version": "1.0.0", "hash": "0".repeat(64), "source": "path:modules/mail",
+                    "mount": "/mail", "isolation": "shared", "dependencies": [], "config": {},
+                    "permissions": perms, "approved": perms, "exports": { "services": ["send"] },
+                }],
+            });
+            std::fs::write(
+                tmp.join("manifest.json"),
+                serde_json::to_vec_pretty(&manifest).unwrap(),
+            )
+            .unwrap();
+            let hash = content_hash(&tmp).unwrap();
+            let _ = std::fs::remove_dir_all(store_dir.join(&hash));
+            std::fs::rename(&tmp, store_dir.join(&hash)).unwrap();
+            hash
+        };
+        let services = serde_json::json!({ "exports": ["send"], "eager": false });
+        let lazy_hooks = |hooks: &[&str], on: &[&str]| serde_json::json!({ "exports": ["hooks", "on"], "eager": false, "hooks": hooks, "on": on });
+        let store = LocalArtifactStore::new(&store_dir);
+        let ok = write(
+            services.clone(),
+            lazy_hooks(&["auth.send_mail"], &["auth.user_registered"]),
+        );
+        store
+            .get(&ok)
+            .expect("lazy services and a lazy hooks entry with names");
+        // 1.8 shape: eager entries, no names.
+        let old = write(
+            serde_json::json!({ "exports": ["send"] }),
+            serde_json::json!({ "exports": ["hooks", "on"] }),
+        );
+        store.get(&old).expect("the 1.8 shape stays valid");
+        let refused = [
+            (
+                write(
+                    services.clone(),
+                    serde_json::json!({ "exports": ["hooks", "on"], "eager": false }),
+                ),
+                "must record hooks and on",
+            ),
+            (
+                write(
+                    serde_json::json!({ "exports": ["send"], "eager": false, "on": [] }),
+                    lazy_hooks(&["auth.send_mail"], &["auth.user_registered"]),
+                ),
+                "hooks entries only",
+            ),
+            (
+                write(
+                    services.clone(),
+                    lazy_hooks(
+                        &["auth.send_mail", "org.send_mail"],
+                        &["auth.user_registered"],
+                    ),
+                ),
+                "not approved",
+            ),
+            (
+                write(
+                    services.clone(),
+                    serde_json::json!({ "exports": ["hooks"], "eager": false, "hooks": ["auth.send_mail"], "on": ["auth.user_registered"] }),
+                ),
+                "does not export on",
+            ),
+        ];
+        for (hash, why) in refused {
+            match store.get(&hash) {
+                Err(ArtifactError::Invalid { rule, reason }) => {
+                    assert_eq!(rule, "V23", "{reason}");
+                    assert!(reason.contains(why), "{why}: {reason}");
+                }
+                other => panic!("expected V23 ({why}), got {other:?}"),
             }
         }
         let _ = std::fs::remove_dir_all(&store_dir);

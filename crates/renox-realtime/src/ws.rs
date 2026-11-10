@@ -179,7 +179,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
 /// instead of a channel (B14: a channel's first block is 32 slots), with
 /// the writer's waker instead of a `Notify` (#522).
 #[derive(Default)]
-struct Ctrl {
+pub(crate) struct Ctrl {
     state: std::sync::Mutex<CtrlState>,
 }
 
@@ -244,9 +244,11 @@ async fn reader<R: AsyncRead + Unpin, I: InboundSink>(
     max: usize,
     per_second: u32,
     inbound: I,
-    ctrl: std::sync::Arc<Ctrl>,
+    // The connection's shared state (hub.rs, `CloseSignal`): its `ctrl`.
+    shared: std::sync::Arc<crate::hub::CloseSignal>,
     hub: std::sync::Arc<crate::Hub>,
 ) {
+    let ctrl = &shared.ctrl;
     let mut partial: Option<(u8, Vec<u8>)> = None;
     let mut window = Instant::now();
     let mut in_window = 0u32;
@@ -337,7 +339,10 @@ where
         )
     };
     let (r, mut w) = tokio::io::split(stream);
-    let ctrl = std::sync::Arc::new(Ctrl::default());
+    // #680: the control state lives in the connection's shared state, not
+    // in an allocation of its own.
+    let shared = conn.signal().clone();
+    let ctrl = &shared.ctrl;
     // The reader is polled inside this loop, not spawned: one task per
     // connection (B14), and it is never dropped mid-frame while it runs.
     let reader_fut = reader(
@@ -345,7 +350,7 @@ where
         max_inbound,
         per_second,
         inbound,
-        ctrl.clone(),
+        shared.clone(),
         conn.hub().clone(),
     );
     tokio::pin!(reader_fut);
@@ -354,8 +359,6 @@ where
     let mut pong_due: Option<Instant> = None;
     let closed_fut = conn.closed();
     tokio::pin!(closed_fut);
-    let timer = tokio::time::sleep_until(next_ping);
-    tokio::pin!(timer);
     let eof = || Closed {
         code: close::GOING_AWAY,
         reason: "eof".into(),
@@ -363,10 +366,10 @@ where
     // Each turn picks one step; its frames are written after the select,
     // at one await point, so the future holds one write state (B14).
     let closed = loop {
-        let deadline = pong_due.map_or(next_ping, |d| d.min(next_ping));
-        if timer.deadline() != deadline {
-            timer.as_mut().reset(deadline);
-        }
+        // #680: the hub's one ticker watches this deadline (no timer per
+        // connection); it fires within `HEARTBEAT_TICK` of it.
+        conn.set_beat(pong_due.map_or(next_ping, |d| d.min(next_ping)));
+        let beat = conn.beat();
         // `out`: the bytes to write; `end`: the close to return after the
         // write; `on_error`: what a failed write returns (`None`: `end`).
         let (out, end, eof_on_error): (Vec<u8>, Option<Closed>, bool) = tokio::select! {
@@ -405,7 +408,7 @@ where
                 Some(Outbound::Message(e)) => (encode(OP_TEXT, e.data.as_bytes()), None, true),
                 None => break Closed { code: close::GOING_AWAY, reason: "hub".into() },
             },
-            _ = &mut timer => {
+            () = beat => {
                 let now = Instant::now();
                 if pong_due.is_some_and(|d| d <= now) {
                     (

@@ -13,9 +13,9 @@
     "@renox/artifact-validate": "workspace:*",
     "@renox/billing": "workspace:*",
     "ajv": "8.20.0",
-    "hono": "4.13.14"
+    "hono": "4.13.16"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.13"
+    "@electric-sql/pglite": "0.5.15"
   }
 }

@@ -11,6 +11,7 @@
 //! | `GET /nodes/{node}/tenants/{tenant}/replication` | #255 |
 //! | `DELETE /nodes/{node}/tenants/{tenant}` | #257 |
 //! | `POST /nodes/{node}/tenants/{tenant}/snapshot`, `PUT …/import` | #258 |
+//! | `GET /nodes/{node}/tenants/{tenant}/files?database=` | #670 |
 //! | `POST /nodes/{node}/tenants/{tenant}/move` | #259 |
 
 use std::net::SocketAddr;
@@ -395,6 +396,15 @@ impl NodeListener {
                 }
                 self.snapshot(&database).await
             }
+            (Method::GET, "files") => {
+                let Some(database) = query_param(&query, "database") else {
+                    return validation("database", "required");
+                };
+                if !database_of(&tenant, &database) {
+                    return validation("database", "not a database of this tenant");
+                }
+                self.files_export(&tenant, &database).await
+            }
             (Method::PUT, "import") => {
                 let Some(database) = query_param(&query, "database") else {
                     return validation("database", "required");
@@ -645,6 +655,119 @@ impl NodeListener {
             .header(header::CONTENT_LENGTH, len)
             .header(header::CACHE_CONTROL, "no-store")
             .header("x-renox-sha256", sha)
+            .body(
+                FileBody {
+                    file: f,
+                    path: tmp,
+                    buf: Vec::new(),
+                }
+                .boxed(),
+            )
+            .expect("static response")
+    }
+
+    /// #670: every stored file of `database` as a gzip ustar (a temporary
+    /// file next to the tenant file, SHA-256 in `x-renox-sha256`), deleted
+    /// after the response. No isolate is touched.
+    async fn files_export(&self, tenant: &str, database: &str) -> Resp {
+        use super::files_export::{
+            FilesExportError, MAX_EXPORT_BYTES, collect_file_keys, write_files_tar,
+        };
+        if self.manager.is_moving(tenant) {
+            let mut r = error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "RENOX_TENANT_MOVING",
+                "The service is being moved. Try again shortly.",
+                None,
+            );
+            r.headers_mut()
+                .insert(header::RETRY_AFTER, http::HeaderValue::from_static("30"));
+            return r;
+        }
+        let dir = self.manager.config().data_dir.join(database);
+        let file = dir.join("app.db");
+        if !file.exists() {
+            return not_found();
+        }
+        // A per-process sequence: two exports of the same database at once
+        // never share a temporary file.
+        static FILES_EXPORT_SEQ: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
+        let tmp = dir.join(format!(
+            ".files-{}-{}.tar.gz",
+            std::process::id(),
+            FILES_EXPORT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let store = self.manager.file_store();
+        let (t, tmp2) = (tenant.to_string(), tmp.clone());
+        let made = tokio::task::spawn_blocking(move || {
+            let keys = collect_file_keys(&file).map_err(FilesExportError::Failed)?;
+            write_files_tar(store.as_ref(), &t, &keys, &tmp2)
+        })
+        .await;
+        let report = match made {
+            Ok(Ok(r)) => r,
+            Ok(Err(FilesExportError::TooLarge)) => {
+                let _ = std::fs::remove_file(&tmp);
+                tracing::warn!(
+                    source = "platform",
+                    kind = "files_export_too_large",
+                    tenant_id = tenant,
+                    database,
+                    limit = MAX_EXPORT_BYTES,
+                    "files export over the size limit"
+                );
+                let mut r = error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "RENOX_UNAVAILABLE",
+                    "The files are too large to export in one piece. Try again later.",
+                    None,
+                );
+                r.headers_mut()
+                    .insert(header::RETRY_AFTER, http::HeaderValue::from_static("60"));
+                return r;
+            }
+            other => {
+                let _ = std::fs::remove_file(&tmp);
+                let why = match other {
+                    Ok(Err(FilesExportError::Failed(w))) => w,
+                    Err(e) => e.to_string(),
+                    _ => String::new(),
+                };
+                tracing::error!(database, error = %why, "files export failed");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "RENOX_INTERNAL",
+                    "Internal error. Quote the request id when reporting it.",
+                    None,
+                );
+            }
+        };
+        let f = match tokio::fs::File::open(&tmp).await {
+            Ok(f) => f,
+            Err(_) => {
+                let _ = std::fs::remove_file(&tmp);
+                return not_found();
+            }
+        };
+        tracing::info!(
+            source = "platform",
+            kind = "files_export",
+            tenant_id = tenant,
+            database,
+            files = report.files,
+            missing = report.missing,
+            bytes = report.bytes,
+            "files export"
+        );
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/x-tar+gzip")
+            .header(header::CONTENT_LENGTH, report.bytes)
+            .header(header::CACHE_CONTROL, "no-store")
+            .header("x-renox-sha256", report.sha256)
+            .header("x-renox-files", report.files)
+            .header("x-renox-files-missing", report.missing)
             .body(
                 FileBody {
                     file: f,

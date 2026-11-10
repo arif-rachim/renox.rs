@@ -71,7 +71,7 @@ The Windows `renox-worker.exe` runs isolates only: it has no supervisor, sandbox
 | Exhaust memory | Same | Heap limit | cgroup; isolate recycled | Unbounded allocation → OOM in isolate only |
 | SSRF to metadata / internal services | Malicious tenant | `fetch` blocks private ranges and resolves DNS before checking | Egress through a proxy with the same rules | `fetch("http://169.254.169.254")` → rejected |
 | Template DoS | Malicious tenant | Fuel, iteration and output limits | Render timeout charged to quota | Nested 10k×10k loop → stops at fuel |
-| Escape from V8 | Sophisticated attacker | Process sandbox (seccomp, namespaces) | Tier separation; fast V8 updates via Deno releases | Periodic review; bug bounty after launch |
+| Escape from V8 | Sophisticated attacker | Process sandbox (seccomp, namespaces) | Tier separation; fast V8 updates via Deno releases | Periodic review; bug bounty after launch (draft scope: `ops/security/bounty-scope.md`) |
 | Malicious marketplace module | Module publisher | Signature verification; permission review at install; `isolate` mode | Global disable by hash; tenant notification | Install unsigned module → rejected |
 | Secret exfiltration | Malicious tenant code | Secrets only injected when declared; never serialized to logs | Allowlisted egress hosts | Secret in `console.log` → redacted |
 | Supply chain | Compromised npm package | Dependencies frozen into the artifact at deploy; hash-addressed | Future: SBOM and advisory scanning at deploy | Artifact hash mismatch → refused |

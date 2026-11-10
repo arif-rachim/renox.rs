@@ -97,7 +97,7 @@ jobs:
           echo "worker=$worker" >> "$GITHUB_OUTPUT"
           echo "renox ${version:-0.0.0-dev}, pinned renox-worker $worker" | tee -a "$GITHUB_STEP_SUMMARY"
       - run: bun install --frozen-lockfile
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: v3.0.6
       # #129: the worker sha256 the CLI checks before running a worker must be
@@ -427,7 +427,7 @@ jobs:
           cd dist
           { cat renox-*.sha256; sha256sum install.sh install.ps1; } > SHA256SUMS
           sha256sum -c SHA256SUMS
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: v3.0.6
       - name: Sign

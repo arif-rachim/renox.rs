@@ -1,5 +1,6 @@
 // The back office (F7-128): the company's settings, its branches, and its
-// people. The owner runs all of it from /admin (pages/admin).
+// people. The owner runs all of it from the `admin` module's back office at
+// /admin, whose sidebar links the app's pages (pages/admin).
 //
 // A person's app role is per branch: an `org`-scoped assignment in
 // renox__role_assignments, which applies while the branch is the session's
@@ -11,7 +12,7 @@ import { audit, org, twofa } from "renox:modules";
 
 import { schema, text } from "./forms";
 import { DEFAULT_HOURS } from "./booking-sync";
-import type { Branch } from "./scope";
+import { type Branch, branchDb, type Scopable } from "./scope";
 
 export const STAFF_ROLES = ["owner", "branch_manager", "dispatcher", "technician", "accountant"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
@@ -233,7 +234,7 @@ const MAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u;
  * Invites `email` to the branch through `org` (as a member) and remembers the
  * app role. When the person already has an account the role is assigned at
  * once (a branch-scoped role has no effect before they join); otherwise it is
- * applied by `claimInvites` once they have joined.
+ * applied by `applyPendingRole` when they join (hooks.ts, `org.member_added`).
  */
 export async function inviteStaff(ctx: AdminCtx, sdb: DbStatements, branch: Branch, email: string, role: StaffRole): Promise<InviteResult> {
   if (!MAIL.test(email)) return { ok: false, error: "backoffice.err.email" };
@@ -254,22 +255,32 @@ export async function pendingInvites(sdb: DbStatements, branchId: string): Promi
 }
 
 /**
- * The roles chosen for people who have joined since: a member whose email has
- * a pending invitation gets its role. `org` emits an event when a member is
- * added, but an app cannot subscribe to events, so this runs when the owner opens the users
- * page (docs/contracts/ops.md section 15).
+ * The role chosen for a person who has just joined the branch of `orgId`: the
+ * newest pending invitation of their email in that branch gives it, and every
+ * pending one of that email there is then done. Null when there is none (an
+ * organisation that is no branch, a member nobody invited, an invitation
+ * applied already: a second delivery of the event changes nothing).
+ * Runs from the `org.member_added` handler (hooks.ts), as `System::"app"`.
  */
-export async function claimInvites(ctx: AdminCtx, sdb: DbStatements, branch: Branch, staff: readonly StaffRow[]): Promise<number> {
-  const pending = await sdb.query<{ id: number; email: string; role: string }>("select id, email, role from app__staff_invites where branch_id = ? and applied_at is null order by id", [branch.id]);
-  let claimed = 0;
-  for (const p of pending) {
-    const member = staff.find((s) => s.email.toLowerCase() === p.email.toLowerCase());
-    if (member === undefined || !isStaffRole(p.role)) continue;
-    await setStaffRole(ctx, branch, member.user_id, p.role);
-    await sdb.execute("update app__staff_invites set applied_at = ? where id = ?", [now(), p.id]);
-    claimed += 1;
-  }
-  return claimed;
+export async function applyPendingRole(ctx: AdminCtx & { readonly db: Scopable }, orgId: string, userId: string): Promise<{ branch: Branch; role: StaffRole; invited_by: string } | null> {
+  const branch = await ctx.db.queryOne<Branch>("select id, org_id, name_en, name_ar, slug, emirate, area from app__branches where org_id = ?", [orgId]);
+  if (branch === null) return null;
+  const user = await ctx.db.queryOne<{ email: string }>("select email from auth__public_users_v1 where id = ?", [userId]);
+  if (user === null) return null;
+  const sdb = branchDb(ctx.db, branch.id);
+  const pending = await sdb.queryOne<{ role: string; invited_by: string }>("select role, invited_by from app__staff_invites where branch_id = ? and lower(email) = lower(?) and applied_at is null order by id desc limit 1", [branch.id, user.email]);
+  if (pending === null || !isStaffRole(pending.role)) return null;
+  await setStaffRole(ctx, branch, userId, pending.role);
+  await sdb.execute("update app__staff_invites set applied_at = ? where branch_id = ? and lower(email) = lower(?) and applied_at is null", [now(), branch.id, user.email]);
+  return { branch, role: pending.role, invited_by: pending.invited_by };
+}
+
+/** Who invited `userId` to `branchId`, and as what: the newest applied invitation of their email there. */
+export async function inviteOf(db: Scopable, branchId: string, userId: string): Promise<{ email: string; display_name: string; role: string; invited_by: string } | null> {
+  const user = await db.queryOne<{ email: string; display_name: string }>("select email, display_name from auth__public_users_v1 where id = ?", [userId]);
+  if (user === null) return null;
+  const invite = await branchDb(db, branchId).queryOne<{ role: string; invited_by: string }>("select role, invited_by from app__staff_invites where branch_id = ? and lower(email) = lower(?) and applied_at is not null order by id desc limit 1", [branchId, user.email]);
+  return invite === null ? null : { ...user, ...invite };
 }
 
 /** Takes the person out of the branch: no role, no membership (the last owner of the organisation stays: `org` refuses). */
@@ -279,26 +290,6 @@ export async function removeStaff(ctx: AdminCtx, branch: Branch, userId: string)
   await setStaffRole(ctx, branch, userId, null);
   await audit.record({ action: "staff.remove", actor: { kind: "user", id: ctx.principal?.id ?? "unknown" }, resource: { type: "Branch", id: branch.id }, details: { user: userId } });
   return { ok: true };
-}
-
-// ---------------------------------------------------------------- the dashboard
-
-export interface Tiles {
-  jobs_today: number;
-  open_invoices: number;
-  amc_renewals: number;
-}
-
-/** The three numbers of the dashboard for a branch: today's jobs, invoices not yet paid, active contracts that end this month (Dubai days). */
-export async function tiles(db: DbStatements, branchId: string, today: string): Promise<Tiles> {
-  const startOfDay = Math.floor(Date.parse(`${today}T00:00:00Z`) / 1000) - 4 * 3600;
-  const month = today.slice(0, 7);
-  const one = async (sql: string, params: (string | number)[]): Promise<number> => (await db.queryOne<{ n: number }>(sql, params))?.n ?? 0;
-  return {
-    jobs_today: await one("select count(*) as n from app__jobs where branch_id = ? and status != 'cancelled' and scheduled_start >= ? and scheduled_start < ?", [branchId, startOfDay, startOfDay + 86_400]),
-    open_invoices: await one("select count(*) as n from app__invoice_status where branch_id = ? and status in ('issued', 'part-paid')", [branchId]),
-    amc_renewals: await one("select count(*) as n from app__contracts where branch_id = ? and status = 'active' and substr(ends_on, 1, 7) = ?", [branchId, month]),
-  };
 }
 
 // ---------------------------------------------------------------- guards
@@ -320,6 +311,3 @@ export async function sensitive(ctx: { readonly authz: Pick<Authz, "require"> },
   await twofa.requireRecent({ next });
   return null;
 }
-
-/** The actions the app audits, for the filter. */
-export const AUDITED = ["invoice.issue", "invoice.pay", "invoice.credit", "settings.write", "settings.update", "user.manage", "staff.invite", "staff.remove", "branch.create", "branch.update", "job.transition", "quote.link_answer", "contract.activate", "report.export"] as const;

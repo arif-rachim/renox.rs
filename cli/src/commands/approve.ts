@@ -61,7 +61,9 @@ export async function approve(project: string, name: string, confirm: (lines: st
   const { specs } = readModulesTable(project);
   const spec = specs[name];
   if (spec === undefined) throw new UserError(`${name} is not in renox.toml [modules]`);
-  const { modules, problems } = resolveModules(project, { [name]: spec });
+  // Resolve the whole table, as projectProblems does, so the dependencies of the module (MF5) are seen.
+  const pinned = Object.fromEntries(entries.filter((e) => e.source.startsWith("git:")).map((e) => [e.name, e.source]));
+  const { modules, problems } = resolveModules(project, specs, pinned);
   const m = modules.find((x) => x.name === name);
   const blocking = problems.filter((p) => p.rule !== "MF12");
   if (m === undefined || blocking.length > 0) throw new ValidationError(blocking.map((p) => `${p.rule}: ${p.message}`).join("\n") || `${name} cannot be resolved`, { file: "renox.toml" });

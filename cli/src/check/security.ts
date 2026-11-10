@@ -78,6 +78,14 @@ const UNSAFE = ["'unsafe-inline'", "'unsafe-eval'"];
 
 /** `[security]` problems (schema of manifest.security, then V16). */
 export function securityProblems(security: SecurityConfig, routes: Route[]): string[] {
+  // MF17 (manifest.md 1.6.2): one source grammar for app and modules; `;` ends a directive and `,` starts a
+  // second policy in the header, so a source never holds them. Checked first so the message names the rule.
+  const structural: string[] = [];
+  for (const key of CSP_KEYS)
+    for (const src of security.csp?.[key] ?? [])
+      if (typeof src === "string" && /[;,]/u.test(src))
+        structural.push(`MF17: security.csp.${key} "${src}" is not an https:// origin (optional *. wildcard and path), data: or blob:`);
+  if (structural.length) return structural;
   const root = schemas.manifest as { $defs: Record<string, Json> };
   const errs = validate({ $ref: "#/$defs/security" }, security as Json, { $defs: root.$defs } as Json, "security");
   if (errs.length) return errs;

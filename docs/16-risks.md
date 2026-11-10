@@ -4,7 +4,7 @@ The biggest risks are not in Rust. They are sandbox security (because that is th
 
 | Risk | Impact | Likelihood | Mitigation | Owner / phase |
 | --- | --- | --- | --- | --- |
-| Escape from an isolate (V8 bug, side channel) | Cross-tenant data leak; end of the business | Low but catastrophic | Layered isolation (D6), fast V8 updates via Deno releases, process tiers, bug bounty after launch | F6 |
+| Escape from an isolate (V8 bug, side channel) | Cross-tenant data leak; end of the business | Low but catastrophic | Layered isolation (D6), fast V8 updates via Deno releases, process tiers, bug bounty after launch (draft scope: `ops/security/bounty-scope.md`) | F6 |
 | SSRF into internal infrastructure | Access to the control plane or cloud metadata | Medium | Block private and metadata ranges in the `fetch` op after DNS resolution; allowlist per tenant; egress proxy with the same rules | F1 |
 | Tenant template as DoS on Rust threads | One tenant consumes a cell's CPU | Medium | Fuel, iteration and output limits, render timeout charged to the quota (B13) | F2 |
 | npm libraries that do not run on Deno | Tenants leave | Medium | Public compatibility list, test popular packages from F0 (B17), platform APIs for images/PDF/email | F0 |

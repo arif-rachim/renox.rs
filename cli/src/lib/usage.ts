@@ -85,6 +85,12 @@ export const HELP: Record<string, CommandHelp> = {
     summary: "Download the production database (sha256 checked), import into a staging app, restore a point in time into a new app; seed loads seeds/*.sql into the dev database.",
     flags: ["--out", "--app", "--at", "--as", "--db"],
   },
+  export: {
+    group: "Deploy and operate",
+    usage: ["export [--out <dir>] [--app <name>] [--json]"],
+    summary: "Download a runnable copy of the deployed app: database, files and artifact (every sha256 checked), with a worker.toml for `renox-worker --config worker.toml`. Secret values are not exported.",
+    flags: ["--out", "--app", "--json"],
+  },
   add: {
     group: "Modules",
     usage: ["add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]"],

@@ -18,12 +18,12 @@
 //   error names the file and the line.
 
 import { Database } from "bun:sqlite";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { EnvironmentError, EXIT, UserError } from "../errors.ts";
+import { EXIT, UserError } from "../errors.ts";
 import { artifactsDir, buildArtifact } from "../lib/build.ts";
+import { downloadVerified } from "../lib/download.ts";
 import { readProject } from "../lib/project.ts";
 import { devDb, migrateArtifact, type MigrateReport } from "./migrate.ts";
 import { apiAuth, apiRequest, cliErrorOf, defaultIo, errorBody, type Io } from "./login.ts";
@@ -46,7 +46,6 @@ async function ok<T>(res: Response, status: number): Promise<T> {
   return (await res.json()) as T;
 }
 
-const sha256 = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 const stamp = (ms: number): string => new Date(ms).toISOString().replace(/[-:]/gu, "").replace(/\.\d+Z$/u, "Z");
 
 /** `--at`: milliseconds since the epoch, or an ISO 8601 time with a zone. */
@@ -233,25 +232,8 @@ export async function run(args: string[], io: Io = defaultIo(), project: string 
     const out = flags.out ?? `${app}-${stamp(e.created_at)}.db`;
     const path = isAbsolute(out) ? out : join(project, out);
     // The signed URL carries its own authorization; the API token is not sent.
-    let res: Response;
-    try {
-      res = await io.fetch(e.url, { method: "GET" });
-    } catch (err) {
-      throw new EnvironmentError(`cannot download the export: ${(err as Error).message}`);
-    }
-    if (res.status !== 200) throw new EnvironmentError(`the export download answered ${res.status}`, { hint: "the URL expires after at most 15 minutes; run `renox db export` again" });
-    const body = new Uint8Array(await res.arrayBuffer());
-    const got = sha256(body);
-    if (got !== e.sha256) throw new EnvironmentError(`the downloaded file's SHA-256 ${got} does not match the export's ${e.sha256}; nothing was written`, { hint: "run `renox db export` again" });
-    const tmp = `${path}.partial`;
-    writeFileSync(tmp, body, { mode: 0o600 });
-    try {
-      renameSync(tmp, path);
-    } catch (err) {
-      rmSync(tmp, { force: true });
-      throw new EnvironmentError(`cannot write ${out}: ${(err as Error).message}`);
-    }
-    io.out(`Exported ${app} to ${out} (${body.length} bytes, sha256 ${got}).`);
+    await downloadVerified(io, e.url, e.sha256, path);
+    io.out(`Exported ${app} to ${out} (${statSync(path).size} bytes, sha256 ${e.sha256}).`);
     return EXIT.OK;
   }
   if (sub === "import") {

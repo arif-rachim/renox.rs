@@ -1,0 +1,20 @@
+{
+  "id": "B14",
+  "notes": "examples/chat, 10000 idle connections, one user, one room, held 10 s; worker from RENOX_WORKER_PATH",
+  "samples": {
+    "rss_delta_mb": [
+      83,
+      83.2,
+      85.5
+    ],
+    "heap_delta_mb": [
+      -0.54,
+      -0.47,
+      -0.45
+    ]
+  },
+  "summary": {
+    "rss_delta_mb": 83.2,
+    "heap_delta_mb": -0.47
+  }
+}
