@@ -11,7 +11,7 @@
     <table id="admin-audit">
       <thead><tr><th><r-t key="admin.audit.at" /></th><th><r-t key="admin.audit.action" /></th><th><r-t key="admin.audit.actor" /></th><th><r-t key="admin.audit.resource" /></th><th><r-t key="admin.audit.result" /></th></tr></thead>
       <tbody>
-        <tr r-for="e in events"><td><time :datetime="e.at">{{ e.at }}</time></td><td>{{ e.action }}</td><td>{{ e.actor }}</td><td>{{ e.resource }}</td><td>{{ e.result }}</td></tr>
+        <tr r-for="e in events"><td><time :datetime="e.at">{{ e.at }}</time></td><td>{{ e.action }}</td><td>{{ e.actor }}<r-group r-if="e.actor_kind == 'agent'"> <r-t key="admin.audit.agent" :client="e.client" /></r-group><r-group r-if="e.actor_kind == 'system'"> <r-t key="admin.audit.system" /></r-group></td><td>{{ e.resource }}</td><td>{{ e.result }}</td></tr>
         <tr r-empty="events"><td colspan="5"><r-t key="admin.none" /></td></tr>
       </tbody>
     </table>

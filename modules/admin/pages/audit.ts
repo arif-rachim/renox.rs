@@ -15,8 +15,8 @@ export const load = admin(async (ctx: Page) => {
     if (v !== "") filter[k] = v.slice(0, 200);
   }
   try {
-    const page = (await audit.query(filter)) as { events: { at: number; action: string; actor_id?: string; resource?: string | null; result?: string | null }[]; next: string | null };
-    return view(ctx, { allowed: true, actor: p.get("actor") ?? "", action: p.get("action") ?? "", events: page.events.map((e) => ({ at: iso(e.at), action: e.action, actor: e.actor_id ?? "", resource: e.resource ?? "", result: e.result ?? "" })), next: page.next });
+    const page = (await audit.query(filter)) as { events: { at: number; action: string; actor_id?: string; actor_kind?: string; client?: string | null; resource_type?: string | null; resource_id?: string | null; result?: string | null }[]; next: string | null };
+    return view(ctx, { allowed: true, actor: p.get("actor") ?? "", action: p.get("action") ?? "", events: page.events.map((e) => ({ at: iso(e.at), action: e.action, actor: e.actor_id ?? "", actor_kind: e.actor_kind ?? "user", client: e.client ?? "", resource: [e.resource_type, e.resource_id].filter((x) => x).join(":"), result: e.result ?? "" })), next: page.next });
   } catch {
     return view(ctx, { allowed: false, actor: "", action: "", events: [], next: null });
   }

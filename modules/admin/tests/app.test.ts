@@ -3,6 +3,7 @@
 // modules whose action the user holds; an admin grants and revokes the admin
 // role (not their own), and the decision is in the audit viewer for an
 // auditor; the pages in ltr and rtl.
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -112,5 +113,20 @@ describe.skipIf(!worker)("admin in an app", () => {
     expect(r.status).toBe(200);
     expect(sidebar(r.html).slice(0, 3)).toEqual(["/back-office/", "/back-office/users", "/back-office/audit"]);
     expect((await boss.page("/back-office/")).headers.get("location")).toBe("/back-office");
+  });
+
+  test("the audit page shows the resource, and an agent with its client (#709)", async () => {
+    const rw = new Database(t.dbFile);
+    rw.run("insert into audit__events (id, at, actor_kind, actor_id, client, action, resource_type, resource_id, result) values ('a709', ?, 'agent', 'u-709', 'Booking Agent', 'mcp.tool_called', 'tool', 'create_job', 'ok')", [Date.now()]);
+    rw.run("insert into audit__events (id, at, actor_kind, actor_id, action, resource_type, resource_id, result) values ('u709', ?, 'user', 'u-user-709', 'note.read', null, null, 'ok')", [Date.now()]);
+    rw.close();
+    const aud = t.as("hala");
+    const en = plain((await aud.page("/admin/audit?action=mcp.&lang=en")).html);
+    expect(en).toContain("tool:create_job");
+    expect(en).toContain("u-709 agent (Booking Agent)");
+    const user = plain((await aud.page("/admin/audit?action=note.&lang=en")).html);
+    expect(user).toMatch(/<td>u-user-709<\/td>/u);
+    expect(user).not.toContain("agent (");
+    expect(plain((await aud.page("/admin/audit?action=mcp.&lang=ar")).html)).toContain("وكيل (Booking Agent)");
   });
 });
