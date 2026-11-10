@@ -19,6 +19,8 @@ The seed (`seeds/001_demo.sql`, see `seeds/README.md`) is the demo company FixIt
 
 This runs the policy cases of `policies/tests/*.json`, then `tests/*.test.ts` on the worker, a fresh database per test file with the seed loaded. `.env.test` holds the test-only secrets (`TWOFA_KEY`, the WhatsApp verify token and app secret); never reuse them in production. Snapshots are written to `tests/__snapshots__/` on the first run; `renox test -u` rewrites them after an intended change. In the Renoxium repository the CLI runs from source: `RENOX_WORKER_PATH=<renox-worker> bun ../../cli/src/main.ts test --seed seeds/001_demo.sql`.
 
+Lighthouse accessibility and performance of the dispatch board and the technician visit page (`make lighthouse`, nightly): [`bench/README.md`](../../bench/README.md#lighthouse-home-services).
+
 ## Owner steps to go live
 
 1. `renox login`, then `renox deploy` from this folder.

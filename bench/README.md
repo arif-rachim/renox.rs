@@ -25,6 +25,17 @@ It captures hardware and tool versions (`lib/hwinfo.sh`), runs `scenarios/<ID>/r
 
 `bench/run.sh B0` is a self-test that needs only Bun.
 
+## Lighthouse (home-services)
+
+```
+RENOX_WORKER_PATH=<renox-worker> make lighthouse
+RENOX_WORKER_PATH=<renox-worker> bun bench/lighthouse/run.ts [--assert] [--runs 3] [--out bench/results]
+```
+
+Starts `examples/home-services` under `renox dev` with the demo seed, signs in through the login form as the Dubai dispatcher and as the technician Ali (Playwright's Chromium, `PLAYWRIGHT_PATH` if the package is not on the module path), and runs Lighthouse (Node API, run by `node`; the phone profile with Lighthouse's default mobile emulation and throttling; categories accessibility and performance) on `/dispatch` and the technician's first scheduled visit `/me/visits/<job id>`, each in English and with `?lang=ar`. Writes `results/<date>-lighthouse-home-services.md` (median of the runs: scores, LCP, TBT, CLS, total bytes) and the raw reports under `results/raw/lighthouse/<date>/`.
+
+`make lighthouse` passes `--assert`: exit 1 when a median accessibility is under 90 or a performance under 80, naming the target and the category. The nightly [`lighthouse.yml`](../.github/workflows/lighthouse.yml) runs it and uploads the files; it is not part of `make test` or the PR checks. Note that the page is measured as `renox dev` serves it (the dev client script included), on the machine that runs it: compare results from the same place.
+
 ## Provisioning `node-small` (#158)
 
 The reference node of `docs/14-benchmarks.md` ("Reference hardware"): 4 vCPU, 8 GB, SSD, Linux 6.x. What the first `node-small` (an Ubuntu 24.04 KVM VPS, 2026-10-30) needed before `bench/run.sh` and `bench/chaos/run.sh` ran:

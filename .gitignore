@@ -11,6 +11,7 @@ node_modules/
 bench/results/raw/*
 !bench/results/raw/.gitkeep
 !bench/results/raw/*.json
+!bench/results/raw/lighthouse/
 *.cpuprofile
 *.heapsnapshot
 perf.data*
