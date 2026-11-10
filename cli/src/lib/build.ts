@@ -37,7 +37,7 @@ import { checkSecurity, mergeModuleCsp, type SecurityConfig } from "../check/sec
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
-import { readHookKeys, unapprovedHookMessage, unreadableMessage } from "./hook-keys.ts";
+import { lazyModuleEntries, readHookKeys, unapprovedHookMessage, unreadableMessage } from "./hook-keys.ts";
 import { toPosix } from "./paths.ts";
 import { rewriteAssetRefs } from "./public-assets.ts";
 import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, v25Problems } from "./policies.ts";
@@ -126,6 +126,8 @@ export interface EntrySources {
   eagerModules?: ReadonlySet<string>;
   /** Module name -> its approved `permissions.hooks` (the lock's `approved.hooks`); a recorded hook outside it is V23. */
   approvedHooks?: ReadonlyMap<string, readonly string[]>;
+  /** Write the module entries lazy (artifact 1.9); default `lazyModuleEntries()`, false while the pinned worker is older than 0.8.0. */
+  lazyModules?: boolean;
 }
 
 /**
@@ -144,13 +146,15 @@ export function entriesOf(entry: Record<string, string>, code: ReadonlyMap<strin
   // RENOX_BUILD_EAGER=1 keeps every entry eager (the 1.1 behaviour, and no recorded names): the
   // baseline of B1's lazy-route comparison (#265), not a user setting.
   const baseline = process.env.RENOX_BUILD_EAGER === "1";
+  // Until the pinned worker evaluates lazy module entries, they keep the 1.8 shape (#640).
+  const lazyModules = sources.lazyModules ?? lazyModuleEntries();
   for (const [id, path] of Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const source = code.get(path);
     if (source === undefined) throw new BuildError(`${path}: no bundled module for code.entry ${id}`);
     const exports = [...new Set(scanner.scan(source).exports)].sort();
     const mod = /^modules\/([a-z][a-z0-9_]*)\/(services|hooks)$/u.exec(id);
     const isError = /(^|\/)pages\/_error$/u.test(id);
-    if (baseline || isError || (mod === null && id !== "hooks")) {
+    if (baseline || isError || (mod === null && id !== "hooks") || !lazyModules) {
       const eager = baseline || isError || mod !== null || id === "hooks";
       out[id] = eager ? { exports } : { exports, eager: false };
       continue;

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { checkArtifactFiles } from "@renox/artifact-validate";
 
 import { BuildError, buildFiles, entriesOf } from "../src/lib/build.ts";
-import { readHookKeys } from "../src/lib/hook-keys.ts";
+import { LAZY_MODULES_WORKER, lazyModuleEntries, readHookKeys } from "../src/lib/hook-keys.ts";
 import { contractProblems, installedModules } from "../src/lib/modules/build.ts";
 import { AUTH_TOML, shopWithAuth } from "./shop-auth-fixture.ts";
 import { testWorker } from "./worker-env.ts";
@@ -104,14 +104,19 @@ export const on = {
 
 /** A temp tree with the given files, removed after the test. */
 const dirs: string[] = [];
-// The tests of the lazy shape run without RENOX_BUILD_EAGER; the variable is put back as found.
+// The tests of the lazy shape run without RENOX_BUILD_EAGER and with RENOX_BUILD_LAZY_MODULES=1
+// (the pinned worker may predate lazy module entries); both variables are put back as found.
 const eagerEnv = process.env.RENOX_BUILD_EAGER;
+const lazyEnv = process.env.RENOX_BUILD_LAZY_MODULES;
 beforeEach(() => {
   delete process.env.RENOX_BUILD_EAGER;
+  process.env.RENOX_BUILD_LAZY_MODULES = "1";
 });
 afterEach(() => {
   if (eagerEnv === undefined) delete process.env.RENOX_BUILD_EAGER;
   else process.env.RENOX_BUILD_EAGER = eagerEnv;
+  if (lazyEnv === undefined) delete process.env.RENOX_BUILD_LAZY_MODULES;
+  else process.env.RENOX_BUILD_LAZY_MODULES = lazyEnv;
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function tree(files: Record<string, string>): string {
@@ -133,6 +138,28 @@ const CODE = new Map([
   ["hooks.js", "export const on = {};\n"],
   ["pages/_error.js", "export function load(){}\n"],
 ]);
+
+describe("lazyModuleEntries: only for a pinned worker that evaluates them", () => {
+  test("off before worker 0.8.0, on from it; RENOX_BUILD_LAZY_MODULES overrides", () => {
+    delete process.env.RENOX_BUILD_LAZY_MODULES;
+    expect(lazyModuleEntries("0.7.0")).toBe(false);
+    expect(lazyModuleEntries(LAZY_MODULES_WORKER)).toBe(true);
+    expect(lazyModuleEntries("0.9.1")).toBe(true);
+    process.env.RENOX_BUILD_LAZY_MODULES = "1";
+    expect(lazyModuleEntries("0.7.0")).toBe(true);
+    process.env.RENOX_BUILD_LAZY_MODULES = "0";
+    expect(lazyModuleEntries("0.9.1")).toBe(false);
+  });
+
+  test("with lazyModules false, module entries keep the 1.8 shape and route modules stay lazy", () => {
+    const entries = entriesOf(ENTRY, CODE, { lazyModules: false });
+    for (const [id, e] of Object.entries(entries)) {
+      expect(e.hooks).toBeUndefined();
+      expect(e.on).toBeUndefined();
+      if (id.startsWith("modules/") || id === "hooks") expect(e.eager).toBeUndefined();
+    }
+  });
+});
 
 describe("entriesOf, artifact 1.9", () => {
   test("module services and hooks and the app's hooks are lazy; hooks entries record their names; _error stays eager", () => {

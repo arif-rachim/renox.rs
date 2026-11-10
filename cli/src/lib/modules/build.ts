@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
 import { discoverAppHooks, discoverFunctions, discoverPages, discoverRealtime, discoverWebhooks, type Route } from "../routes.ts";
-import { readHookKeys, unapprovedHookMessage, unreadableMessage } from "../hook-keys.ts";
+import { lazyModuleEntries, readHookKeys, unapprovedHookMessage, unreadableMessage } from "../hook-keys.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
@@ -507,7 +507,7 @@ export function contractProblems(project: string, modules: BuiltModule[]): Contr
     const who = owner ? owner.lock.name : "the app";
     const problem = (index: number, message: string) => out.push({ rule: "MF7", file, line: lineOf(src, index), message });
     // Artifact 1.9 (#640, V23): the keys of the hooks.ts at the root of the module or the app are read statically, and a module fills only approved hooks.
-    if (/^hooks\.(ts|tsx|js|mjs)$/u.test(rel)) {
+    if (/^hooks\.(ts|tsx|js|mjs)$/u.test(rel) && lazyModuleEntries()) {
       const read = readHookKeys(src);
       const v23 = (message: string) => out.push({ rule: "V23", file, line: 1, message: message.replace(/^V23: /u, "") });
       if (!read.ok) {

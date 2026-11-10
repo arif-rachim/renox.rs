@@ -11,7 +11,32 @@
 // spread, an `export const hooks = someVariable`, a re-export or an
 // `export *` cannot be read: the result says why.
 
+import { WORKER_VERSION } from "../../scripts/fetch-worker.ts";
 import { stripCommentsAndStrings } from "./modules/build.ts";
+import { compareVersions, parseVersion } from "./modules/semver.ts";
+
+/**
+ * The first `renox-worker` release that evaluates lazy module entries
+ * (artifact 1.9, ops.md 1.14.0, #640). A worker before it refuses them
+ * (V23), and an `EntryInfo` with `hooks` or `on` too.
+ */
+export const LAZY_MODULES_WORKER = "0.8.0";
+
+/**
+ * Whether `renox build` writes a module's `services` and `hooks` entries,
+ * and the app's `hooks` entry, lazy with their recorded names (#640): only
+ * once the pinned worker evaluates them, so a CLI never builds an artifact
+ * its own worker refuses. `RENOX_BUILD_LAZY_MODULES=1` (or `0`) overrides
+ * it, for the tests against a worker built from source.
+ */
+export function lazyModuleEntries(pinned: string = WORKER_VERSION): boolean {
+  const env = process.env.RENOX_BUILD_LAZY_MODULES;
+  if (env === "1") return true;
+  if (env === "0") return false;
+  const have = parseVersion(pinned);
+  const need = parseVersion(LAZY_MODULES_WORKER);
+  return have !== null && need !== null && compareVersions(have, need) >= 0;
+}
 
 export interface HookKeys {
   hooks: string[];
