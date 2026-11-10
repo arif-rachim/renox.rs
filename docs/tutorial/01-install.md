@@ -7,13 +7,13 @@
 One line installs `renox`, and the `renox-worker` it runs your app on, into `~/.renox/bin`. Each file is installed only if its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.11/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.12/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"   # also add this line to ~/.bashrc or ~/.zshrc
 renox --version
 ```
 
 ```
-renox 0.1.11 (renox-worker 0.7.0)
+renox 0.1.12 (renox-worker 0.7.1)
 ```
 
 On Windows (x64), in PowerShell: `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.

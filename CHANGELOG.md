@@ -2,10 +2,19 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
-## 0.1.12 (unreleased)
+## 0.1.12 (2026-11-10)
+
+**Install**
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.12/install.sh | sh
+```
+
+On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
 
 **Worker**
 
+- Pins `renox-worker` 0.7.1.
 - The gateway drops a `security.csp.*` source that holds `;` or `,` at load, with a platform warning, and never merges it into the `Content-Security-Policy` header: `;` ends a directive and `,` starts a second policy, so a source must not change the policy's structure (artifact 1.9.2, manifest 1.6.2, MF17) (#679).
 
 **CLI**

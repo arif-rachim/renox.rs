@@ -1,0 +1,106 @@
+# Business-email partner: comparison and options for the owner
+
+Date: 2026-11-10. Status: research for the owner; no decision is recorded. Issue: #692 ([F7-195]). Method: current public documentation, pricing and partner pages read on 2026-11-10; a few figures come only from third-party pages and are marked. Where only a sales or partner conversation can answer, the cell says **verify**. USD is converted to AED at the peg, 1 USD = 3.6725 AED; every AED figure below is **before 5 % VAT** unless it says otherwise. Context: the landing page (`docs/plans/2026-11-09-landing-page-copy.md`, section 3) promises mailboxes at the owner's domain "through a mail partner", marked "coming; a date is posted when the partner is signed". Renoxium sends transactional mail only (Resend) and will not run mailboxes (rejected, out of scope). The buyer is a home-services SME in Dubai or Sharjah with 4 to 10 staff, on a plan of AED 79 to 299 per business per month.
+
+If an ADR is written for this later, it is **D34**, not D33.
+
+## Options for the owner
+
+| # | Option | Entity needed (#516, D31) | What it costs and risks |
+| --- | --- | --- | --- |
+| A | **Zoho Mail now, customer-owned.** In the conversation the owner opens their own Zoho Mail organisation (UAE data centre); Renoxium, with the owner's OAuth grant, adds the domain, the mailboxes and the DNS records. Renoxium is not the reseller and takes no money for mail. | No (verify that the Zoho API works inside a customer-owned organisation without a partner account) | The owner pays Zoho directly (about AED 4.6 to 11 per mailbox per month, annual billing). Renoxium sells nothing and carries no resale risk. The sign-up is one more step for the owner. The free plan has no IMAP and no POP, and its 5 users do not carry over to paid plans. |
+| B | **Migadu now, under the owner's personal account.** Renoxium holds one Migadu account and hosts the customers' domains in it. | No, but the terms do not mention resale (verify in writing) | Cheapest and the best documented API; one flat price for all mailboxes. Sending limits are shared by all customers; Migadu may end an account without cause or notice; data is in France; no mobile app of its own; no Arabic interface of its own known. Fits a pilot of a handful of hand-onboarded users, not a promise on a landing page. |
+| C | **Zoho Mail as a reseller, after the entity exists.** Apply to the Zoho Workplace partner programme, get child organisations and the Partner Store, and bill customers through the plan price. | Probably yes (the application asks for company details and a business address; whether a sole proprietor or an individual can sign is **verify**) | The best fit on every column except "no entity". Margin and billing terms are unknown (verify). |
+| D | **Wait for the entity and revisit on a date.** Keep the page's "coming" line. | Yes | No work, no risk, no promise kept. Suggested date: **2027-02-10**, the three-month mark of D31's kill criterion, or earlier if the entity row of #516 is reopened. |
+
+**Recommendation: C as the target, A as the bridge, D for the page.** Zoho Mail is the only candidate with a UAE data centre (Dubai and Abu Dhabi), an Arabic interface, mobile apps, a documented API for domains, mailboxes and aliases, and a price that leaves room in an AED 79 plan (six mailboxes cost about AED 28 to 66 a month, against about AED 154 to 156 on Google or Microsoft). Its partner programme is the one a small company can plausibly join, but it very likely needs the entity. Until then, option A lets the page keep its promise without Renoxium reselling anything; if A proves impossible without a partner account (verify), fall back to D and keep Migadu (B) only as a pilot for the first hand-onboarded users. Google Workspace and Microsoft 365 are the wrong first step: the price per mailbox swallows the plan, and both need a signed reseller contract (Microsoft also needs a distributor, a Partner Location Account and USD 1,000 of annual revenue).
+
+First action for the owner, which costs nothing: ask Zoho's partner team three questions (may an individual or a not-yet-registered business sign; what are the reseller discount and the billing model; does the partner API create child organisations), and ask Migadu support whether hosting customers' domains in one account is allowed.
+
+## Comparison
+
+Prices are per mailbox per month with annual billing, before VAT. "Entity" is the dependency on #516 and D31.
+
+### Table 1: programme, price, entity
+
+| Candidate | Provisioning API (domains, mailboxes, aliases) | Partner programme and who may sign (entity) | Price per mailbox per month (AED) | Minimum seats | Termination terms |
+| --- | --- | --- | --- | --- | --- |
+| **Zoho Mail** | Yes: child organisation (`POST /api/organization/`, scope `ZohoMail.partner.organization`), domains (`POST` and `PUT /api/organization/{zoid}/domains`), users (`POST .../accounts/`), user, domain and group aliases (`PUT`). The child-organisation call is a partner call. | Zoho Workplace partner (reseller) form: company details and business address; Zoho reviews within a week, then partnership agreement, onboarding course, partner portal. Entity: **likely yes; verify** whether an individual may sign. Margin and who bills: **verify**. | Lite 5 GB USD 1 = **3.67**; Lite 10 GB USD 1.25 = **4.59**; Premium USD 4 = **14.69**; Workplace Standard USD 3 = **11.02** (Zoho's own AED list: 10.95); Professional USD 6 = **22.04**. Lite and Premium are annual only. | None listed for paid plans (the free plan is capped at 5 users). | Not read: **verify** (partner trials are 15 days, extendable to 60). |
+| **Google Workspace via reseller** | Yes, the Reseller API (customers and subscriptions); users and aliases through the Admin SDK (not re-read). Needs a signed reseller contract and the Partner Sales Console. | Contract with Google or through a distributor. The Google page does not mention a legal-entity rule; **verify**, expect yes. | Business Starter **26**, Standard **52**, Plus **81** (a UAE reseller's blog, converted from USD at 3.67; not Google's page). Monthly billing about 20 % more. | None stated; maximum 300 per plan. | Not read: **verify**. |
+| **Microsoft 365 via CSP** | Partner Center API is for indirect providers (distributors); an indirect reseller does not get it and the distributor creates the tenant. Mailboxes and domains then go through Microsoft's admin APIs in the customer's tenant (not researched; **verify**). | Indirect reseller: Microsoft AI Cloud Partner Program membership, a Partner Location Account tied to a business address, the Microsoft Partner Agreement, MFA and a security contact, and at least USD 1,000 of CSP revenue in the previous 12 months, checked yearly. A distributor is also needed. Entity: **yes in practice**. | Business Basic USD 7 since 2026-07-01 = **25.71** (a third-party guide; no official AED list found; **verify** with a UAE distributor). | None stated; maximum 300 users per plan. | Not read: **verify**. |
+| **Migadu** | Yes, documented, "early beta": domains, mailboxes, aliases, identities, usage, diagnostics, `GET /domains/{name}/records`. No domain deletion. HTTP Basic with an API key, per account. | No reseller programme found. Ordinary account; terms are silent on resale. Entity: **not required; resale permission: verify in writing**. | Priced per account, not per mailbox, with unlimited domains and mailboxes: Micro USD 19 a year; Mini USD 9 = **33.05** a month; Standard USD 29 = **106.50** a month; Maxi USD 99 = **363.58** a month. Limits per account: Mini 100 out and 1,000 in a day; Standard 500 out and 3,000 in; Maxi 2,000 out and 10,000 in. | None. | Close the account yourself in the login; 14-day money-back, then no refunds; Migadu may terminate without cause or notice; no obligation to keep terminated accounts' data; terms may change at any time. |
+| **Purelymail** | The official API page returned 404 on 2026-11-10; a third-party Raycast extension shows add domain, create user, modify and delete user, and routing rules, so an API exists. **Verify** against the official reference. | No reseller programme found; none mentioned in the pages read. Entity: **not required; resale: verify**. | Flat "USD 10 a year" for most users, by account and resources used, no hard cap on users or domains = **3.06 a month per account**; heavy use needs the metered "advanced" pricing. | None. | Terms ban spam, marketing mail, mailing lists and domain warm-up; violations can mean a ban without refund. Other terms: **verify**. |
+| *Fastmail (considered, not picked)* | **No** provisioning API: JMAP covers a user's own data and Masked Email; the older SOAP API is retired. | Reseller accounts are open to any paid account holder through a support ticket; Fastmail bills the reseller or the sub-accounts; no fee for the status. Entity: **not required by the page**. | Business Basic USD 3 = **11.02**; Standard USD 5 = **18.36**; Professional USD 9 = **33.05** (annual; Basic lacks custom domains in the personal table read: **verify** for business). | None stated. | Cancel at any time (page); renewals aligned for resellers. |
+
+### Table 2: product fit for the owner's staff
+
+| Candidate | Data location | Arabic interface | Mobile apps | DNS records needed, and can the connector set them? | Support hours in GST (UTC+4) |
+| --- | --- | --- | --- | --- | --- |
+| **Zoho Mail** | UAE data centres in Dubai and Abu Dhabi; the UAE accounts portal is `accounts.zoho.ae`. | Yes: 73 display languages including Arabic, with a full right-to-left layout (Zoho blog; search result). | Zoho Mail apps on iOS and Android; the iOS app announced right-to-left support, the Android scope is narrower (community posts; **verify** both). | MX, SPF, DKIM, domain verification; DMARC is not on the pages read. The Domains API reads and sets MX, SPF and DKIM settings, so automation is likely; whether verification and DMARC can be set by API: **verify**. | Not read: **verify**; partner support is "priority". |
+| **Google Workspace** | Not read: **verify**. | Not re-read in this run; widely supported: **verify**. | Gmail apps on iOS and Android (well known; not re-read). | MX, SPF, DKIM, DMARC. DKIM is generated in the Admin console by a super administrator and becomes available 24 to 72 hours after Gmail is turned on; no API route found: **manual or delayed, verify**. | Not read: **verify**. |
+| **Microsoft 365** | Not read: **verify**. | Not re-read; widely supported: **verify**. | Outlook apps on iOS and Android (well known; not re-read). | MX, SPF, DKIM, DMARC, verification: not researched in this run; **verify** whether DKIM can be enabled by API. | Through the distributor: **verify**. |
+| **Migadu** | France (the company is Swiss; its own "pros and cons" page says its servers are in France; reported through a search result). | No interface of its own known; depends on the webmail and the mail app: **verify**. | None of its own; IMAP and SMTP with any app. Webmail: **verify**. | MX (2), SPF, DKIM (three CNAMEs `key1` to `key3._domainkey`), DMARC TXT, one verification TXT. `GET /domains/{name}/records` returns all of them, so **fully automatable** through `add_domain`. | Mini: best effort; Standard: office hours; Maxi: 24x7 priority. The time zone of the office hours is not stated (Swiss company, 3 hours behind GST in winter): **verify**. |
+| **Purelymail** | Runs on AWS; region not stated: **verify**. | Not stated: **verify**. | None of its own known; IMAP and SMTP. Webmail: **verify**. | Not read: **verify**. | Not 24/7; tickets answered "timely". |
+| *Fastmail* | Not read. | Not read. | Own iOS and Android apps (not re-read). | Not read; no provisioning API anyway. | Not read. |
+
+## Per-candidate notes
+
+**Zoho Mail.** The strongest fit. The UAE data centres and the Arabic right-to-left layout answer what a Dubai owner's staff will ask first, and the API lists everything the connector needs. Two doubts decide it. First, the child-organisation call is a partner feature; without a partner account the connector can only act inside an organisation the owner created and authorised (option A), and I did not find Zoho saying that works. Second, the programme pages give no margin, billing model or eligibility rule. The free plan is not usable for staff (no IMAP, no POP, five users that do not carry over). Entity dependency: the partner form asks for company details and a business address; treat as **required until Zoho says otherwise**. Option A needs no entity.
+
+**Google Workspace through a reseller.** A good product at a price that does not fit: six mailboxes at the Starter price are AED 156 a month, twice the lowest plan. The Reseller API needs a signed reseller contract and a Partner Sales Console; the Google page does not name an entity rule, but a contract with Google is a company act (**verify**). DKIM has no API route in what I found. Useful only as a customer-owned account (the owner buys Workspace themselves) if an owner insists on Gmail.
+
+**Microsoft 365 through a CSP.** The heaviest route. An indirect reseller needs a distributor, a Partner Location Account at a business address, an agreement, security requirements and USD 1,000 of revenue a year (about AED 3,670), and does not get the Partner Center API; the distributor does. At USD 7 a mailbox the price is out of range for AED 79. Entity: **yes in practice**. Not recommended before the platform has paying volume.
+
+**Migadu.** The two API-first picks are Migadu and Purelymail, because both price per account with unlimited domains and mailboxes, which suits one reseller account hosting many small domains, and neither needs a partner agreement. Fastmail is dropped: its reseller model is a support ticket and a console, and it has no provisioning API. Migadu is the better of the two: a documented API for domains, mailboxes, aliases and the DNS records. Its limits are the catch. Nothing is isolated per customer: one customer's spam run exhausts the daily limit of every mailbox in the account, and the terms let Migadu stop the account without notice and keep no data. Standard (AED 106.50 a month for everything) is cheap only while the daily limits of 500 out and 3,000 in hold for all customers together, which they will not beyond a handful. No entity is required, but resale is unmentioned: ask in writing.
+
+**Purelymail.** Cheapest of all (about AED 3 a month per account), with unlimited domains and users, which is what makes it tempting. Against it: the API reference is not where I tried (404; **verify**), the terms ban marketing mail and mailing lists (quotes and reminders are fine; a customer's newsletter is not), there is no stated data region, support is not guaranteed, and nothing says resale is allowed. Keep as a second fallback; do not build on it before the API is confirmed.
+
+## Entity dependency (#516) per candidate
+
+| Candidate | Needs the entity? | Why |
+| --- | --- | --- |
+| Zoho Mail, customer-owned (option A) | No | The customer is Zoho's customer; Renoxium only calls the API with the customer's grant (verify that it works without a partner account). |
+| Zoho Mail, partner (option C) | Likely yes | The partner form and agreement ask for company details and a business address; individual eligibility: verify. |
+| Google Workspace, reseller | Likely yes | A signed reseller contract is required; the entity rule is not stated in the page read: verify. |
+| Microsoft 365, CSP | Yes in practice | A Partner Location Account at a business address, the Microsoft Partner Agreement, USD 1,000 yearly revenue, and a distributor. |
+| Migadu | No | An ordinary account in the owner's name; resale not covered by the terms: verify. |
+| Purelymail | No | An ordinary account; resale not stated: verify. |
+| Fastmail | Not stated | Open to any paid account holder; not recommended anyway (no API). |
+
+## The three follow-ups to file when the owner decides
+
+1. **The provider adapter in `control/api`:** a `MailProvider` interface (create domain, read the DNS records it needs, create and delete mailbox, add and remove alias, read usage) with one implementation for the chosen provider, credentials in the platform's secret store (never in logs), and provider-neutral `RENOX_*` error codes. For Zoho: OAuth against the UAE data centre's API hosts, partner scope only if the partner route is chosen.
+2. **The `provision_mailboxes` connector tool:** an addition to the tool table of contract #687 (`docs/20-ai-agents-mcp.md`, section 1b): inputs (domain, list of addresses with display names, optional aliases), a result that states what is ready and what waits on the owner or on DNS, an idempotency key, and the plan's mailbox limit enforced in `control/api` before the provider is called. The landing page's "I will tell you when they are ready" wording needs an asynchronous status.
+3. **The DNS records through `add_domain`:** the records the provider returns (MX, SPF merged with the existing SPF so that Resend's include is kept, DKIM, DMARC, verification) are added to the list `add_domain` already hands the owner, or set directly where Renoxium manages the zone; the SPF merge and a single `_dmarc` record are the two collisions to test.
+
+## Sources
+
+All read 2026-11-10. "Search result" means the page itself was not opened and only the search summary was used; the claims that rest on it are marked verify above.
+
+- Zoho Mail pricing: https://www.zoho.com/mail/zohomail-pricing.html (read 2026-11-10)
+- Zoho Mail API, organisation, domain, user and alias endpoints: https://www.zoho.com/mail/help/api/ (read 2026-11-10)
+- Zoho Mail API overview (Domains API: MX, SPF, DKIM): https://www.zoho.com/mail/help/api/overview.html (read 2026-11-10)
+- Zoho partner programme overview: https://www.zoho.com/partners/ (read 2026-11-10)
+- Zoho Mail partnership programme: https://www.zoho.com/mail/email-partnership-program.html (read 2026-11-10)
+- Zoho Workplace partner portal: https://www.zoho.com/mail/help/partnerportal/partner-portal.html (read 2026-11-10)
+- Zoho Mail admin console (DNS records): https://www.zoho.com/mail/help/adminconsole/ (read 2026-11-10)
+- Zoho Mail in Arabic, full RTL interface, languages (search result): https://blog.zoho.com/mail/enjoy-zoho-mail-in-arabic-and-59-other-world-languages.html, https://zoho.com/blog/mail/a-full-rtl-interface.html, https://www.zoho.com/mail/help/languages.html (read 2026-11-10)
+- Zoho's UAE data centres (search result): https://www.khaleejtimes.com/business/tech/zoho-corporation-opens-its-first-data-centres-in-uae and https://www.datacenterdynamics.com/en/news/zoho-corp-launches-two-data-center-regions-in-uae/ (read 2026-11-10)
+- Google Workspace Reseller API prerequisites: https://developers.google.com/workspace/admin/reseller/v1/how-tos/prerequisites (read 2026-11-10)
+- Google Workspace pricing page (no amounts in the text read): https://workspace.google.com/pricing (read 2026-11-10)
+- A UAE reseller's Google Workspace price list in AED (third party, not Google): https://cloudfysystems.com/blog/google-workspace-pricing-uae-2026 (read 2026-11-10)
+- Google, Set up DKIM (search result): https://support.google.com/a/answer/174124 (read 2026-11-10)
+- Microsoft, indirect reseller eligibility requirements: https://learn.microsoft.com/en-us/partner-center/new-indirect-reseller-requirement (read 2026-11-10)
+- Microsoft, partner with indirect resellers in CSP (search result): https://learn.microsoft.com/en-us/partner-center/customers/indirect-provider-tasks-in-partner-center (read 2026-11-10)
+- Microsoft 365 Business Basic price in the UAE (third-party guide, search result; no official AED list found): https://orbit.reconn.io/microsoft-365-dubai-smb-guide/ (read 2026-11-10)
+- Migadu pricing: https://migadu.com/pricing/ (read 2026-11-10)
+- Migadu API: https://migadu.com/api/ (read 2026-11-10)
+- Migadu terms: https://migadu.com/terms/ (read 2026-11-10)
+- Migadu data location, third-party review of its pros and cons page (search result): https://memo.axbom.com/2025/02/28/i-love-this-procons-page.html (read 2026-11-10)
+- Purelymail home page and pricing: https://purelymail.com/ and https://purelymail.com/pricing (read 2026-11-10)
+- Purelymail API (official page returned 404; third-party client, search result): https://raycast.com/xmok/purelymail (read 2026-11-10)
+- Fastmail pricing: https://www.fastmail.com/pricing/ (read 2026-11-10)
+- Fastmail developer page (JMAP, no admin API): https://www.fastmail.com/dev/ (read 2026-11-10)
+- Fastmail reseller accounts: https://www.fastmail.help/hc/en-us/articles/360058753314 (read 2026-11-10)
+
+Decision: pending (owner)

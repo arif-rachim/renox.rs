@@ -13,7 +13,7 @@ From an empty folder to an app at `https://<app>.renoxium.app` in about ten minu
 One line installs `renox`, and the `renox-worker` it runs your app on locally, into `~/.renox/bin`. It installs a file only when its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.11/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.12/install.sh | sh
 ```
 
 If the installer says `~/.renox/bin` is not on your `PATH`, add it (and add the same line to `~/.bashrc` or `~/.zshrc`):
@@ -29,7 +29,7 @@ renox --version
 ```
 
 ```
-renox 0.1.11 (renox-worker 0.7.0)
+renox 0.1.12 (renox-worker 0.7.1)
 ```
 
 **Windows (x64), in PowerShell:** `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` installs `renox.exe` and `renox-worker.exe`; `renox dev` and `renox test` run without WSL 2.
