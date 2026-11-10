@@ -10,7 +10,7 @@ export const CONTACT_EMAIL = "support@renoxium.com";
 
 /**
  * The platform's WhatsApp number in international form, digits only, or
- * `null` while the owner has not given one. While it is `null`, the WhatsApp
+ * `null` while the owner has not given one (#720). While it is `null`, the WhatsApp
  * buttons open a mail to `CONTACT_EMAIL` with the subject "WhatsApp setup", so
  * no button points at a number nobody answers.
  */
@@ -30,7 +30,7 @@ export const SITE_ORIGIN = "https://renoxium.com";
  * `mailto:` button. Off until the site's Content-Security-Policy lets a form
  * post to `API_ORIGIN`: the worker sends `form-action 'self'` and `renox.toml`
  * cannot widen it yet, so a browser would refuse to submit the form. Turn it
- * on with that change (the decision issue linked from #691).
+ * on with that change (#719).
  */
 export const WAITLIST_FORM = false;
 
