@@ -30,6 +30,7 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 | `CONTROL_PLATFORM_DOMAIN` | `renoxium.app` | App hostnames are `<app>.<domain>`; custom domains are Cloudflare for SaaS custom hostnames whose CNAME target is `CONTROL_CF_FALLBACK_ORIGIN` (`src/domains/README.md`). Never the domain of a platform service (`docs/contracts/README.md`, "Domains") |
 | `CONTROL_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | unset, `renox-artifacts`, `me-central-1` | Object storage |
 | `CONTROL_DASHBOARD_URL` | `https://dashboard.renoxium.com` | Base of the links in emails (account, billing); the passkey relying party is its host |
+| `CONTROL_SITE_URL` | `https://renoxium.com` | Origin of the marketing site (#691): the waitlist's redirects (`return_to`, the confirm link's landing page `/thanks`) go to this origin and nowhere else. An https origin (http only on loopback), no path |
 | `CONTROL_API_URL` | `https://api.renoxium.com` | Public origin of this API: the `Canonical` of its security.txt |
 | `CONTROL_MCP_URL` | unset: the request's origin | Public origin of the platform MCP and its OAuth server (issuer, resource, the `Origin` check). Set it behind a TLS terminator, `https://mcp.renoxium.com` on the single host; https only (http on loopback), no path |
 | `CONTROL_ABUSE_CONTACT` | `abuse@renoxium.com` | The address takedown emails name for appeals |

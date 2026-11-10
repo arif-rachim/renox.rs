@@ -1949,7 +1949,9 @@ for (const [path, item] of Object.entries(isObject(api) && isObject(api.paths) ?
       for (const [type, media] of Object.entries(body.content)) checkMedia(`${where} request`, type, media);
     }
     const responses = isObject(op.responses) ? Object.entries(op.responses) : [];
-    if (!responses.some(([status]) => status.startsWith("2"))) apiErrors.push(`${where}: no 2xx response`);
+    // `x-renox-redirect-only` (confirmWaitlist, #691): the operation answers a 303 and never a body.
+    const redirectOnly = op["x-renox-redirect-only"] === true;
+    if (!responses.some(([status]) => status.startsWith(redirectOnly ? "3" : "2"))) apiErrors.push(`${where}: no ${redirectOnly ? "3xx" : "2xx"} response`);
     let withExample = 0;
     for (const [status, raw] of responses) {
       const response = local(raw);
@@ -1957,7 +1959,7 @@ for (const [path, item] of Object.entries(isObject(api) && isObject(api.paths) ?
       withExample++;
       for (const [type, media] of Object.entries(response.content)) checkMedia(`${where} ${status}`, type, media);
     }
-    if (withExample === 0) apiErrors.push(`${where}: no response with a body example`);
+    if (withExample === 0 && !redirectOnly) apiErrors.push(`${where}: no response with a body example`);
     const tags = Array.isArray(op.tags) ? (op.tags as string[]) : [];
     if (tags.some((t) => AUDITED_TAGS.includes(t))) {
       const caller = ["x-renox-scope", "x-renox-operator-scope", "x-renox-caller"].filter((k) => typeof op[k] === "string");

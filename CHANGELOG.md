@@ -6,7 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **CLI**
 
-- `renox export` no longer writes `localhost` into `routes.json`: the worker's route table refuses a one-label name (V13), so an exported app did not start. The control plane now gzips the artifact it exports (`deploy-api.md` 0.8.1), which `renox export` refused before ("not a gzip file"). `docs/self-host.md` takes an export to a VPS behind Caddy and systemd, and `cli/tests/export-selfhost.e2e.test.ts` runs the exported app on `renox-worker` (#674).
+- `renox export` no longer writes `localhost` into `routes.json`: the worker's route table refuses a one-label name (V13), so an exported app did not start. The control plane now gzips the artifact it exports (`deploy-api.md` 0.10.1), which `renox export` refused before ("not a gzip file"). `docs/self-host.md` takes an export to a VPS behind Caddy and systemd, and `cli/tests/export-selfhost.e2e.test.ts` runs the exported app on `renox-worker` (#674).
 
 ## 0.1.12 (2026-11-10)
 

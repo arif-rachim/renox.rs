@@ -40,6 +40,11 @@ export interface Config {
   masterKeyPrevious?: string | null;
   /** `CONTROL_DASHBOARD_URL`: base URL of the dashboard, for links in emails (#113; default `https://dashboard.renoxium.com`). */
   dashboardUrl: string;
+  /**
+   * `CONTROL_SITE_URL` (#691): the origin of the marketing site (default `https://renoxium.com`). The waitlist's
+   * redirects (`return_to`, the confirm link's landing page) go to this origin and nowhere else.
+   */
+  siteUrl?: string;
   /** Directory where account emails are written as files (local development); null: no mail delivery. */
   mailOutboxDir: string | null;
   /**
@@ -112,6 +117,7 @@ type Env = Record<string, string | undefined>;
 export const DEFAULTS = {
   platformDomain: "renoxium.app",
   dashboardUrl: "https://dashboard.renoxium.com",
+  siteUrl: "https://renoxium.com",
   apiUrl: "https://api.renoxium.com",
   securityContacts: ["mailto:security@renoxium.com"] as readonly string[],
   abuseContact: "abuse@renoxium.com",
@@ -285,6 +291,7 @@ export function loadConfig(env: Env = process.env): Config {
     masterKey,
     masterKeyPrevious,
     dashboardUrl: env.CONTROL_DASHBOARD_URL ?? DEFAULTS.dashboardUrl,
+    siteUrl: publicOrigin(env.CONTROL_SITE_URL, "CONTROL_SITE_URL") ?? DEFAULTS.siteUrl,
     mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
     mail: mailConfig(env),
     erasureRetryMs: Math.max(1000, Number(env.CONTROL_ERASURE_RETRY_MS ?? 3_600_000) || 3_600_000),

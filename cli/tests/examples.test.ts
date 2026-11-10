@@ -20,8 +20,29 @@ const worker = process.env.RENOX_WORKER_PATH;
 
 if (!worker) console.log("examples.test.ts: RENOX_WORKER_PATH is not set; the example apps are not built or tested.");
 
-/** An example app: its folder under examples/, the seed `renox test` loads, the passing tests it prints. */
-const EXAMPLES: { name: string; seed: string; passing: number }[] = [{ name: "home-services", seed: "seeds/001_demo.sql", passing: 269 }];
+/**
+ * An example app: its folder under examples/, the seed `renox test` loads, the passing tests it prints on the
+ * pinned worker, and the tests that only run from a given worker version (they are skipped, not passed, below it).
+ */
+const EXAMPLES: { name: string; seed: string; passing: number; fromWorker: { version: number[]; tests: number }[] }[] = [
+  // tests/tools.test.ts: the audit page assertion of #683 runs from renox-worker 0.7.1 (WORKER_WITH_TOOL_AUDIT).
+  { name: "home-services", seed: "seeds/001_demo.sql", passing: 270, fromWorker: [{ version: [0, 7, 1], tests: 1 }] },
+];
+
+/** The worker's version (`renox-worker --version`), or null when it cannot be read. */
+function workerVersion(path: string): number[] | null {
+  const m = /(\d+)\.(\d+)\.(\d+)/u.exec(Bun.spawnSync([path, "--version"]).stdout.toString());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+const atLeast = (v: number[], min: number[]): boolean => {
+  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== (min[i] ?? 0)) return (v[i] ?? 0) > (min[i] ?? 0);
+  return true;
+};
+
+/** The passing count to expect on this worker: the tests gated on a newer worker are skipped there. */
+export function expectedPassing(ex: { passing: number; fromWorker: { version: number[]; tests: number }[] }, version: number[] | null): number {
+  return ex.passing - ex.fromWorker.filter((g) => version === null || !atLeast(version, g.version)).reduce((n, g) => n + g.tests, 0);
+}
 
 const SKIP = /(^|\/)(node_modules|\.renox)(\/|$)/u;
 
@@ -39,6 +60,14 @@ function installed(name: string): string {
   return dir;
 }
 
+test("the expected passing count follows the worker's version", () => {
+  const ex = { passing: 270, fromWorker: [{ version: [0, 7, 1], tests: 1 }] };
+  expect(expectedPassing(ex, [0, 7, 1])).toBe(270);
+  expect(expectedPassing(ex, [0, 8, 0])).toBe(270);
+  expect(expectedPassing(ex, [0, 7, 0])).toBe(269);
+  expect(expectedPassing(ex, null)).toBe(269);
+});
+
 describe.skipIf(!worker)("every example builds, checks and passes renox test", () => {
   for (const ex of EXAMPLES) {
     test(
@@ -51,7 +80,7 @@ describe.skipIf(!worker)("every example builds, checks and passes renox test", (
         expect(report.findings).toEqual([]);
         const r = await runTests(dir, ["--seed", ex.seed], "pipe");
         expect(r.code, r.out).toBe(0);
-        expect(r.out).toContain(` ${ex.passing} pass`);
+        expect(r.out).toContain(` ${expectedPassing(ex, workerVersion(worker as string))} pass`);
         expect(r.out).toContain(" 0 fail");
       },
       180_000,

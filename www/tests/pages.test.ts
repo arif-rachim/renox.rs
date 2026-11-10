@@ -19,7 +19,9 @@ import { doc, nav, PUBLISHED, search, slugOfPath, SOURCES } from "../lib/docs.ts
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
 import { contrastFailures, loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
-import { dotField, features, load as homeLoad, STATS } from "../pages/index.ts";
+import { ALTERNATIVES, ASKS, CONVERSATION, countText, load as homeLoad, NOT_FOR, STATS } from "../pages/index.ts";
+import { API_ORIGIN, LINKS, SITE_ORIGIN, WAITLIST_FORM, whatsappLink } from "../lib/contact.ts";
+import { stateOf } from "../pages/thanks.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
 setDefaultTimeout(120_000);
@@ -151,38 +153,72 @@ describe("pricing and legal", () => {
     expect(page.plans[3]?.quotas[0]).toEqual({ label: "Requests / month", value: "unlimited" });
   });
 
-  test("the landing page's dot fields: a fixed pattern of safe glyphs, a few lit; its numbers are measured ones", () => {
-    const f = features();
-    expect(f.map((x) => x.id)).toEqual(["modules", "runs", "domains", "agents"]);
-    for (const x of f) {
-      // Drawn, not typed: an inline SVG of circles and rects only, two of them lit.
-      expect(x.dots.startsWith("<svg ")).toBe(true);
-      expect(x.dots.replace(/<svg [^>]*>|<\/svg>|<circle [^>]*\/>|<rect [^>]*\/>/gu, "")).toBe("");
-      expect(x.dots.match(/class="lit"/gu)?.length).toBe(2);
-      expect(x.href.startsWith("/docs/")).toBe(true);
+  test("the landing page's numbers are measured ones, each with its source and its link", () => {
+    expect(STATS.map((x) => `${x.value} ${x.unit}`)).toEqual(["107 KB", "45 ms", "1 step"]);
+    for (const x of STATS) {
+      expect(x.value).toMatch(/^\d+$/u);
+      expect(readFileSync(join(ROOT, x.source), "utf8").length).toBeGreaterThan(0);
+      // The sentence of the deck carries the figure it shows.
+      expect(x.text).toContain(x.value === "1" ? "one step" : `${x.value} ${x.unit}`);
     }
-    expect(features()).toEqual(f);
-    expect(dotField(2, 1, [], [1])).toBe('<svg viewBox="0 0 40 20" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle class="dot-idle" cx="10" cy="10" r="1.6"/><rect class="lit" x="24" y="4" width="12" height="12" rx="2"/></svg>');
-    // Every feature headline stays short enough for two lines on a phone (taste review, #428).
-    for (const x of f) expect(`${x.head} ${x.muted}`.length, x.id).toBeLessThanOrEqual(52);
-    // Every stat is a whole number (Doto draws a period as a cross) with its source named.
-    for (const s of STATS) {
-      expect(s.value).toMatch(/^\d+$/u);
-      expect(readFileSync(join(ROOT, s.source), "utf8").length).toBeGreaterThan(0);
-    }
+    expect(STATS.filter((x) => x.source === "docs/14-benchmarks.md").every((x) => x.href === LINKS.benchmarks && x.link === "How we measured it")).toBe(true);
+    expect(LINKS.benchmarks).toEndWith("/docs/14-benchmarks.md");
     const bench = readFileSync(join(ROOT, "docs/14-benchmarks.md"), "utf8");
     expect(bench).toContain("0.107 MB with 500 tenants");
     expect(bench).toContain("p99 45.4 ms");
   });
 
-  test("the landing page's plan summary is pricing.toml's", () => {
+  test("the landing page's plans are pricing.toml's, Starter recommended, each line's numbers read from it", () => {
     const home = homeLoad();
     expect(home.currency).toBe(PRICING.currency);
     expect(home.plans.map((p) => [p.name, p.price])).toEqual(PRICING.plans.map((p) => [p.name, p.price_month.replace(/\.00$/u, "")]));
-    expect(home.plans[0]).toMatchObject({ name: "Free", free: true, requests: "100,000", apps: "2", db: "100 MB" });
-    expect(home.plans.filter((p) => p.free)).toHaveLength(1);
-    // An unlimited quota (-1 in pricing.toml) reads "unlimited", never 0.
-    expect(home.plans.at(-1)).toMatchObject({ name: "Agency", requests: "unlimited", apps: "unlimited" });
+    expect(home.plans.filter((p) => p.recommended).map((p) => p.name)).toEqual(["Starter"]);
+    expect(home.plans.map((p) => p.text)).toEqual([
+      "Your app at <name>.renoxium.app: 2 apps, 100,000 visits and actions a month, 100 MB of data. Set up with us by hand.",
+      "Your own web address (up to 3), 5 apps, 2 million visits and actions, 1 GB of data, 10 GB of files, AI help included.",
+      "20 apps, 20 addresses, 20 million visits and actions, 10 GB of data, 50 GB of files.",
+      "For agencies: unlimited apps and visits, 100 addresses, a workspace per client, your own brand on it.",
+    ]);
+    expect([countText(null), countText(100_000), countText(2_000_000), countText(2_500_000)]).toEqual(["unlimited", "100,000", "2 million", "2,500,000"]);
+  });
+
+  test("the landing page's conversation, asks, alternatives and contact links", () => {
+    expect(CONVERSATION.map((t) => t.who)).toEqual(["owner", "renoxium", "owner", "renoxium", "owner", "renoxium"]);
+    expect(CONVERSATION.map((t) => t.text).join(" ")).toContain("coolair.renoxium.app");
+    expect(ASKS).toHaveLength(4);
+    expect(ALTERNATIVES).toHaveLength(4);
+    expect(NOT_FOR).toHaveLength(4);
+    expect(LINKS.signIn).toBe("https://dashboard.renoxium.com/signin");
+    expect(LINKS.connectorList).toBe("mailto:support@renoxium.com?subject=Connector%20list");
+    expect(LINKS.takeAway).toEndWith("/issues/668");
+    // No number given yet: the WhatsApp buttons write a mail instead of pointing at a number nobody answers.
+    expect(whatsappLink(null)).toBe("mailto:support@renoxium.com?subject=WhatsApp%20setup");
+    expect(whatsappLink("+971 50 123 4567")).toBe("https://wa.me/971501234567");
+    expect(() => whatsappLink("call us")).toThrow();
+  });
+
+  test("the waitlist form (#691): four fields, posted to the API, back to /thanks on the site's own origin", () => {
+    const page = readFileSync(join(import.meta.dir, "../pages/index.html"), "utf8");
+    const form = page.slice(page.indexOf("<form "), page.indexOf("</form>"));
+    expect(form).toContain('method="post" :action="links.waitlist"');
+    const names = [...form.matchAll(/<input [^>]*name="([a-z_]+)"/gu)].map((m) => m[1]);
+    expect(names).toEqual(["email", "interest", "locale", "return_to"]);
+    expect(form).toMatch(/name="email" type="email" required/u);
+    expect(form).toContain('name="interest" value="connector"');
+    expect(form).toContain('name="locale" value="en"');
+    expect(form).toContain(':value="links.waitlistReturn"');
+    expect(LINKS.waitlist).toBe(`${API_ORIGIN}/v1/waitlist`);
+    expect(new URL(LINKS.waitlistReturn).origin).toBe(SITE_ORIGIN);
+    expect(new URL(LINKS.waitlistReturn).pathname).toBe("/thanks");
+    // While the worker's CSP keeps form-action 'self', the ask is the mail button (lib/contact.ts).
+    expect(homeLoad().waitlistForm).toBe(WAITLIST_FORM);
+  });
+
+  test("/thanks has three states, read from the query the API sets", () => {
+    expect(stateOf(new URLSearchParams("confirmed=1&list=connector"))).toBe("confirmed");
+    expect(stateOf(new URLSearchParams("confirmed=0"))).toBe("invalid");
+    expect(stateOf(new URLSearchParams("list=connector"))).toBe("check_email");
+    expect(stateOf(new URLSearchParams("confirmed=yes"))).toBe("check_email");
   });
 
   test("the legal pages carry the versions sign-up records", () => {
@@ -196,9 +232,11 @@ describe("design system (packages/ui/README.md)", () => {
 
   test("public/renox-ui.css is packages/ui/renox-ui.css, unchanged, and loads before site.css", () => {
     expect(read("public/renox-ui.css")).toBe(readFileSync(join(ROOT, "packages/ui/renox-ui.css"), "utf8"));
-    const layout = read("pages/_layouts/main.html");
-    expect(layout.indexOf('href="/renox-ui.css"')).toBeGreaterThan(-1);
-    expect(layout.indexOf('href="/site.css"')).toBeGreaterThan(layout.indexOf('href="/renox-ui.css"'));
+    for (const name of ["main", "home"]) {
+      const layout = read(`pages/_layouts/${name}.html`);
+      expect(layout.indexOf('href="/renox-ui.css"'), name).toBeGreaterThan(-1);
+      expect(layout.indexOf('href="/site.css"'), name).toBeGreaterThan(layout.indexOf('href="/renox-ui.css"'));
+    }
   });
 
   test("site.css uses no physical direction and loads nothing", () => {
@@ -221,7 +259,7 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
   const app = join(import.meta.dir, "..");
   const out = mkdtempSync(join(tmpdir(), "renox-www-"));
   const built = await buildArtifact(app, out);
-  expect(built.manifest.routes.map((r) => ("path" in r ? r.path : "")).sort()).toEqual(["/", "/docs", "/docs/:slug", "/legal/dpa", "/legal/terms", "/pricing"]);
+  expect(built.manifest.routes.map((r) => ("path" in r ? r.path : "")).sort()).toEqual(["/", "/docs", "/docs/:slug", "/legal/dpa", "/legal/terms", "/pricing", "/thanks"]);
   expect(await check(app)).toEqual({ errors: [], findings: [] });
   const port = 21000 + Math.floor(Math.random() * 9000);
   const dev = await startDev({ project: app, port, log: () => {} });
@@ -253,15 +291,14 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect((await get("/docs?q=threat")).text).toContain("No title or section matches.");
     const home = await get("/");
     expect(home.status).toBe(200);
-    expect(home.text).toMatch(/<h1 id="hero-title" class="dot">Deploy\. Run\.<\/h1>/u);
-    expect(home.text).toContain('<div class="dots" aria-hidden="true"><svg ');
-    // Four interface fragments of the product (data-ui), one per feature section.
-    expect(home.text.match(/class="ui-frag" data-ui/gu)?.length).toBe(4);
-    // No script of the site's own (renox dev injects its own, under /__renox/).
-    expect(home.text.match(/<script[^>]*src="([^"]+)"/gu)?.every((m) => m.includes("/__renox/"))).toBe(true);
-    expect(home.text).not.toContain("site.js");
-    expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
-    expect(home.text).toContain("AED</small>79");
+    checkLanding(home.text);
+    // #691: the three states of /thanks, no script of the site's own.
+    for (const [query, heading] of [["?confirmed=1&list=connector", "You are on the list."], ["?confirmed=0", "This link no longer works."], ["?list=connector", "Check your mail."]] as const) {
+      const t = await get(`/thanks${query}`);
+      expect(t.status).toBe(200);
+      expect(t.text).toContain(`<h1 id="thanks-title">${heading}</h1>`);
+      expect(t.text.match(/<script(?![^>]*src="\/__renox\/)[^>]*>/gu) ?? []).toEqual([]);
+    }
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);
@@ -269,3 +306,83 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     await dev.stop();
   }
 });
+
+/** The words a business owner should not meet outside the developer section and the footer (#675, copy deck). */
+const FORBIDDEN = ["isolate", "V8", "SQLite", "CNAME", "DNS", "Apache", "MCP", "CLI", "repository", "deploy", "htmx", "TypeScript", "SQL", "API", "Docker", "build step"];
+
+/** The text a reader sees: no tags, no comments, no script or style, the entities decoded. */
+function visibleText(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/gu, " ")
+    .replace(/<(script|style|head)\b[\s\S]*?<\/\1>/giu, " ")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/&lt;/gu, "<").replace(/&gt;/gu, ">").replace(/&amp;/gu, "&").replace(/&#39;|&#x27;/gu, "'").replace(/&quot;/gu, '"')
+    .replace(/\s+/gu, " ");
+}
+
+/** The served landing page (#675): the deck's sections in order, the fragments, the plain-language rule. */
+function checkLanding(html: string): void {
+  // One h1, the deck's headings in order (sections 1 to 10, with 5A to 5D).
+  expect(html.match(/<h1[\s>]/gu)?.length).toBe(1);
+  expect(html).toContain('<h1 id="hero-title">Own your business software the way you own your shop.</h1>');
+  const headings = [...html.matchAll(/<h2 [^>]*>([^<]+)<\/h2>/gu)].map((m) => m[1]);
+  expect(headings).toEqual([
+    "The why, in one statement",
+    "Four things you can ask for.",
+    "What you would do instead, and when you should.",
+    "Finished on day one.",
+    "Yours. Not a promise, a fact you can test.",
+    "What your AI is not allowed to touch.",
+    "Built for a business in the UAE.",
+    "Measured, not promised.",
+    "For the people who build apps for others.",
+    "When not to use Renoxium, and what to pick instead.",
+    "One company, one plan, a tax invoice every month.",
+    "Start with a conversation.",
+  ]);
+  const text = visibleText(html);
+  for (const s of ["There is a third.", "The app is yours.", "Four things you can ask for", "coming soon, join the list", "When not to use Renoxium", "A conversation with the planned connector, using our real finished app.", "If a row is unfair, tell us.", "Health records: we do not host them.", "we do not promise that data stays in the UAE"]) expect(text, s).toContain(s);
+  for (const a of ASKS) expect(text, a.status).toContain(a.status);
+  // The interface fragments: at least six, real HTML, with the conversation's sample data.
+  const fragments = [...html.matchAll(/<[a-z]+ [^>]*data-ui="([a-z-]+)"/gu)].map((m) => m[1]);
+  expect(fragments.length).toBeGreaterThanOrEqual(6);
+  expect(fragments).toEqual(["conversation", "quotation", "day-board", "visit", "invoice", "your-data", "finished-parts"]);
+  const chat = html.slice(html.indexOf('data-ui="conversation"'), html.indexOf("</ol>", html.indexOf('data-ui="conversation"')));
+  expect(chat).toContain("coolair.renoxium.app");
+  expect(chat).toContain("90-day parts warranty");
+  expect(chat.match(/<li /gu)?.length).toBe(6);
+  expect(chat).not.toContain("<img");
+  expect(html).toMatch(/data-ui="invoice" dir="rtl" lang="ar"/u);
+  // The alternatives table: four rows.
+  const table = html.slice(html.indexOf('<table class="alt-table">'), html.indexOf("</table>", html.indexOf('<table class="alt-table">')));
+  expect(table.split("<tbody>")[1]?.match(/<tr>/gu)?.length).toBe(4);
+  // The plans: pricing.toml's prices, Starter the one recommended.
+  for (const p of PRICING.plans) expect(html).toContain(`AED ${p.price_month.replace(/\.00$/u, "")}</p>`);
+  expect([...html.matchAll(/data-plan="([a-z]+)" class="recommended"/gu)].map((m) => m[1])).toEqual(["starter"]);
+  expect(html).toContain("Starter, recommended");
+  // Honesty: the take-away links #668; the sentence waiting for it is not printed; the figures link to how they were measured.
+  expect(html).toContain('href="https://github.com/arif-rachim/renox.rs/issues/668">#668</a>');
+  expect(text).not.toContain("if we disappear tomorrow");
+  expect(html.match(/href="https:\/\/github\.com\/arif-rachim\/renox\.rs\/blob\/main\/docs\/14-benchmarks\.md">How we measured it</gu)?.length).toBe(2);
+  // Links: sign in to the dashboard; the list as a mail until the form exists; WhatsApp from lib/contact.ts.
+  expect(html).toContain('<a class="button" href="https://dashboard.renoxium.com/signin">Sign in</a>');
+  if (WAITLIST_FORM) expect(html).toContain(`<form class="waitlist" method="post" action="${LINKS.waitlist}">`);
+  else expect(html).toContain(`href="${LINKS.connectorList.replaceAll("&", "&amp;")}">Join the connector list</a>`);
+  expect(html.split(`href="${LINKS.whatsapp}"`).length - 1).toBe(2);
+  // Nothing of the previous page remains.
+  for (const old of ["Deploy. Run.", "installed, not rewritten", "TLS at the edge", "Built for coding agents", "Stop rebuilding", "dot-idle"]) expect(html, old).not.toContain(old);
+  // The plain-language rule: outside section 7 and the footer, no technical word.
+  const start = html.indexOf('<section id="developers"');
+  const end = html.indexOf("</section>", start);
+  const footer = html.indexOf('<footer class="home-footer">');
+  expect(start).toBeGreaterThan(-1);
+  const plain = visibleText(html.slice(0, start) + html.slice(end, footer));
+  const found = FORBIDDEN.filter((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(" ", "\\s+")}(?![\\p{L}\\p{N}])`, "iu").test(plain));
+  expect(found).toEqual([]);
+  // ...and the developer section is where they are.
+  expect(visibleText(html.slice(start, end))).toContain("V8 isolate");
+  // No script of the site's own (renox dev injects its own, under /__renox/), no dot face.
+  expect(html.match(/<script[^>]*src="([^"]+)"/gu)?.every((m) => m.includes("/__renox/"))).toBe(true);
+  expect(html.match(/<script(?![^>]*src="\/__renox\/)[^>]*>/gu) ?? []).toEqual([]);
+  expect(html).not.toContain('class="dot');
+}
