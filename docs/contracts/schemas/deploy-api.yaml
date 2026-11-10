@@ -3720,7 +3720,7 @@ paths:
       summary: Create an app and deploy a starter template in one call (section 21)
       x-renox-scope: apps:write
       x-renox-audit: createAppFromTemplate (app, template, hash)
-      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_CONFLICT, RENOX_UNAVAILABLE]
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_CONFLICT, RENOX_SETUP_FAILED, RENOX_UNAVAILABLE]
       requestBody:
         required: true
         content:
@@ -3731,11 +3731,20 @@ paths:
               required: [name, template]
               properties:
                 name: { $ref: "#/components/schemas/AppName" }
-                template: { enum: [hello, shop, booking, invoices] }
+                template: { enum: [hello, shop, booking, invoices, home-services] }
+                setup:
+                  description: "0.9 (#689). Only for `home-services` (any other template is 400): the company's data the API hands to the new app's `POST /api/setup` after activation (section 21)."
+                  $ref: "#/components/schemas/HomeServicesSetup"
             examples:
               shop: { value: { name: hello-shop, template: shop } }
+              home-services: { value: { name: coolair, template: home-services, setup: { company: { name: CoolAir, trn: "100123456700003", phone: "+971501234567", emirate: dubai }, branches: [{ name: Dubai, emirate: dubai }, { name: Sharjah, emirate: sharjah }], services: [{ name: AC service, price_aed: 150 }, { name: Deep clean, price_aed: 320.5 }], people: [{ email: tech@coolair.ae, role: technician }, { email: books@coolair.ae, role: accountant }] } } }
+              home-services-no-setup: { value: { name: coolair, template: home-services } }
             x-renox-invalid-examples:
               unknown: { value: { name: hello-shop, template: wordpress }, x-expect: enum }
+              no-branches: { value: { name: coolair, template: home-services, setup: { company: { name: CoolAir, phone: "+971501234567", emirate: dubai }, branches: [], services: [{ name: AC service, price_aed: 150 }], people: [] } }, x-expect: minItems }
+              bad-emirate: { value: { name: coolair, template: home-services, setup: { company: { name: CoolAir, phone: "+971501234567", emirate: riyadh }, branches: [{ name: Dubai, emirate: dubai }], services: [{ name: AC service, price_aed: 150 }], people: [] } }, x-expect: enum }
+              bad-role: { value: { name: coolair, template: home-services, setup: { company: { name: CoolAir, phone: "+971501234567", emirate: dubai }, branches: [{ name: Dubai, emirate: dubai }], services: [{ name: AC service, price_aed: 150 }], people: [{ email: a@coolair.ae, role: admin }] } }, x-expect: enum }
+              bad-phone: { value: { name: coolair, template: home-services, setup: { company: { name: CoolAir, phone: "050 123", emirate: dubai }, branches: [{ name: Dubai, emirate: dubai }], services: [{ name: AC service, price_aed: 150 }], people: [] } }, x-expect: pattern }
       responses:
         "201":
           description: The app, with the template's artifact uploaded and activated; `first_deploy_at` of the tenant is set by the first activation (section 21).
@@ -3750,12 +3759,28 @@ paths:
                   template: { type: string }
                   hash: { $ref: "#/components/schemas/Sha256" }
                   url: { type: string, pattern: "^https://" }
+                  setup:
+                    description: Present when the request had a `setup` and the app's `/api/setup` answered 2xx. `invited` and `skipped` are what the app reported (section 21).
+                    type: object
+                    additionalProperties: false
+                    required: [invited, skipped]
+                    properties:
+                      invited:
+                        type: array
+                        maxItems: 20
+                        items: { type: object, additionalProperties: false, required: [email], properties: { email: { type: string, maxLength: 254 }, role: { type: string, maxLength: 32 } } }
+                      skipped:
+                        type: array
+                        maxItems: 20
+                        items: { type: object, additionalProperties: false, required: [email], properties: { email: { type: string, maxLength: 254 }, reason: { type: string, maxLength: 200 } } }
               examples:
                 shop: { value: { app: hello-shop, template: shop, hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, url: "https://hello-shop.renoxium.app" } }
+                home-services: { value: { app: coolair, template: home-services, hash: 3036375ec4507cc45555acd94592bcfa44a0884fee861d99bee24a45f917b164, url: "https://coolair.renoxium.app", setup: { invited: [{ email: tech@coolair.ae, role: technician }], skipped: [] } } }
         "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "502": { $ref: "#/components/responses/SetupFailed" }
         "503": { $ref: "#/components/responses/Unavailable" }
 
   /v1/abuse:
@@ -4102,6 +4127,56 @@ components:
       properties:
         field: { type: string, maxLength: 256 }
         reason: { type: string, minLength: 1, maxLength: 512 }
+
+    Emirate: { enum: [abu_dhabi, dubai, sharjah, ajman, umm_al_quwain, ras_al_khaimah, fujairah] }
+    HomeServicesSetup:
+      description: The company's data for the `home-services` template (0.9, #689; `docs/20-ai-agents-mcp.md` section 1b). Strings are trimmed by the API before the limits apply.
+      type: object
+      additionalProperties: false
+      required: [company, branches, services, people]
+      properties:
+        company:
+          type: object
+          additionalProperties: false
+          required: [name, phone, emirate]
+          properties:
+            name: { type: string, minLength: 1, maxLength: 80 }
+            trn: { type: string, pattern: "^[0-9]{15}$" }
+            phone: { type: string, pattern: "^\\+[1-9][0-9]{7,14}$", description: E.164 }
+            emirate: { $ref: "#/components/schemas/Emirate" }
+        branches:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, emirate]
+            properties:
+              name: { type: string, minLength: 1, maxLength: 80 }
+              emirate: { $ref: "#/components/schemas/Emirate" }
+        services:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, price_aed]
+            properties:
+              name: { type: string, minLength: 1, maxLength: 80 }
+              price_aed: { type: number, minimum: 0, maximum: 1000000 }
+        people:
+          type: array
+          minItems: 0
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [email, role]
+            properties:
+              email: { type: string, format: email, maxLength: 254 }
+              role: { enum: [owner, manager, dispatcher, technician, accountant] }
 
     CreateAppRequest:
       type: object
@@ -5602,6 +5677,22 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           examples:
             bucket: { value: { error: { code: RENOX_RATE_LIMITED, message: Too many requests. Try again later., request_id: 01JBQ3Z7MA0000000000000016 } } }
+    SetupFailed:
+      description: 0.9 (#689). `createAppFromTemplate` with a `setup`. The app was created, uploaded and activated and is live, but its `/api/setup` did not complete (section 21). `app`, `template`, `hash` and `url` name it; `details[0].reason` is `app_status_<status>` (the app answered with that status, for example 404 when it has no `/api/setup`), `already_set_up` (409), `timeout` or `unreachable`.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [error, app, template, hash, url]
+            properties:
+              error: { $ref: "#/components/schemas/Error/properties/error" }
+              app: { $ref: "#/components/schemas/AppName" }
+              template: { type: string }
+              hash: { $ref: "#/components/schemas/Sha256" }
+              url: { type: string, pattern: "^https://" }
+          examples:
+            no-setup-route: { value: { error: { code: RENOX_SETUP_FAILED, message: "The app was created, but its setup did not complete.", request_id: 01JBQ3Z7MA0000000000000031, details: [{ field: setup, reason: app_status_404 }] }, app: coolair, template: home-services, hash: 3036375ec4507cc45555acd94592bcfa44a0884fee861d99bee24a45f917b164, url: "https://coolair.renoxium.app" } }
     Unavailable:
       description: No healthy worker can take the tenant, or a dependency is down.
       headers:

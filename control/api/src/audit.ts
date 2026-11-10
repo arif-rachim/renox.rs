@@ -13,7 +13,7 @@ export interface AuditRow {
   tenantId: string | null;
   actor: string;
   action: string;
-  target: Record<string, string>;
+  target: Record<string, string | boolean>;
   status: number;
   requestId: string;
   ip?: string | null;

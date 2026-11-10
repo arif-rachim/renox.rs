@@ -9,10 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DPA_VERSION, TERMS_VERSION } from "../../api/src/signup/dpa.ts";
-import { assertScoped, mailToken, registeredNode, tenant } from "../../api/tests/helpers.ts";
+import { createTenantToken } from "../../api/src/auth/tokens.ts";
+import { assertScoped, mailToken, registeredNode, signup, tenant } from "../../api/tests/helpers.ts";
 import { buildArtifact } from "../../../cli/src/lib/build.ts";
 import { DEFAULT_API, DEFAULT_PLATFORM_DOMAIN, apiBase, platformDomain } from "../lib/api.ts";
-import { actions as newActions, load as newLoad } from "../pages/apps/new.ts";
+import { actions as newActions, load as newLoad, setupFromForm } from "../pages/apps/new.ts";
 import { load as homeLoad } from "../pages/index.ts";
 import { actions as signinActions } from "../pages/signin.ts";
 import { actions as signupActions, load as signupLoad } from "../pages/signup/index.ts";
@@ -173,4 +174,92 @@ test("the dashboard calls https://api.renoxium.com by default; RENOX_API_URL (ht
   expect(apiBase({ RENOX_API_URL: "http://127.0.0.1:8788/" })).toBe("http://127.0.0.1:8788");
   expect(apiBase({ RENOX_API_URL: "http://localhost.evil.example" })).toBe("https://api.renoxium.com");
   expect(apiBase({ RENOX_API_URL: "http://u:p@localhost:8788" })).toBe("https://api.renoxium.com");
+});
+
+// home-services with its setup in one form (#689). The new app's /api/setup is stubbed: `deps.callApp`.
+describe("the first app: home-services with the company's setup (#689)", () => {
+  const FORM = {
+    name: "coolair",
+    company_name: "CoolAir",
+    company_trn: "",
+    company_phone: "+971501234567",
+    company_emirate: "dubai",
+    branches: "Dubai\nSharjah, sharjah",
+    services: "AC service, 150\nDeep clean, 320.50",
+    people: "tech@coolair.ae, technician\nbooks@coolair.ae, accountant",
+  };
+
+  beforeAll(async () => {
+    await buildArtifact(new URL("../../../examples/home-services", import.meta.url).pathname, join(process.env.CONTROL_TEMPLATES_DIR as string, "home-services"));
+  });
+
+  /** A dashboard signed in with a token of a verified user: the user's email becomes the app's first owner. */
+  async function setUp(answer: () => { status: number; body: unknown }) {
+    const d = await dash();
+    await signup(d.h, "owner@coolair.ae", "t_cool");
+    const user = (await d.h.db.query<{ id: string }>("select id from users where email = 'owner@coolair.ae'"))[0] as { id: string };
+    const token = (await createTenantToken(d.h.db, "t_cool", "dashboard", ["*"], 30, d.h.clock.now, user.id)).token;
+    await registeredNode(d.h, "node-1");
+    expect(await signinActions.default(actionCtx(d, "/signin", "default", { token, next: "/" }))).toBeInstanceOf(Response);
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    d.h.deps.callApp = async (url, init) => {
+      calls.push({ url, body: JSON.parse(init.body) as Record<string, unknown> });
+      return answer();
+    };
+    return { d, calls };
+  }
+
+  test("the page offers the form next to the starters, which stay as they were; the form's lines become the setup object", async () => {
+    const d = await dash();
+    await signup(d.h, "owner@coolair.ae", "t_cool");
+    const owner = await tenant(d.h, "t_other");
+    expect(await signinActions.default(actionCtx(d, "/signin", "default", { token: owner, next: "/" }))).toBeInstanceOf(Response);
+    const page = data(await newLoad(loaderCtx(d, "/apps/new")));
+    expect(page.templates.map((t: { id: string }) => t.id)).toEqual(["hello"]);
+    expect(page.home_services).toMatchObject({ id: "home-services" });
+    expect(page.emirates.map((e: { id: string }) => e.id)).toContain("ras_al_khaimah");
+    expect(setupFromForm(new Map(Object.entries(FORM)))).toEqual({
+      setup: {
+        company: { name: "CoolAir", phone: "+971501234567", emirate: "dubai" },
+        branches: [
+          { name: "Dubai", emirate: "dubai" },
+          { name: "Sharjah", emirate: "sharjah" },
+        ],
+        services: [
+          { name: "AC service", price_aed: 150 },
+          { name: "Deep clean", price_aed: 320.5 },
+        ],
+        people: [
+          { email: "tech@coolair.ae", role: "technician" },
+          { email: "books@coolair.ae", role: "accountant" },
+        ],
+      },
+    });
+    expect(setupFromForm(new Map(Object.entries({ ...FORM, services: "AC service" })))).toEqual({ error: "dash.new.hs_err_services" });
+  });
+
+  test("the action creates the app through the API and shows the invitations; a bad line is refused before the API; a failed setup says the app is live", async () => {
+    const people = [
+      { email: "tech@coolair.ae", role: "technician" },
+      { email: "books@coolair.ae", role: "accountant" },
+    ];
+    const { d, calls } = await setUp(() => ({ status: 200, body: { invited: people, skipped: [] } }));
+    const bad = data(await newActions.create_home_services(actionCtx(d, "/apps/new", "create_home_services", { ...FORM, services: "AC service" })));
+    expect(bad.form_error).toContain("price in AED");
+    expect(data(await newActions.create_home_services(actionCtx(d, "/apps/new", "create_home_services", { ...FORM, branches: "" }))).action_problem).toBeTruthy(); // the API's 400
+    expect(data(await newActions.create_home_services(actionCtx(d, "/apps/new", "create_home_services", { ...FORM, name: "Bad Name" }))).form_error).toContain("lower-case");
+    expect(calls).toEqual([]);
+
+    const made = data(await newActions.create_home_services(actionCtx(d, "/apps/new", "create_home_services", FORM)));
+    expect(made.created).toMatchObject({ app: "coolair", template: "home-services", url: "https://coolair.renox.app", invited: people });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://coolair.renox.app/api/setup");
+    expect(calls[0]?.body).toMatchObject({ company: { name: "CoolAir" }, owner: { email: "owner@coolair.ae" } });
+
+    d.h.deps.callApp = async () => ({ status: 404, body: null });
+    const partial = data(await newActions.create_home_services(actionCtx(d, "/apps/new", "create_home_services", { ...FORM, name: "coolair2" })));
+    expect(partial.created).toBeNull();
+    expect(partial.form_error).toContain("is live");
+    expect(partial.partial).toEqual({ app: "coolair2", url: "https://coolair2.renoxium.app" });
+  });
 });

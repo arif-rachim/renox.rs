@@ -418,4 +418,5 @@ The sessions that wrote this page (#366, #420) had no Cloudflare, R2, Resend or 
 - the R2 buckets, lifecycle and lock rules, keys, a backup and a replica on real R2 (owner list, step 3; "Tenant files to R2");
 - the backup key pair (owner list, step 4);
 - Resend and Zoho, their DNS records, and the Resend key in `control.env` (owner list, step 5);
-- the cut-over of `node-small` ("Cut-over of an existing host"), run by the owner after the merge.
+- the cut-over of `node-small` ("Cut-over of an existing host"), run by the owner after the merge;
+- after each release that changes `examples/home-services`, rebuilding the templates on the host (`bun /opt/renox/src/control/api/src/signup/templates.ts "$CONTROL_TEMPLATES_DIR"`; the API reads the directory on every call, so no restart is needed), so that `createAppFromTemplate` and the MCP tool `create_app_from_template` serve the new template (#689).

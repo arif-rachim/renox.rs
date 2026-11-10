@@ -9,12 +9,13 @@
 // account, so neither enumerates users.
 
 import type { Context, Hono, MiddlewareHandler } from "hono";
-import { operation } from "../audit.ts";
+import { operation, writeAudit } from "../audit.ts";
 import { check } from "../contract.ts";
 import { DPA_VERSION } from "../signup/dpa.ts";
 import type { Deps, Env, Principal } from "../context.ts";
 import { num, numOrNull, type Db } from "../db/db.ts";
 import { ApiError, conflict, invalid, notFound } from "../errors.ts";
+import { escapeHtml, htmlPage, openAuthRequest, originOf } from "../mcp/return.ts";
 import { JSON_LIMIT, readBody } from "../http.ts";
 import { ulid } from "../ids.ts";
 import { ACTIONS, createTenantToken, DAY_MS, sha256hex } from "./tokens.ts";
@@ -80,6 +81,19 @@ const oneTimeField = (v: unknown): string => {
   if (typeof v !== "string" || !/^[a-z2-7]{32}$/u.test(v)) throw notFound();
   return v;
 };
+
+const isForm = (c: Context<Env>): boolean => /^application\/x-www-form-urlencoded(;|$)/u.test(c.req.header("content-type") ?? "");
+
+/** The urlencoded body of the consent page's sign-up form as the JSON body it stands for: empty fields are absent, `dpa_accepted` is true only for "true". */
+async function formBody(c: Context<Env>): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams(new TextDecoder().decode(await readBody(c, 64 * 1024)));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of params) {
+    if (v === "" || k in out) continue;
+    out[k] = k === "dpa_accepted" ? v === "true" : v;
+  }
+  return out;
+}
 
 function optionalString(v: unknown, field: string, max: number): string | undefined {
   if (v === undefined) return undefined;
@@ -200,8 +214,14 @@ function newUserCode(): string {
 export function registerAccounts(app: Hono<Env>, deps: Deps): void {
   const { db } = deps;
 
-  app.post("/v1/account/signup", operation(deps, "signup"), publicRoute(deps), async (c) => {
-    const body = await objectBody(c);
+  /**
+   * #688: the sign-up of the OAuth consent page (src/mcp/oauth.ts) is a script-free HTML form, so it posts
+   * urlencoded with a `return_to`: the sealed authorization request the verification email leads back to.
+   * Anything else in `return_to` is ignored (no open redirect). A form post is answered with a page.
+   */
+  const signup = async (c: Context<Env>, form: boolean): Promise<Response> => {
+    const body = form ? await formBody(c) : await objectBody(c);
+    const returnTo = typeof body.return_to === "string" && openAuthRequest(deps, body.return_to, deps.now())?.expired === false ? body.return_to : null;
     const email = emailField(body.email);
     const password = checkPassword(body.password);
     const tenantId = body.tenant_id === undefined ? undefined : (() => {
@@ -253,16 +273,30 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
     if (outcome.exists) await sendSignupExists(deps, email);
     else {
       c.set("auditTarget", { user_id: outcome.userId, ...(tenantId === undefined ? {} : { tenant_id: tenantId }) });
-      await sendVerification(deps, email, outcome.verify);
+      // With a return_to the link leads to the API, which verifies, signs the user in and returns to the consent page.
+      const url = returnTo === null ? undefined : `${originOf(c, deps)}/oauth/verify?${new URLSearchParams({ token: outcome.verify, request: returnTo })}`;
+      await sendVerification(deps, email, outcome.verify, url);
     }
+    if (form) return htmlPage(202, "Check your email", "<p>If the address can be used, we sent a link to verify it. Open it in this browser: it brings you back to review the access.</p>");
     return c.json({ status: "check_email" }, 202);
+  };
+
+  app.post("/v1/account/signup", operation(deps, "signup"), publicRoute(deps), async (c) => {
+    const form = isForm(c);
+    try {
+      return await signup(c, form);
+    } catch (e) {
+      if (!form || !(e instanceof ApiError)) throw e;
+      const why = e.code === "RENOX_VALIDATION" ? (e.details ?? []).map((d) => `${d.field}: ${d.reason}`).join("; ") : e.code === "RENOX_CONFLICT" ? "that team id or address is not available" : "try again later";
+      return htmlPage(e.status, "The account was not created", `<p>${escapeHtml(why)}</p><p>Go back to the previous page to correct it.</p>`);
+    }
   });
 
-  app.post("/v1/account/verify", operation(deps, "verifyEmail"), publicRoute(deps), async (c) => {
-    const body = await objectBody(c);
+  /** Consumes the verification token, marks the address verified and signs the user in (sets the cookie). */
+  const verify = async (c: Context<Env>, token: unknown): Promise<{ userId: string; sessionId: string; tenantId: string | null; cookie: string }> => {
     const now = deps.now();
     const userId = await db.transaction(async (tx) => {
-      const id = await useEmailToken(tx, oneTimeField(body.token), "verify", now);
+      const id = await useEmailToken(tx, oneTimeField(token), "verify", now);
       await tx.query("update users set email_verified_at = coalesce(email_verified_at, $1) where id = $2", [now, id]);
       return id;
     });
@@ -270,10 +304,62 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
     const user = await userById(db, userId);
     const tenant = (await memberships(db, userId))[0] ?? null;
     const session = await createSession(db, userId, tenant?.tenant_id ?? null, now, clientIp(c), c.req.header("user-agent") ?? null, await sessionState(db, user, now));
-    c.set("principal", { kind: "user", userId, sessionId: session.id, tenantId: tenant?.tenant_id ?? null });
-    c.set("auditTarget", { user_id: userId, session_id: session.id });
-    setSessionCookie(c, session.value);
-    return c.json({ user_id: userId, email_verified: true, ...(tenant === null ? {} : { tenant_id: tenant.tenant_id }) });
+    return { userId, sessionId: session.id, tenantId: tenant?.tenant_id ?? null, cookie: session.value };
+  };
+
+  app.post("/v1/account/verify", operation(deps, "verifyEmail"), publicRoute(deps), async (c) => {
+    const body = await objectBody(c);
+    const v = await verify(c, body.token);
+    setSessionCookie(c, v.cookie);
+    c.set("principal", { kind: "user", userId: v.userId, sessionId: v.sessionId, tenantId: v.tenantId });
+    c.set("auditTarget", { user_id: v.userId, session_id: v.sessionId });
+    return c.json({ user_id: v.userId, email_verified: true, ...(v.tenantId === null ? {} : { tenant_id: v.tenantId }) });
+  });
+
+  // #688: the link of a sign-up made in the consent flow. The GET only shows a page with a button: mail link
+  // scanners prefetch GET links, so a GET must neither burn the one-time token nor start a session.
+  app.get("/oauth/verify", publicRoute(deps), (c) => {
+    c.set("action", "verifyEmail");
+    const request = c.req.query("request");
+    const token = c.req.query("token") ?? "";
+    const resumed = openAuthRequest(deps, request, deps.now());
+    if (resumed === null || resumed.expired) return htmlPage(400, "This link expired", "<p>Start the sign-in from the application again.</p>");
+    if (!/^[a-z2-7]{32}$/u.test(token)) return htmlPage(404, "This link is not valid", "<p>Sign in, or start again from the application.</p>");
+    return htmlPage(
+      200,
+      "Verify your email",
+      `<p>Confirm that this is your address to finish creating your account.</p><form method="post" action="/oauth/verify"><input type="hidden" name="token" value="${escapeHtml(token)}"><input type="hidden" name="request" value="${escapeHtml(request as string)}"><button>Verify and continue</button></form>`,
+    );
+  });
+
+  // The POST (from the page above, same origin) verifies like `verifyEmail`, signs the user in and continues at the
+  // consent page with the sealed request. No CSRF token: the one-time `token` from the email is itself the secret
+  // the request needs, and nobody else can make a victim's browser send it. The continuation is a page with a link
+  // and a refresh, not a 302: the session cookie is SameSite=Strict, and a redirect that follows a click in a mail
+  // client is a cross-site navigation that would not send it. Here the refresh follows our own same-origin POST.
+  app.post("/oauth/verify", publicRoute(deps), async (c) => {
+    c.set("action", "verifyEmail");
+    const body = await formBody(c);
+    const request = body.request;
+    const resumed = openAuthRequest(deps, request, deps.now());
+    if (resumed === null || resumed.expired) return htmlPage(400, "This link expired", "<p>Start the sign-in from the application again.</p>");
+    let v: Awaited<ReturnType<typeof verify>>;
+    try {
+      v = await verify(c, body.token);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.code !== "RENOX_NOT_FOUND") throw e;
+      return htmlPage(404, "This link is not valid", "<p>It was already used or has expired. Sign in, or start again from the application.</p>");
+    }
+    try {
+      await writeAudit(db, { at: deps.now(), tenantId: v.tenantId, actor: `user:${v.userId}`, action: "verifyEmail", target: { user_id: v.userId, session_id: v.sessionId }, status: 200, requestId: c.get("requestId"), ip: clientIp(c) });
+    } catch (e) {
+      deps.log.error("audit write failed", { action: "verifyEmail", request_id: c.get("requestId"), error: String(e) });
+    }
+    const next = `${originOf(c, deps)}/oauth/authorize?${new URLSearchParams({ request: request as string })}`;
+    const page = htmlPage(200, "Email verified", `<p>Your address is verified and you are signed in. <a href="${escapeHtml(next)}">Continue to review the access</a>.</p>`, `<meta http-equiv="refresh" content="0;url=${escapeHtml(next)}">`);
+    // A Response built here does not carry the headers set on the context.
+    page.headers.append("set-cookie", cookie(SESSION_COOKIE, v.cookie, SESSION_ABSOLUTE_MS / 1000));
+    return page;
   });
 
   app.post("/v1/account/verify/resend", operation(deps, "resendVerification"), accountAuth(deps), async (c) => {

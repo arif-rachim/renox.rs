@@ -1,7 +1,8 @@
 # Renox node listener, deploy API contract version 0.3 (F6).
 # The HTTP surface a renox-worker in `mode = "controlled"` serves to the control
 # plane only (docs/contracts/deploy-api.md section 15): restore before serving,
-# replication status, drop, snapshot, import, move. Message bodies are $defs of
+# replication status, drop, snapshot, import, move; from 0.9 the agent-token mint
+# of the owner connector. Message bodies are $defs of
 # control-messages.schema.json. Checked by `bun run docs/contracts/validate.ts`
 # exactly like schemas/deploy-api.yaml (examples validate, invalid examples fail,
 # every RENOX_* code has a row in errors.md, every operation names its caller,
@@ -351,6 +352,57 @@ paths:
               schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
               examples:
                 moving: { value: { error: { code: RENOX_TENANT_MOVING, message: The service is being moved. Try again shortly., request_id: 01JBQ3Z7MA0000000000000036 } } }
+
+  /nodes/{node_id}/tenants/{tenant_id}/apps/{app}/agent-tokens:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+      - name: app
+        in: path
+        required: true
+        schema: { $ref: "control-messages.schema.json#/$defs/app" }
+    post:
+      operationId: nodeMintAgentToken
+      tags: [node-listener]
+      summary: Mint a short-lived agent token of the app's auth module for the owner's app user (0.9, the owner connector's bridge)
+      description: >-
+        The node runs the `auth` module's service `mintAgentToken` in the app's active cell: it
+        finds the app user whose verified email is `email` (not disabled) and writes an
+        `auth__agent_tokens` row with the client `renoxium-platform`, the given `tools:<name>`
+        scopes and an expiry at most `ttl_seconds` (300 at most) ahead. The control plane keeps
+        the token in memory only and calls the app's own `/mcp` with it, so the app's scopes,
+        rate limit, confirmation and Cedar policies apply as that user
+        (docs/20-ai-agents-mcp.md section 1b). The token is never logged.
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: the bridged tool's mcp.<tool> row on the control plane; the app's audit module records the tool call made with the token
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_VALIDATION, RENOX_NOT_FOUND]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/agent_token_request" }
+            examples:
+              settings: { value: { type: agent_token_request, schema_version: 0, tenant_id: t_coolair, app: coolair, email: owner@coolair.ae, scopes: ["tools:update_settings"], ttl_seconds: 300, client_name: Renoxium connector, grant_id: tok_01JBQ40000000000000000AB } }
+            x-renox-invalid-examples:
+              long-ttl: { value: { type: agent_token_request, schema_version: 0, tenant_id: t_coolair, app: coolair, email: owner@coolair.ae, scopes: ["tools:update_settings"], ttl_seconds: 3600, client_name: Renoxium connector, grant_id: tok_01JBQ40000000000000000AB }, x-expect: ttl_seconds }
+              wildcard: { value: { type: agent_token_request, schema_version: 0, tenant_id: t_coolair, app: coolair, email: owner@coolair.ae, scopes: ["tools:*"], ttl_seconds: 300, client_name: Renoxium connector, grant_id: tok_01JBQ40000000000000000AB }, x-expect: pattern }
+      responses:
+        "200":
+          description: The token, valid until `expires_at`.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/agent_token_minted" }
+              examples:
+                minted: { value: { type: agent_token_minted, schema_version: 0, node_id: node-dxb-01, tenant_id: t_coolair, app: coolair, token: renox_agt_Q2xhdWRlQ29ubmVjdG9yVG9rZW4, expires_at: 1793318709000 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404":
+          description: The app is not the tenant's or not active on this node, it has no `auth` module, or no app user has this verified email.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                no-user: { value: { error: { code: RENOX_NOT_FOUND, message: Not found., request_id: 01JBQ3Z7MA0000000000000040, details: [{ field: email, reason: not_an_app_user }] } } }
 
 components:
   securitySchemes:

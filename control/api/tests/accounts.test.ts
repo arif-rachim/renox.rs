@@ -3,6 +3,7 @@
 // "Teammate with too much power").
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { contentHash } from "@renox/artifact-validate";
 import { SESSION_ABSOLUTE_MS, SESSION_COOKIE, SESSION_IDLE_MS } from "../src/auth/sessions.ts";
 import { DAY_MS, sha256hex } from "../src/auth/tokens.ts";
@@ -426,5 +427,180 @@ describe("team and roles (docs/24-threat-model.md E, \"Teammate with too much po
       [404, undefined],
       [200, "owner"],
     ]);
+  });
+});
+
+describe("sign-up inside the OAuth consent flow (#688)", () => {
+  const REDIRECT = "http://127.0.0.1:53682/callback";
+  const form = (o: Record<string, string>) => ({ body: new URLSearchParams(o).toString(), headers: { "content-type": "application/x-www-form-urlencoded" } });
+  const verifier = "v".repeat(43);
+
+  /** A registered client and the path of its authorization request. */
+  async function authorizePath(h: Harness): Promise<string> {
+    const reg = await h.request("POST", "/oauth/register", { json: { client_name: "ChatGPT", redirect_uris: [REDIRECT] } });
+    const id = ((await reg.json()) as { client_id: string }).client_id;
+    return `/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: id, redirect_uri: REDIRECT, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", state: "st-9", scope: "apps:read logs:read" })}`;
+  }
+  /** The sign-up form of the sign-in page: its `return_to`. */
+  async function returnToOf(h: Harness, path: string): Promise<string> {
+    const page = await h.request("GET", path);
+    expect(page.status).toBe(401);
+    expect(page.headers.get("x-frame-options")).toBe("DENY");
+    expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
+    const html = await page.text();
+    expect(html).not.toContain("<script");
+    expect(html).toContain('action="/v1/account/signup"');
+    return /name="return_to" value="([^"]+)"/u.exec(html)?.[1] as string;
+  }
+  const fields = (email: string, returnTo: string, over: Record<string, string> = {}) => ({ email, password: PASSWORD, tenant_id: "t-chatgpt", dpa_accepted: "true", return_to: returnTo, ...over });
+  /** The button page of a verification link, then its form posted as the browser would. */
+  async function confirm(h: Harness, path: string): Promise<Response> {
+    const html = await (await h.request("GET", path)).text();
+    const field = (n: string) => (new RegExp(`name="${n}" value="([^"]*)"`, "u").exec(html)?.[1] ?? "").replace(/&#38;/gu, "&");
+    return h.request("POST", "/oauth/verify", form({ token: field("token"), request: field("request") }));
+  }
+  const verifyLink = (h: Harness, email: string): string => /(http\S+\/oauth\/verify\?\S+)/u.exec(h.mailer.last(email, "verify_email")?.text ?? "")?.[1] as string;
+
+  test("sign-in page offers sign-up; the verification link signs in and lands on the consent page of the original client and scopes; the audit row says signup", async () => {
+    const h = await harness();
+    const path = await authorizePath(h);
+    const returnTo = await returnToOf(h, path);
+    expect(returnTo).toStartWith("rnxreq_");
+    h.clock.now += 1_000; // the user is created after the request was sealed
+
+    const posted = await h.request("POST", "/v1/account/signup", form(fields("owner@example.com", returnTo)));
+    expect(posted.status).toBe(202);
+    expect(posted.headers.get("content-type")).toContain("text/html");
+    const link = verifyLink(h, "owner@example.com");
+    expect(link).toStartWith("http://localhost/oauth/verify?");
+
+    // A mail scanner's GET (twice) shows the button page and consumes nothing: no session, the token still works.
+    const linkPath = link.replace("http://localhost", "");
+    for (let i = 0; i < 2; i++) {
+      const scan = await h.request("GET", linkPath);
+      expect(scan.status).toBe(200);
+      expect(setCookie(scan, SESSION_COOKIE)).toBeNull();
+      expect(await scan.text()).toContain("Verify and continue");
+    }
+    expect((await h.db.query<{ email_verified_at: unknown }>("select email_verified_at from users where email = 'owner@example.com'"))[0]?.email_verified_at).toBeNull();
+    const done = await confirm(h, linkPath);
+    expect(done.status).toBe(200);
+    const cookie = setCookie(done, SESSION_COOKIE) as string;
+    expect(cookie).toBeTruthy();
+    const html = await done.text();
+    const next = /href="([^"]+\/oauth\/authorize\?request=[^"]+)"/u.exec(html)?.[1] as string;
+    expect(next).toBeTruthy();
+    expect(html).toContain(`http-equiv="refresh"`);
+    expect(done.headers.get("x-frame-options")).toBe("DENY");
+
+    const consent = await h.request("GET", new URL(next.replace(/&#38;/gu, "&")).pathname + new URL(next.replace(/&#38;/gu, "&")).search, { session: { cookie, csrf: "x" } });
+    expect(consent.status).toBe(200);
+    const page = await consent.text();
+    expect(page).toContain("ChatGPT");
+    expect(page).toContain("<code>apps:read</code>");
+    expect(page).toContain("<code>logs:read</code>");
+    expect(page).not.toContain("<code>deploy</code>");
+    const request = /name="request" value="([^"]+)"/u.exec(page)?.[1] as string;
+    const decided = await h.request("POST", "/oauth/authorize", { session: { cookie, csrf: "x" }, ...form({ request, decision: "approve" }) });
+    expect(decided.status).toBe(302);
+    const location = new URL(decided.headers.get("location") as string);
+    expect(`${location.origin}${location.pathname}`).toBe(REDIRECT);
+    expect(location.searchParams.get("state")).toBe("st-9");
+    expect(location.searchParams.get("code")).toStartWith("rnxcode_");
+    const rows = await audit(h, "mcpAuthorize");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.target).toMatchObject({ decision: "approve", signup: true });
+
+    // The link works once.
+    expect((await confirm(h, linkPath)).status).toBe(404);
+  });
+
+  test("an existing user who signs in and resumes the sealed request is not marked as signed up in the flow", async () => {
+    const h = await harness();
+    const s = await signup(h, "old@example.com", "t-old");
+    const path = await authorizePath(h);
+    const returnTo = await returnToOf(h, path);
+    h.clock.now += 60_000;
+    const consent = await h.request("GET", `/oauth/authorize?${new URLSearchParams({ request: returnTo })}`, { session: s });
+    expect(consent.status).toBe(200);
+    const request = /name="request" value="([^"]+)"/u.exec(await consent.text())?.[1] as string;
+    expect((await h.request("POST", "/oauth/authorize", { session: s, ...form({ request, decision: "approve" }) })).status).toBe(302);
+    expect((await audit(h, "mcpAuthorize"))[0]?.target).not.toHaveProperty("signup");
+  });
+
+  test("friction applies: a disposable domain is refused (nothing stored), the DPA is required, the team id is validated", async () => {
+    const h = await harness();
+    const returnTo = await returnToOf(h, await authorizePath(h));
+    const disposable = await h.request("POST", "/v1/account/signup", form(fields("x@mailinator.com", returnTo)));
+    expect(disposable.status).toBe(400);
+    expect(await disposable.text()).toContain("email: disposable");
+    const noDpa = await h.request("POST", "/v1/account/signup", form(fields("y@example.com", returnTo, { dpa_accepted: "no" })));
+    expect(noDpa.status).toBe(400);
+    const badTeam = await h.request("POST", "/v1/account/signup", form(fields("y@example.com", returnTo, { tenant_id: "Bad Team!" })));
+    expect(badTeam.status).toBe(400);
+    expect(await h.db.query("select 1 from users")).toHaveLength(0);
+    expect(h.mailer.sent).toHaveLength(0);
+  });
+
+  test("return_to accepts only a sealed authorization request of this API: anything else is ignored and the dashboard link is mailed", async () => {
+    const h = await harness();
+    for (const [i, bad] of ["https://evil.example/phish", "rnxreq_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "rnxcon_x", ""].entries()) {
+      const email = `u${i}@example.com`;
+      const res = await h.request("POST", "/v1/account/signup", { json: { email, password: PASSWORD, tenant_id: `t-bad${i}`, return_to: bad }, ip: `203.0.113.${i + 1}` });
+      expect(res.status).toBe(202);
+      const mail = h.mailer.last(email, "verify_email")?.text ?? "";
+      expect(mail).toContain("https://dashboard.renox.test/signup/verify#token=");
+      expect(mail).not.toContain("evil.example");
+      expect(mail).not.toContain("/oauth/verify");
+    }
+    // A forged request on the verification link is refused, and so is a missing one; the token is not used up.
+    const real = await returnToOf(h, await authorizePath(h));
+    await h.request("POST", "/v1/account/signup", { json: { email: "v@example.com", password: PASSWORD, tenant_id: "t-v", return_to: real }, ip: "203.0.113.50" });
+    const link = verifyLink(h, "v@example.com").replace("http://localhost", "");
+    const token = new URL(`http://x${link}`).searchParams.get("token") as string;
+    expect((await h.request("GET", `/oauth/verify?token=${token}`)).status).toBe(400);
+    expect((await h.request("GET", `/oauth/verify?token=${token}&request=rnxreq_forged`)).status).toBe(400);
+    expect((await h.request("POST", "/oauth/verify", form({ token, request: "rnxreq_forged" }))).status).toBe(400);
+    expect((await confirm(h, link)).status).toBe(200);
+  });
+
+  test("the sealed request lives 30 minutes on this path, then the link and the page ask to start again", async () => {
+    const h = await harness();
+    const path = await authorizePath(h);
+    const returnTo = await returnToOf(h, path);
+    await h.request("POST", "/v1/account/signup", form(fields("late@example.com", returnTo)));
+    const link = verifyLink(h, "late@example.com").replace("http://localhost", "");
+    h.clock.now += 29 * 60_000;
+    expect((await h.request("GET", `/oauth/authorize?${new URLSearchParams({ request: returnTo })}`)).status).toBe(401); // still valid: sign-in
+    h.clock.now += 2 * 60_000;
+    expect((await h.request("GET", `/oauth/authorize?${new URLSearchParams({ request: returnTo })}`)).status).toBe(400);
+    expect((await h.request("GET", link)).status).toBe(400);
+    expect((await confirm(h, link)).status).toBe(400);
+    // After 30 minutes a sign-up with the old return_to is the plain sign-up: the dashboard link.
+    await h.request("POST", "/v1/account/signup", form(fields("later@example.com", returnTo, { tenant_id: "t-later" })));
+    expect(h.mailer.last("later@example.com", "verify_email")?.text).toContain("#token=");
+  });
+
+  test("with a CAPTCHA configured the page links to the dashboard's sign-up with the sealed request as return_to; the API then mails the /oauth/verify link", async () => {
+    const h = await harness();
+    const path = await authorizePath(h);
+    const saved = process.env.RENOX_CAPTCHA_SECRET;
+    process.env.RENOX_CAPTCHA_SECRET = "secret";
+    let html: string;
+    try {
+      html = await (await h.request("GET", path)).text();
+    } finally {
+      if (saved === undefined) delete process.env.RENOX_CAPTCHA_SECRET;
+      else process.env.RENOX_CAPTCHA_SECRET = saved;
+    }
+    expect(html).not.toContain('action="/v1/account/signup"');
+    const href = /href="(https:\/\/dashboard\.renox\.test\/signup\?[^"]+)"/u.exec(html)?.[1] as string;
+    expect(href).toBeTruthy();
+    const returnTo = new URL(href.replace(/&#38;/gu, "&")).searchParams.get("return_to") as string;
+    expect(returnTo).toStartWith("rnxreq_");
+    // What the dashboard's sign-up page forwards in its JSON body.
+    const res = await h.request("POST", "/v1/account/signup", { json: { email: "cap@example.com", password: PASSWORD, tenant_id: "t-cap", dpa_accepted: true, return_to: returnTo } });
+    expect(res.status).toBe(202);
+    expect(verifyLink(h, "cap@example.com")).toStartWith("http://localhost/oauth/verify?");
   });
 });

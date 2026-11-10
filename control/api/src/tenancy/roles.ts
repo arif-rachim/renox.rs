@@ -206,6 +206,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   showOAuthConsent: "public",
   decideOAuthConsent: "public",
   exchangeOAuthCode: "public",
+  revokeOAuthToken: "public",
   callMcp: "public",
   mcpMethodNotAllowed: "public",
 };

@@ -21,7 +21,9 @@
     { "$ref": "#/$defs/tenant_dropped" },
     { "$ref": "#/$defs/import_result" },
     { "$ref": "#/$defs/move_request" },
-    { "$ref": "#/$defs/move_result" }
+    { "$ref": "#/$defs/move_result" },
+    { "$ref": "#/$defs/agent_token_request" },
+    { "$ref": "#/$defs/agent_token_minted" }
   ],
   "$defs": {
     "schema_version": { "const": 0 },
@@ -619,6 +621,46 @@
       "if": { "properties": { "state": { "const": "moved" } } },
       "then": { "properties": { "hook_exit_code": { "const": 0 } } },
       "else": { "properties": { "hook_exit_code": { "minimum": 1 } } }
+    },
+    "agent_token_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "tenant_id", "app", "email", "scopes", "ttl_seconds", "client_name", "grant_id"],
+      "description": "POST /nodes/{node_id}/tenants/{tenant_id}/apps/{app}/agent-tokens (0.9, section 15): the bridge of the owner connector. The node runs the auth module's mintAgentToken in the app's active cell for the app user with this verified email.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "agent_token_request" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "app": { "$ref": "#/$defs/app" },
+        "email": { "type": "string", "maxLength": 254, "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^tools:[a-z][a-z0-9_]{0,63}$" }
+        },
+        "ttl_seconds": { "type": "integer", "minimum": 30, "maximum": 300 },
+        "client_name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "grant_id": { "type": "string", "pattern": "^[0-9A-Za-z_-]{1,64}$", "description": "The connector's access-token id on the control plane, for the app's audit row." }
+      }
+    },
+    "agent_token_minted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "tenant_id", "app", "token", "expires_at"],
+      "description": "200 answer of the mint: an agent token of the app's auth module (renox_agt_), held in the control plane's memory only and never logged.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "agent_token_minted" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "app": { "$ref": "#/$defs/app" },
+        "token": { "type": "string", "pattern": "^renox_agt_[0-9A-Za-z_-]{16,128}$" },
+        "expires_at": { "$ref": "#/$defs/unix_ms" }
+      }
     }
   }
 }

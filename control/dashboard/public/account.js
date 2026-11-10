@@ -372,6 +372,9 @@
       };
       if (body.password.length < 12) return error(msg("err_password"));
       if (!f.dpa.checked) return error(msg("err_accept"));
+      // #688: arriving from an OAuth consent page (`/signup?return_to=<sealed request>`), the API's verification mail leads back to it. Only forwarded: the API accepts nothing but its own live sealed request.
+      const returnTo = typeof location === "undefined" ? "" : new URLSearchParams(location.search).get("return_to") || "";
+      if (returnTo !== "" && returnTo.length <= 4096) body.return_to = returnTo;
       if ($("captcha")) {
         const token = captchaToken(form);
         if (!token) return error(msg("captcha_required"));

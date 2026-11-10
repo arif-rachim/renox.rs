@@ -7,7 +7,7 @@
 import type { Hono } from "hono";
 import { operation } from "../audit.ts";
 import { tenantAuth } from "../auth/middleware.ts";
-import { ACTIONS, covers, createTenantToken, DAY_MS, newTokenValue, parseScope, sha256hex, type CreatedToken } from "../auth/tokens.ts";
+import { ACTIONS, covers, createTenantToken, DAY_MS, newTokenValue, parseScope, revokeTokenFamily, sha256hex, type CreatedToken } from "../auth/tokens.ts";
 import { ApiError, invalid, notFound } from "../errors.ts";
 import { jsonBody, pathParam } from "../http.ts";
 import { jsonb, num, numOrNull } from "../db/db.ts";
@@ -91,7 +91,7 @@ export function registerTokens(app: Hono<Env>, deps: Deps): void {
     const db = tenantDb(deps, c);
     const own = ownOnly(c.get("principal") as Principal & { kind: "tenant" });
     const rows = await db.query<Record<string, unknown>>(
-      "select id, name, scopes, created_at, expires_at, last_used_at, revoked_at from tokens where tenant_id = $1 and ($2::text is null or user_id = $2) order by created_at",
+      "select id, name, scopes, created_at, expires_at, last_used_at, revoked_at from tokens where tenant_id = $1 and kind = 'access' and ($2::text is null or user_id = $2) order by created_at",
       [db.tenantId, own],
     );
     return c.json({
@@ -111,11 +111,8 @@ export function registerTokens(app: Hono<Env>, deps: Deps): void {
     const db = tenantDb(deps, c);
     const own = ownOnly(c.get("principal") as Principal & { kind: "tenant" });
     const id = pathParam(c, "token_id", "TokenId");
-    const rows = await db.query(
-      "update tokens set revoked_at = coalesce(revoked_at, $2) where tenant_id = $1 and id = $3 and ($4::text is null or user_id = $4) returning id",
-      [db.tenantId, deps.now(), id, own],
-    );
-    if (rows.length === 0) throw notFound();
+    // #688: an OAuth connection's access and refresh tokens form a family; revoking one revokes all.
+    if (!(await revokeTokenFamily(db, db.tenantId, id, deps.now(), own))) throw notFound();
     return c.body(null, 204);
   });
 }
