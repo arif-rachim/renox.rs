@@ -1,114 +1,236 @@
-<r-layout use="main">
-  <r-group slot="title">Renoxium · TypeScript app hosting</r-group>
+<r-layout use="home">
+  <r-group slot="title">Renoxium · Own your business software</r-group>
 
-  <!-- Hero: the dot-matrix headline in two parts around the diagram of a request's real path. -->
-  <section class="hero home-hero" aria-labelledby="hero-title">
-    <p class="pill quiet">TypeScript app hosting</p>
-    <h1 id="hero-title" class="dot">Deploy. Run.</h1>
-    <div class="flow" role="img" aria-label="A request reaches Renoxium through a custom domain and the edge, and runs in an isolate with its own SQLite file, backed up.">
-      <ul class="flow-side flow-start">
-        <li><span class="pill">request</span><span class="pt"></span><span class="line"></span></li>
-        <li><span class="pill">custom domain</span><span class="pt"></span><span class="line"></span></li>
-        <li><span class="pill">edge</span><span class="pt"></span><span class="line"></span></li>
-      </ul>
-      <div class="flow-tile" aria-hidden="true"><i><b></b></i></div>
-      <ul class="flow-side flow-end">
-        <li><span class="line"></span><span class="pt"></span><span class="pill">isolate</span></li>
-        <li><span class="line"></span><span class="pt"></span><span class="pill">SQLite</span></li>
-        <li><span class="line"></span><span class="pt"></span><span class="pill">backup</span></li>
-      </ul>
-    </div>
-    <p class="dot" aria-hidden="true">Scale.</p>
-    <p class="lede">Add sign-in, teams, billing and admin as modules, then deploy your TypeScript app to hosting that charges only for what it uses.</p>
-    <p class="actions"><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a> <a class="button go" href="/docs/getting-started">Read the docs</a></p>
-  </section>
-
-  <!-- Card row: numbers that are true and measured (docs/14-benchmarks.md), and the way in. -->
-  <section class="cards home-stats" aria-label="Measured numbers">
-    <div class="card stat" r-for="s in stats"><b class="value">{{ s.value }}<small r-if="s.unit">{{ s.unit }}</small></b><span class="caption">{{ s.caption }}</span></div>
-    <div class="card card-text">
-      <p>One app is a folder of TypeScript and HTML. Renoxium builds it, runs it in its own V8 isolate with its own SQLite file, and keeps every deploy for a one-click rollback.</p>
-      <p><a class="button go" href="https://dashboard.renoxium.com/signup">Sign up</a></p>
+  <!-- 1. Hero: the why, then the conversation (copy deck, section 1). -->
+  <section id="hero" class="hero-own" aria-labelledby="hero-title">
+    <h1 id="hero-title">Own your business software the way you own your shop.</h1>
+    <div class="hero-grid">
+      <div class="hero-text">
+        <p class="hero-lede">You have had two choices: rent software that does not fit your business and charges for every person who uses it, or pay someone a great deal to build it and hope they stay around. There is a third. Tell the ChatGPT or Claude you already use about your company. It builds your app from finished parts, puts it on your own web address, and changes it whenever you ask. The app is yours.</p>
+        <p class="actions">
+          <a class="button primary" href="#ask">Connect to your ChatGPT or Claude <span class="soon">· coming soon, join the list</span></a>
+          <a class="button" :href="links.whatsapp">Set it up with us today, on WhatsApp</a>
+        </p>
+      </div>
+      <figure class="hero-chat">
+        <ol class="chat" data-ui="conversation" aria-label="A conversation with Renoxium">
+          <li r-for="t in conversation" :class="t.who">
+            <span class="who" r-if="t.who == 'owner'">Owner</span>
+            <span class="who" r-else>Renoxium</span>
+            <p>{{ t.text }}</p>
+          </li>
+        </ol>
+        <figcaption>A conversation with the planned connector, using our real finished app. What is live today and what is coming: <a href="#how-it-works">just below</a>.</figcaption>
+      </figure>
     </div>
   </section>
 
-  <!-- Feature sections: a headline that mixes ink and muted words, a paragraph, a link to the docs, and a field of cells lighting up on a node. -->
-  <section class="feature" r-for="f in features" :aria-labelledby="f.id">
-    <div class="feature-text">
-      <h2 :id="f.id">{{ f.head }} <span class="muted">{{ f.muted }}</span></h2>
-      <p>{{ f.text }}</p>
-      <p r-if="f.items"><span class="pill" r-for="i in f.items">{{ i }}</span></p>
-      <p><a class="button go" :href="f.href">{{ f.link }}</a></p>
-    </div>
-    <figure class="feature-figure">
-      <div class="dots" aria-hidden="true" r-html="f.dots"></div>
+  <!-- 2. The why, in one statement. -->
+  <section id="why" class="why" aria-labelledby="why-title">
+    <h2 id="why-title" class="visually-hidden">The why, in one statement</h2>
+    <p class="statement">Software for a business has always meant one of two things: rent something rigid, or pay someone to build something you do not own. Your AI can now write software cheaply. That ends the dilemma, on two conditions: the app must already be complete, and the parts that must never break must not be the parts the AI writes.</p>
+  </section>
 
-      <!-- Interface fragments: the product's own screens and files, cropped, with sample data (data-ui). -->
-      <div class="ui-frag" data-ui r-if="f.id == 'modules'">
-        <p class="ui-frag-title">Modules <span class="muted">· shop</span></p>
-        <table class="list">
-          <thead><tr><th>Module</th><th>Version</th><th>Status</th></tr></thead>
+  <!-- 3. What you can ask for, and what is live today. -->
+  <section id="how-it-works" class="asks" aria-labelledby="asks-title">
+    <h2 id="asks-title">Four things you can ask for.</h2>
+    <ol class="ask-list">
+      <li r-for="a in asks">
+        <h3>{{ a.ask }}</h3>
+        <p>{{ a.text }}</p>
+        <p class="status" :class="{ live: a.live }">{{ a.status }}</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 4. The alternatives, honestly. -->
+  <section id="alternatives" class="alternatives" aria-labelledby="alt-title">
+    <h2 id="alt-title">What you would do instead, and when you should.</h2>
+    <table class="alt-table">
+      <thead><tr><th scope="col">Instead of Renoxium</th><th scope="col">What it costs you</th><th scope="col">Pick it if</th></tr></thead>
+      <tbody>
+        <tr r-for="r in alternatives">
+          <th scope="row"><strong>{{ r.name }}</strong> <span r-if="r.note">{{ r.note }}</span></th>
+          <td data-label="What it costs you">{{ r.cost }}</td>
+          <td data-label="Pick it if">{{ r.pick }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="footnote">We wrote this table the way we would want a competitor to write about us. If a row is unfair, tell us.</p>
+  </section>
+
+  <!-- 5A. A finished app first, then your changes: four real screens with the sample data of the conversation. -->
+  <section id="finished" class="get get-finished" aria-labelledby="finished-title">
+    <div class="get-text">
+      <h2 id="finished-title">Finished on day one.</h2>
+      <p>An app that starts empty is a project; an app that starts finished is a tool. CoolAir in the conversation is FixIt, our complete home-services app: customers and their sites, quotations approved on WhatsApp, jobs and a live day board, the technician’s visit on a phone with photos and the customer’s signature and a PDF report, tax invoices the FTA accepts with cash, transfer and cheque payments, maintenance contracts that renew themselves, reports, and a back office with your name and colours. English and Arabic. Home services is the first trade; the next ones follow the first customers.</p>
+    </div>
+    <div class="screens">
+      <!-- The quotation approval on a phone. -->
+      <div class="ui ui-quote" data-ui="quotation">
+        <p class="ui-head"><b>CoolAir</b> <span>Quotation Q-0418</span></p>
+        <p class="ui-sub">Al Nahda Residence, flat 1204, Sharjah</p>
+        <table class="ui-lines">
           <tbody>
-            <tr><td><code>auth</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
-            <tr><td><code>org</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
-            <tr><td><code>billing</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
-            <tr><td><code>admin</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
+            <tr><td>AC service, 3 split units</td><td class="n">450.00</td></tr>
+            <tr><td>Gas top-up, 1 unit</td><td class="n">180.00</td></tr>
+            <tr><td>90-day parts warranty</td><td class="n">included</td></tr>
+            <tr class="sum"><td>Subtotal</td><td class="n">630.00</td></tr>
+            <tr class="sum"><td>VAT 5 %</td><td class="n">31.50</td></tr>
+            <tr class="total"><td>Total, AED</td><td class="n">661.50</td></tr>
           </tbody>
         </table>
+        <p class="ui-actions"><span class="ui-button primary">Approve</span> <span class="ui-button">Ask a question</span></p>
       </div>
 
-      <div class="ui-frag" data-ui r-if="f.id == 'runs'">
-        <p class="ui-frag-title">shop <span class="pill ok">● live</span></p>
-        <dl class="ui-frag-facts">
-          <div><dt>Isolate</dt><dd>own V8 heap, CPU limit per request</dd></div>
-          <div><dt>Database</dt><dd><code>shop</code> · one SQLite file</dd></div>
-          <div><dt>Backup</dt><dd>replicated continuously</dd></div>
-          <div><dt>Idle</dt><dd>evicted, the file closed</dd></div>
+      <!-- The day board of the dispatchers. -->
+      <div class="ui ui-board" data-ui="day-board">
+        <p class="ui-head"><b>Day board</b> <span>Sharjah · Tuesday</span></p>
+        <ol class="board">
+          <li><span class="tech">Ravi</span><span class="slot done"><time>09:00</time> AC service · Al Nahda <em>done</em></span><span class="slot now"><time>11:30</time> Leak check · Al Majaz <em>on the way</em></span></li>
+          <li><span class="tech">Imran</span><span class="slot now"><time>10:00</time> Contract visit · Muwaileh <em>on site</em></span><span class="slot"><time>14:00</time> AC service · Al Taawun</span></li>
+          <li><span class="tech">Joseph</span><span class="slot done"><time>08:30</time> Installation · Al Qasimia <em>done</em></span><span class="slot"><time>13:00</time> Repair · Al Khan</span></li>
+          <li><span class="tech">Ahmed</span><span class="slot"><time>12:00</time> Contract visit · Al Majaz</span><span class="slot"><time>15:30</time> Gas top-up · Al Nahda</span></li>
+        </ol>
+      </div>
+
+      <!-- The technician's visit page on the phone. -->
+      <div class="ui ui-visit" data-ui="visit">
+        <p class="ui-head"><b>Visit</b> <span>11:30 · Al Majaz</span></p>
+        <p class="ui-sub">Leak check, 1 split unit · Mr Khan</p>
+        <dl class="ui-facts">
+          <div><dt>Photos</dt><dd>3 added</dd></div>
+          <div><dt>Parts used</dt><dd>Drain pump</dd></div>
+          <div><dt>Customer’s signature</dt><dd>Signed, 11:52</dd></div>
         </dl>
+        <p class="ui-actions"><span class="ui-button primary">Finish and send the PDF report</span></p>
       </div>
 
-      <div class="ui-frag" data-ui r-if="f.id == 'domains'">
-        <p class="ui-frag-title">Records for <code>www.shop.ae</code></p>
-        <table class="list">
-          <thead><tr><th>Type</th><th>Name</th><th>Value</th></tr></thead>
+      <!-- The Arabic tax invoice. -->
+      <div class="ui ui-invoice" data-ui="invoice" dir="rtl" lang="ar">
+        <p class="ui-head"><b>فاتورة ضريبية</b> <span>INV-2026-0312</span></p>
+        <p class="ui-sub">كول إير لصيانة التكييف، الشارقة · الرقم الضريبي <span class="num">100234567800003</span></p>
+        <table class="ui-lines">
           <tbody>
-            <tr><td>CNAME</td><td><code>www.shop.ae</code></td><td><code>renoxium.app</code></td></tr>
-            <tr><td>TXT</td><td><code>_cf-custom-hostname.www</code></td><td><span class="muted">ownership</span></td></tr>
-            <tr><td>TXT</td><td><code>_acme-challenge.www</code></td><td><span class="muted">certificate</span></td></tr>
+            <tr><td>صيانة مكيفات، 3 وحدات سبليت</td><td class="n">450.00</td></tr>
+            <tr><td>تعبئة غاز، وحدة واحدة</td><td class="n">180.00</td></tr>
+            <tr><td>ضمان قطع الغيار 90 يوماً</td><td class="n">مشمول</td></tr>
+            <tr class="sum"><td>المجموع الفرعي</td><td class="n">630.00</td></tr>
+            <tr class="sum"><td>الضريبة 5 %</td><td class="n">31.50</td></tr>
+            <tr class="total"><td>الإجمالي، درهم</td><td class="n">661.50</td></tr>
           </tbody>
         </table>
-      </div>
-
-      <div class="ui-frag" data-ui r-if="f.id == 'agents'">
-        <p class="ui-frag-title"><code>.mcp.json</code> <span class="muted">· written by renox new</span></p>
-        <pre data-lang="json">{
-  "mcpServers": {
-    "renox": {
-      "command": "renox",
-      "args": ["mcp", "--project", "."]
-    }
-  }
-}</pre>
-      </div>
-    </figure>
-  </section>
-
-  <!-- Pricing teaser in dirhams, from pricing.toml (the pricing page's source). -->
-  <section class="pricing-teaser" aria-labelledby="plans-title">
-    <h2 id="plans-title">Plans in dirhams, <span class="muted">a tax invoice every month</span></h2>
-    <p>Monthly, excluding 5 % VAT. <a href="/pricing">Every quota of every plan</a></p>
-    <div class="cards plans-row">
-      <div class="card stat" r-for="p in plans">
-        <b class="value"><small class="pre">{{ currency }}</small>{{ p.price }}</b>
-        <span class="caption"><strong>{{ p.name }}</strong> · {{ p.requests }} requests a month · {{ p.apps }} apps · {{ p.db }} database</span>
-        <span><a class="button" href="https://dashboard.renoxium.com/signup">Start with {{ p.name }}</a></span>
       </div>
     </div>
   </section>
 
-  <section class="closing" aria-labelledby="close-title">
-    <h2 id="close-title" class="dot dot-small">Put your app online</h2>
-    <p class="lede">It will live at <code>&lt;app&gt;.renoxium.app</code>. The Free plan is {{ currency }} 0.00 a month.</p>
-    <p class="actions"><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a></p>
+  <!-- 5B. Yours, in a way you can check. -->
+  <section id="yours" class="get get-side" aria-labelledby="yours-title">
+    <div class="get-text">
+      <h2 id="yours-title">Yours. Not a promise, a fact you can test.</h2>
+      <p>Everyone says “your data is yours”; few let you walk out with it. Your company’s data is one file, and you can ask for a copy of it any time, today. The software itself is open: anyone can read it, nothing is hidden, and it can be run on a server that is not ours. A complete take-away of your app, its files and its settings, with a guide to run it on your own server, is being built in the open (<a :href="links.takeAway">#668</a>). Until that ships we do not print the sentence we want to print.</p>
+    </div>
+    <div class="ui ui-data" data-ui="your-data">
+      <p class="ui-head"><b>Your data</b> <span>CoolAir</span></p>
+      <dl class="ui-facts">
+        <div><dt>Your company’s data</dt><dd>One file <span class="ui-button">Ask for a copy</span></dd></div>
+        <div><dt>The software</dt><dd>Open: anyone can read it</dd></div>
+        <div><dt>Take-away of your app</dt><dd>Being built in the open</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- 5C. The parts that must never break. -->
+  <section id="never-break" class="get get-side get-flip" aria-labelledby="never-title">
+    <div class="get-text">
+      <h2 id="never-title">What your AI is not allowed to touch.</h2>
+      <p>When an AI improvises your login or your invoices, it works until the day it does not. Sign-in and the second code on the phone, who may see what, payments, tax invoices and VAT, WhatsApp, the record of who did what, backups: these are finished parts that Renoxium keeps correct and up to date. Your app runs in its own sealed room on our servers, so another company’s mistake or traffic cannot reach yours. When the UAE e-invoicing rules reach small businesses in 2027, that update is our work, not your project.</p>
+    </div>
+    <div class="ui ui-parts" data-ui="finished-parts">
+      <p class="ui-head"><b>Finished parts</b> <span>kept by Renoxium</span></p>
+      <ul class="parts">
+        <li>Sign-in and the second code on the phone</li>
+        <li>Who may see what</li>
+        <li>Payments</li>
+        <li>Tax invoices and VAT</li>
+        <li>WhatsApp</li>
+        <li>The record of who did what</li>
+        <li>Backups</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 5D. Made for here. -->
+  <section id="uae" class="get get-uae" aria-labelledby="uae-title">
+    <h2 id="uae-title">Built for a business in the UAE.</h2>
+    <ul class="uae-list">
+      <li>Dirhams and fils</li>
+      <li>5 % VAT and your TRN on an invoice numbered the way the tax office expects</li>
+      <li>Credit notes</li>
+      <li>+971 numbers and TRNs checked as you type</li>
+      <li>Emirates and areas instead of postcodes</li>
+      <li>Hijri dates where you want them</li>
+      <li>Arabic PDFs</li>
+      <li>WhatsApp for approvals, reminders and sign-in codes</li>
+    </ul>
+  </section>
+
+  <!-- 6. Proof: only measured things, each with a link to how it was measured. -->
+  <section id="proof" class="proof" aria-labelledby="proof-title">
+    <h2 id="proof-title">Measured, not promised.</h2>
+    <ul class="figures">
+      <li r-for="s in stats">
+        <b class="figure">{{ s.value }} <small>{{ s.unit }}</small></b>
+        <p>{{ s.text }}</p>
+        <p><a :href="s.href">{{ s.link }}</a></p>
+      </li>
+    </ul>
+    <p>The software, the measurements and the list of open problems are public: <a :href="links.code">the code</a>, <a :href="links.benchmarks">the benchmarks</a>, <a :href="links.status">the status page</a>.</p>
+    <p class="footnote">No customer logos, no quotes: the first named customer’s numbers will stand here when there is one.</p>
+  </section>
+
+  <!-- 7. Build on Renoxium: developers and agencies, the one technical section. -->
+  <section id="developers" class="developers" aria-labelledby="dev-title">
+    <div class="dev-text">
+      <h2 id="dev-title">For the people who build apps for others.</h2>
+      <p>The finished parts in the conversation are modules you install: <code>renox add auth org billing admin</code>. Each app runs in its own V8 isolate with its own SQLite file, deploys with one command, and ships <code>AGENTS.md</code> and a local MCP server so your coding agent works on it as a colleague who has read the manual. An agency gets client workspaces and white label. TypeScript, HTML and SQL; no build step, no Docker; the whole platform is Apache-2.0.</p>
+      <p class="dev-links"><a href="/docs/getting-started">Getting started</a> <a href="/docs/modules">The modules</a> <a href="/docs/reference-app">The reference app</a> <a href="/pricing">Pricing for agencies</a></p>
+    </div>
+    <pre data-lang="sh">bun create renox fixit --template home-services
+renox dev
+renox deploy</pre>
+  </section>
+
+  <!-- 8. When not to use Renoxium. -->
+  <section id="not-for" class="not-for" aria-labelledby="not-title">
+    <h2 id="not-title">When not to use Renoxium, and what to pick instead.</h2>
+    <ul>
+      <li r-for="n in notFor">{{ n }}</li>
+    </ul>
+  </section>
+
+  <!-- 9. Price, from pricing.toml, the recommended plan marked. -->
+  <section id="price" class="price" aria-labelledby="price-title">
+    <h2 id="price-title">One company, one plan, a tax invoice every month.</h2>
+    <p>Monthly, in dirhams, excluding 5 % VAT.</p>
+    <ol class="plans">
+      <li r-for="p in plans" :data-plan="p.id" :class="{ recommended: p.recommended }">
+        <h3 r-if="p.recommended">{{ p.name }}, recommended</h3>
+        <h3 r-else>{{ p.name }}</h3>
+        <p class="plan-price">{{ currency }} {{ p.price }}</p>
+        <p>{{ p.text }}</p>
+      </li>
+    </ol>
+    <p class="gaps">No card payments inside your app yet (your staff record cash, transfer and cheque); the e-invoicing connection is on the roadmap for the 2027 rules; business email through a partner is coming; your app runs in one region behind a global network, and we do not promise that data stays in the UAE. <a href="/pricing">Every limit of every plan</a></p>
+  </section>
+
+  <!-- 10. The ask. -->
+  <section id="ask" class="ask" aria-labelledby="ask-title">
+    <h2 id="ask-title">Start with a conversation.</h2>
+    <p>Join the list for the ChatGPT and Claude connector, or write to us today and we set your app up with you in an hour, on the Free plan, at &lt;name&gt;.renoxium.app.</p>
+    <p class="actions">
+      <a class="button primary" :href="links.connectorList">Join the connector list</a>
+      <a class="button" :href="links.whatsapp">Write to us on WhatsApp</a>
+    </p>
   </section>
 </r-layout>

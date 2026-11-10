@@ -1,7 +1,8 @@
 /*
  * www: the site's own layer over renox-ui.css (loaded first;
- * packages/ui/README.md, ADR D27). The landing page, the docs layout, the
- * pricing page. No script on the site. Logical properties only.
+ * packages/ui/README.md, ADR D27, amended for the landing page by D33). The
+ * docs layout, the pricing page, then the landing page (layouts/home.html).
+ * No script on the site. Logical properties only.
  */
 
 body { font-size: 1rem; }
@@ -13,41 +14,9 @@ main p, main li { font-size: 1.0625rem; }
 .site-footer a { color: var(--rx-ink-2); text-decoration: none; }
 .site-footer a:hover { color: var(--rx-ink); }
 
-/* The landing page's hero: the two dot words around the diagram. */
-.home-hero { padding-block-start: var(--rx-7); }
-.home-hero .flow { margin-block: var(--rx-3); }
-.home-hero .flow-side { max-inline-size: 15rem; }
-.home-hero .lede { margin-block-start: var(--rx-5); }
-
-/* The card row of measured numbers. */
-.home-stats .card-text p { font-size: 1rem; }
-
-/* A feature: the text on one side, the field of cells on the other. */
-.feature { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--rx-6); align-items: center; }
-.feature:nth-of-type(even) > .feature-text { order: 1; }
-.feature h2 { font-size: clamp(1.75rem, 3.2vw, 2.5rem); letter-spacing: -.03em; max-inline-size: 22ch; }
-.feature p { max-inline-size: 56ch; color: var(--rx-ink-2); }
-.feature .pill { margin-inline-end: var(--rx-2); margin-block-end: var(--rx-2); }
-.feature-figure { position: relative; display: grid; place-items: center; margin: 0; min-block-size: 18rem; }
-/* The field of cells sits behind the fragment and is clipped to the figure. */
-.feature-figure .dots { position: absolute; inset: 0; overflow: hidden; }
-.feature-figure .dots svg { inline-size: 100%; block-size: 100%; }
-/* An interface fragment: the dashboard's own panel conventions inside it. */
-[data-ui].ui-frag { position: relative; inline-size: min(100%, 26rem); min-block-size: 13rem; padding: var(--rx-4) var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-control); }
-[data-ui] .ui-frag-title { display: flex; align-items: center; gap: var(--rx-2); margin: 0 0 var(--rx-3); font-size: .9375rem; font-weight: 500; }
-[data-ui] .list { margin: 0; font-size: .875rem; }
-[data-ui] .list td, [data-ui] .list th { font-size: .875rem; }
-[data-ui] pre { margin: 0; font-size: .8125rem; }
-[data-ui] .ui-frag-facts { margin: 0; }
-[data-ui] .ui-frag-facts div { display: grid; grid-template-columns: 6rem 1fr; gap: var(--rx-3); padding-block: .5rem; border-block-end: 1px solid var(--rx-rule); }
-[data-ui] .ui-frag-facts div:last-child { border-block-end: 0; }
-[data-ui] .ui-frag-facts dt { font-size: .875rem; color: var(--rx-muted); }
-[data-ui] .ui-frag-facts dd { margin: 0; font-size: .875rem; }
-
-/* The pricing teaser and the pricing page: a plan per column. */
+/* The pricing page: a plan per column. */
 .plans-row .stat .caption strong { color: var(--rx-ink); }
 .plans-row .button { margin-block-start: var(--rx-3); }
-.pricing-teaser h2 { font-size: clamp(1.75rem, 3.2vw, 2.5rem); letter-spacing: -.03em; }
 .plan h2 { margin: 0 0 var(--rx-3); font-size: 1.25rem; }
 .plan .stat { margin-block-end: var(--rx-4); }
 .plan .stat .value { font-size: 2.25rem; }
@@ -57,9 +26,6 @@ ul.plain li:last-child { border-block-end: 0; }
 .plan ul.plain li .muted { display: inline-block; min-inline-size: 9rem; }
 
 .legal { margin-inline: auto; }
-.closing { text-align: center; }
-.closing .lede { margin-inline: auto; }
-.closing .actions { display: flex; justify-content: center; }
 
 /* Documentation: the grouped navigation, the page, the on-page contents. */
 .docs { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 12rem; gap: var(--rx-6); align-items: start; }
@@ -102,12 +68,189 @@ ul.plain li:last-child { border-block-end: 0; }
 @media (max-width: 48rem) {
   main { padding-inline: var(--rx-4); }
   main > section { margin-block-end: var(--rx-8); }
-  .home-hero { padding-block-start: var(--rx-5); }
-  .feature { grid-template-columns: 1fr; gap: var(--rx-4); }
-  .feature:nth-of-type(even) > .feature-text { order: 0; }
-  .feature-figure { min-block-size: 15rem; }
   .docs { grid-template-columns: 1fr; gap: var(--rx-4); }
   .docs-nav { position: static; padding-block-start: 0; }
   .doc-pager { flex-wrap: wrap; }
   .top-links a[href*="github"] { display: none; }
+}
+
+/*
+ * The landing page (#675, ADR D33): layouts/home.html. The composition of the
+ * copy deck, docs/plans/2026-11-09-landing-page-copy.md: one sans face for
+ * text and headlines, the monospace only for the developer section's code;
+ * one accent (the recommended plan, the live marks); flat surfaces, hairline
+ * rules, no shadows, no gradients. Body text 16 px or more in the full ink.
+ */
+.home main { max-inline-size: 72rem; padding-block-start: var(--rx-6); }
+.home main > section { margin-block-end: clamp(4.5rem, 8vw, 7.5rem); scroll-margin-block-start: var(--rx-5); }
+.home main p, .home main li, .home main td, .home main th { font-size: 1.0625rem; color: var(--rx-ink); }
+.home main h2 { font-size: clamp(1.5rem, 3vw, 2.5rem); letter-spacing: -.03em; line-height: 1.12; margin-block: 0 var(--rx-5); max-inline-size: 30ch; }
+.home main h3 { font-size: 1.25rem; font-weight: 500; letter-spacing: -.015em; margin-block-end: var(--rx-2); }
+.home main a:not(.button) { text-decoration-color: var(--rx-ink-2); }
+.home .footnote { color: var(--rx-ink-2); font-size: 1rem; max-inline-size: 60ch; }
+
+/* The buttons: plain pills, no icon square; they wrap on a phone. */
+.home .button { min-block-size: 2.75rem; padding: .6rem 1.25rem; font-size: 1rem; white-space: normal; text-align: center; }
+.home .primary::before, .home .go::before { content: none; }
+.home .button.primary { padding-inline-start: 1.25rem; }
+.home .button.primary { display: inline-block; line-height: 1.35; }
+.home .button .soon { font-weight: 400; color: color-mix(in srgb, var(--rx-pill-ink) 78%, var(--rx-pill)); }
+.home .actions { display: flex; flex-wrap: wrap; gap: var(--rx-3); margin-block-start: var(--rx-5); }
+
+/* The top bar and the footer: on the page's own measure, flat. */
+.home-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rx-2) var(--rx-6); max-inline-size: 72rem; margin-inline: auto; padding: var(--rx-4) var(--rx-5); border-block-end: 1px solid var(--rx-rule); }
+.home-top .brand { text-decoration: none; font-size: 1.0625rem; }
+.home-links { display: flex; flex-wrap: wrap; gap: var(--rx-1) var(--rx-5); margin-inline-start: auto; }
+.home-links a { color: var(--rx-ink); text-decoration: none; font-size: 1rem; }
+.home-links a:hover { text-decoration: underline; }
+.home-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rx-3) var(--rx-6); max-inline-size: 72rem; margin: 0 auto; padding: var(--rx-6) var(--rx-5); border-block-start: 1px solid var(--rx-rule); }
+.home-footer nav { display: flex; flex-wrap: wrap; gap: var(--rx-2) var(--rx-5); }
+.home-footer a { color: var(--rx-ink); text-decoration: none; font-size: 1rem; }
+.home-footer a:hover { text-decoration: underline; }
+.home-footer .muted { margin-inline-start: auto; color: var(--rx-ink-2); font-size: 1rem; }
+
+/* 1. Hero: the headline across, then the why and the conversation side by side. */
+.hero-own h1 { font-size: clamp(1.625rem, 4.6vw, 4.25rem); line-height: 1.05; letter-spacing: -.04em; margin-block: var(--rx-5) var(--rx-7); max-inline-size: 26ch; text-wrap: balance; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--rx-7); align-items: start; }
+.hero-text { position: sticky; inset-block-start: var(--rx-5); }
+.hero-lede { font-size: 1.25rem !important; line-height: 1.5; max-inline-size: 34ch; }
+.hero-chat { margin: 0; }
+.chat { list-style: none; margin: 0; padding: var(--rx-5); display: flex; flex-direction: column; gap: var(--rx-4); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-card); }
+.chat li { max-inline-size: 88%; padding: var(--rx-3) var(--rx-4); border-radius: 16px; background: var(--rx-paper); border: 1px solid var(--rx-rule); }
+.chat li.owner { align-self: flex-end; background: var(--rx-pill); border-color: var(--rx-pill); }
+.chat li.owner p, .chat li.owner .who { color: var(--rx-pill-ink); }
+.chat .who { display: block; margin-block-end: var(--rx-1); font-size: .875rem; font-weight: 500; color: var(--rx-ink-2); }
+.chat p { margin: 0; font-size: 1rem !important; line-height: 1.55; }
+.hero-chat figcaption { margin-block-start: var(--rx-3); font-size: 1rem; color: var(--rx-ink-2); }
+
+/* 2. The why: one statement, large, across the page. */
+.why .statement { font-size: clamp(1.25rem, 2.2vw, 1.875rem) !important; line-height: 1.4; letter-spacing: -.015em; max-inline-size: none; margin: 0; padding-block: var(--rx-6); border-block: 1px solid var(--rx-rule); }
+
+/* 3. The four asks: a list in two columns, split by hairlines, a status line each. */
+.ask-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--rx-7); }
+.ask-list li { padding-block: var(--rx-5); border-block-start: 1px solid var(--rx-rule-strong); }
+.ask-list p { max-inline-size: 52ch; }
+.status { display: flex; gap: var(--rx-2); align-items: baseline; margin: 0; padding-block-start: var(--rx-2); }
+.status::before { content: ""; flex: none; inline-size: .625rem; block-size: .625rem; border-radius: 50%; border: 2px solid var(--rx-ink-2); transform: translateY(.05em); }
+.status.live::before { background: var(--rx-accent); border-color: var(--rx-accent); }
+
+/* 4. The alternatives: a table of four rows. */
+.alt-table { inline-size: 100%; border-collapse: collapse; margin-block-end: var(--rx-4); }
+.alt-table th, .alt-table td { text-align: start; vertical-align: top; padding: var(--rx-4) var(--rx-4) var(--rx-4) 0; border-block-end: 1px solid var(--rx-rule); }
+.alt-table thead th { font-size: 1rem; font-weight: 500; color: var(--rx-ink-2); border-block-end-color: var(--rx-rule-strong); }
+.alt-table tbody th { font-weight: 400; inline-size: 26%; }
+.alt-table tbody th strong { font-weight: 500; }
+.alt-table tbody td:nth-child(2) { inline-size: 42%; }
+
+/* 5. What you get: text beside or above a real screen of the product. */
+.get-text p { max-inline-size: 62ch; }
+.get-finished .get-text { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--rx-7); align-items: start; margin-block-end: var(--rx-6); }
+.get-side { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--rx-7); align-items: center; }
+.get-flip > .get-text { order: 1; }
+.get-uae .uae-list { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: var(--rx-7); }
+.uae-list li { break-inside: avoid; padding-block: var(--rx-3); border-block-start: 1px solid var(--rx-rule); }
+
+/* Interface fragments: the product's screens as HTML, flat, with the sample data of the conversation. */
+.ui { padding: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-card); min-inline-size: 0; }
+.ui p, .ui li, .ui td, .ui dt, .ui dd { font-size: 1rem !important; }
+.ui .ui-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--rx-2); margin: 0 0 var(--rx-2); }
+.ui .ui-head b { font-weight: 500; }
+.ui .ui-head span { color: var(--rx-ink-2); }
+.ui .ui-sub { margin-block-end: var(--rx-4); color: var(--rx-ink-2); }
+.ui-lines { inline-size: 100%; border-collapse: collapse; margin: 0; }
+.ui-lines td { padding: var(--rx-2) 0; border-block-end: 1px solid var(--rx-rule); }
+.ui-lines .n { text-align: end; font-variant-numeric: tabular-nums; padding-inline-start: var(--rx-3); white-space: nowrap; }
+.ui-lines tr.total td { border-block-end: 0; font-weight: 500; padding-block-start: var(--rx-3); }
+.ui-actions { display: flex; flex-wrap: wrap; gap: var(--rx-2); margin: var(--rx-4) 0 0; }
+.ui-button { display: inline-flex; align-items: center; min-block-size: 2.5rem; padding: .4rem 1rem; border: 1px solid var(--rx-rule-strong); border-radius: var(--rx-r-pill); background: var(--rx-paper); font-size: 1rem; }
+.ui-button.primary { background: var(--rx-pill); border-color: var(--rx-pill); color: var(--rx-pill-ink); }
+.ui-facts { margin: 0; }
+.ui-facts div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--rx-2); padding-block: var(--rx-3); border-block-end: 1px solid var(--rx-rule); }
+.ui-facts div:last-child { border-block-end: 0; }
+.ui-facts dt { color: var(--rx-ink-2); }
+.ui-facts dd { margin: 0; display: flex; align-items: center; gap: var(--rx-3); }
+.board { list-style: none; margin: 0; padding: 0; }
+.board li { display: grid; grid-template-columns: 5rem minmax(0, 1fr) minmax(0, 1fr); gap: var(--rx-3); align-items: start; padding-block: var(--rx-3); border-block-end: 1px solid var(--rx-rule); }
+.board li:last-child { border-block-end: 0; }
+.board .tech { font-weight: 500; }
+.board .slot { padding: var(--rx-2) var(--rx-3); border-radius: var(--rx-r-control); background: var(--rx-paper); border: 1px solid var(--rx-rule); }
+.board .slot.now { border-color: var(--rx-ink-2); }
+.board time { font-variant-numeric: tabular-nums; font-weight: 500; margin-inline-end: var(--rx-1); }
+.board em { display: block; font-style: normal; color: var(--rx-ink-2); }
+.parts { list-style: none; margin: 0; padding: 0; }
+.parts li { padding-block: var(--rx-3); border-block-end: 1px solid var(--rx-rule); }
+.parts li:last-child { border-block-end: 0; }
+
+/* The four screens of 5A: the phone-sized quotation beside the day board, the visit and the invoice under it. */
+.screens { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--rx-5); align-items: start; }
+.ui-quote { grid-column: 1 / 5; grid-row: 1 / 3; }
+.ui-board { grid-column: 5 / 13; }
+.ui-visit { grid-column: 5 / 9; }
+.ui-invoice { grid-column: 9 / 13; }
+
+/* 6. Proof: three measured figures, then the public places. */
+.figures { list-style: none; margin: 0 0 var(--rx-5); padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--rx-6); }
+.figures li { padding-block-start: var(--rx-4); border-block-start: 1px solid var(--rx-rule-strong); }
+.figures .figure { display: block; margin-block-end: var(--rx-3); font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 400; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.figures .figure small { font-size: .45em; letter-spacing: 0; color: var(--rx-ink-2); }
+
+/* 7. The developer section: a sunken panel, the one place with code. */
+.developers { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--rx-6); align-items: center; padding: clamp(1.5rem, 4vw, 3rem); background: var(--rx-sunken); border-radius: var(--rx-r-card); }
+.developers pre { margin: 0; background: var(--rx-surface); font-size: .9375rem; }
+.developers code { background: var(--rx-surface); font-size: .9375em; }
+.dev-links { display: flex; flex-wrap: wrap; gap: var(--rx-2) var(--rx-5); margin: 0; }
+
+/* 8. When not to use: four lines. */
+.not-for ul { list-style: none; margin: 0; padding: 0; max-inline-size: 62rem; }
+.not-for li { padding-block: var(--rx-3); border-block-start: 1px solid var(--rx-rule); }
+
+/* 9. Price: four plans side by side, the recommended one marked by the accent. */
+.plans { list-style: none; margin: var(--rx-5) 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--rx-rule-strong); }
+.plans li { padding: var(--rx-5); border-inline-start: 1px solid var(--rx-rule); border-block-start: 3px solid transparent; }
+.plans li:first-child { border-inline-start: 0; padding-inline-start: 0; }
+.plans li.recommended { background: var(--rx-surface); border-block-start: 3px solid var(--rx-accent); padding-inline-start: var(--rx-5); }
+.plans h3 { margin: 0 0 var(--rx-2); }
+.plans .plan-price { font-size: 2rem !important; letter-spacing: -.03em; margin-block-end: var(--rx-3); font-variant-numeric: tabular-nums; }
+.price .gaps { max-inline-size: 70ch; }
+
+/* 10. The ask. */
+.ask { padding-block: var(--rx-7); border-block-start: 1px solid var(--rx-rule); }
+.ask p { max-inline-size: 56ch; }
+
+@media (max-width: 64rem) {
+  .hero-grid, .get-finished .get-text, .get-side, .developers { grid-template-columns: minmax(0, 1fr); gap: var(--rx-5); }
+  .hero-text { position: static; }
+  .get-flip > .get-text { order: 0; }
+  .screens { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-quote, .ui-board, .ui-visit, .ui-invoice { grid-column: auto; grid-row: auto; }
+  .ui-board, .ui-invoice { grid-column: 1 / -1; }
+  .plans { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plans li:nth-child(odd) { border-inline-start: 0; padding-inline-start: 0; }
+  .plans li.recommended { padding-inline-start: var(--rx-5); }
+  .plans li:nth-child(n + 3):not(.recommended) { border-block-start: 1px solid var(--rx-rule); }
+}
+
+@media (max-width: 48rem) {
+  .home main { padding-block-start: var(--rx-4); }
+  .home-top { padding-inline: var(--rx-4); gap: var(--rx-2) var(--rx-4); }
+  .home-links { order: 10; flex-basis: 100%; margin-inline-start: 0; }
+  .home-top .button { margin-inline-start: auto; }
+  .home-footer { padding-inline: var(--rx-4); }
+  .hero-own h1 { margin-block: var(--rx-3) var(--rx-5); }
+  .hero-lede { font-size: 1.125rem !important; }
+  .chat { padding: var(--rx-3); }
+  .chat li { max-inline-size: 94%; }
+  .ask-list, .figures, .screens, .plans { grid-template-columns: minmax(0, 1fr); }
+  .ask-list { gap: 0; }
+  .get-uae .uae-list { columns: 1; }
+  .plans li, .plans li:nth-child(odd), .plans li.recommended { border-inline-start: 0; padding-inline: 0; }
+  .plans li.recommended { padding-inline: var(--rx-4); }
+  .plans li + li:not(.recommended) { border-block-start: 1px solid var(--rx-rule); }
+  .board li { grid-template-columns: minmax(0, 1fr); gap: var(--rx-2); }
+  /* The alternatives table reads as one block per row on a phone. */
+  .alt-table thead { display: none; }
+  .alt-table, .alt-table tbody, .alt-table tr, .alt-table th, .alt-table td { display: block; inline-size: auto !important; }
+  .alt-table tr { padding-block: var(--rx-3); border-block-end: 1px solid var(--rx-rule); }
+  .alt-table th, .alt-table td { border: 0; padding: var(--rx-1) 0; }
+  .alt-table td::before { content: attr(data-label); display: block; font-size: 1rem; color: var(--rx-ink-2); }
 }

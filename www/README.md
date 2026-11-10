@@ -4,7 +4,7 @@ The public site of Renoxium, served at `renoxium.com` (#326): a `renox` app depl
 
 | Route | Source |
 | --- | --- |
-| `/` | `pages/index.html` |
+| `/` | `pages/index.html` with `pages/_layouts/home.html`: the landing page from the copy deck (#675) |
 | `/docs`, `?q=` | The published pages grouped as Get started, Guides, Reference and Concepts; searched by title and section heading (`lib/docs.ts`) |
 | `/docs/:slug` | One published page (`PUBLISHED` in `lib/docs.ts`: the developer documents of `docs/`, `cli/README.md`, `sdk/README.md`, the `ctx.d.ts` types, the errors and manifest contracts, the limits section of `ops.md`), rendered from its markdown at build time (`lib/markdown.ts`) with the grouped navigation, the on-page contents and previous/next. Anything not listed answers 404: the business, roadmap, risks, strategy, plans, execution log, failure modes, threat model, benchmarks, ADRs and the raw deploy API stay in the repository (#428). Links to another published page stay on the site; any other link goes to the repository |
 | `/pricing` | `pricing.toml`, which must equal `control/billing/src/plans.ts` |
@@ -13,7 +13,7 @@ The public site of Renoxium, served at `renoxium.com` (#326): a `renox` app depl
 
 **Documents.** The published pages are an explicit allowlist, `PUBLISHED` in `lib/docs.ts`: one text import and one entry per page, in navigation order. `tests/pages.test.ts` checks that every other markdown file of `docs/` and `docs/contracts/` is 404 under every slug it could have, and that nothing else is imported. Titles lose their numbers (`06 — Data` is `Data`); no file name appears on a page except in the "Source on GitHub" link.
 
-**Design.** renox-ui v2 (`packages/ui/README.md`, ADR D27): the dot-matrix headline and the diagram of the hero, the card row of measured numbers (`docs/14-benchmarks.md`), the feature sections with their dot fields, the plan teaser from `pricing.toml`. The site has no script; `public/site.css` is its own layer over `public/renox-ui.css`, with the font `public/doto-black.woff2` and its licence beside it.
+**Design.** The landing page (`/`, ADR D33, #675) is written for a business owner first: every word comes from the copy deck `docs/plans/2026-11-09-landing-page-copy.md`, in its order (the why, the conversation, the four asks with what is live today, the alternatives, what you get, the measured proof, the developer section, when not to use, the price, the ask). It has its own layout (`pages/_layouts/home.html`: the deck's top bar and footer), shows the product as interface fragments in HTML (`data-ui`, the deck's sample data, an Arabic tax invoice among them), reads its plans from `pricing.toml` with Starter recommended, and takes its links from `lib/contact.ts` (the WhatsApp number, the platform's mail, the dashboard). Outside the developer section and the footer it uses no technical word; `tests/pages.test.ts` checks it. The rest of the site keeps renox-ui v2 (`packages/ui/README.md`, ADR D27) and `pages/_layouts/main.html`. The site has no script; `public/site.css` is its own layer over `public/renox-ui.css`, with the font `public/doto-black.woff2` and its licence beside it (the landing page does not use the dot face).
 
 **Markdown.** The renderer covers the subset the documents use. It escapes every text run and passes no raw HTML, so its output is safe for `r-html`.
 
