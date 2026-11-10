@@ -4885,7 +4885,7 @@ In the Stripe dashboard, point a webhook endpoint at `https://<app host>/billing
 - `checkout.session.expired`
 - `payment_intent.canceled`
 
-**Content Security Policy.** From 1.1.0 the module asks for the sources Stripe's browser code needs (`[permissions] csp` in `module.toml`): `script_src` and `frame_src` for `https://js.stripe.com`, and `frame_src` for `https://hooks.stripe.com` (3-D Secure), as Stripe's guide lists them (https://docs.stripe.com/security/guide#content-security-policy). `renox add billing` shows them and approves them, and `renox approve billing` does the same after a change, and `renox build` merges the approved sources into the page policy, so the app does not repeat them in its own `[security]`. Hosted Checkout (a redirect to `checkout.stripe.com`) needs none of them.
+**Content Security Policy.** From 1.1.0 the module asks for the sources Stripe's browser code needs (`[permissions] csp` in `module.toml`): `script_src` and `frame_src` for `https://js.stripe.com`, and `frame_src` for `https://hooks.stripe.com` (3-D Secure), as Stripe's guide lists them (https://docs.stripe.com/security/guide#content-security-policy). `renox add billing` shows them and approves them (also after a change), and `renox build` merges the approved sources into the page policy, so the app does not repeat them in its own `[security]`. Hosted Checkout (a redirect to `checkout.stripe.com`) needs none of them.
 
 ## Services
 
