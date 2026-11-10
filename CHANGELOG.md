@@ -10,6 +10,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **Modules**
 
+- `admin` 1.0.1: the sidebar links and the dashboard card are built from `base_path` (`/admin/`, `/admin/users`, `/admin/audit`), so they work on the dashboard at `<mount>` with no trailing slash; they were relative and resolved to `/users` and `/audit` (#704).
 - `reports` 1.2.0: the service `reports.readXlsx(bytes)` returns the first sheet of an `.xlsx` (written by Excel, LibreOffice or `reports.xlsx`; shared and inline strings, a formula's cached value) as rows of `string | number | null`; a `Uint8Array` of at most 10 MiB and 100,000 cells, else `TypeError`, `RangeError` or "not an .xlsx file" (#724).
 
 ## 0.1.12 (2026-11-10)

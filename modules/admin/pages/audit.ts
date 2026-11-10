@@ -3,7 +3,7 @@
 // sees the refusal, not the rows).
 import { audit } from "renox:modules";
 
-import { admin, iso, type Page } from "../lib/page.ts";
+import { admin, iso, view, type Page } from "../lib/page.ts";
 
 export const guard = { action: "admin.access" };
 
@@ -16,8 +16,8 @@ export const load = admin(async (ctx: Page) => {
   }
   try {
     const page = (await audit.query(filter)) as { events: { at: number; action: string; actor_id?: string; resource?: string | null; result?: string | null }[]; next: string | null };
-    return { allowed: true, actor: p.get("actor") ?? "", action: p.get("action") ?? "", events: page.events.map((e) => ({ at: iso(e.at), action: e.action, actor: e.actor_id ?? "", resource: e.resource ?? "", result: e.result ?? "" })), next: page.next };
+    return view(ctx, { allowed: true, actor: p.get("actor") ?? "", action: p.get("action") ?? "", events: page.events.map((e) => ({ at: iso(e.at), action: e.action, actor: e.actor_id ?? "", resource: e.resource ?? "", result: e.result ?? "" })), next: page.next });
   } catch {
-    return { allowed: false, actor: "", action: "", events: [], next: null };
+    return view(ctx, { allowed: false, actor: "", action: "", events: [], next: null });
   }
 });

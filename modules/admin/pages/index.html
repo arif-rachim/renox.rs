@@ -2,7 +2,7 @@
   <r-group slot="title">{{ title }}</r-group>
   <h1>{{ title }}</h1>
   <section class="renox-admin-cards">
-    <article id="admin-card-users"><h2><r-t key="admin.nav.users" /></h2><p>{{ users }}</p><a href="users"><r-t key="admin.open" /></a></article>
+    <article id="admin-card-users"><h2><r-t key="admin.nav.users" /></h2><p>{{ users }}</p><a href="{{ base }}/users"><r-t key="admin.open" /></a></article>
     <r-slot name="admin.dashboard" />
   </section>
   <section id="admin-recent" r-if="recent">
