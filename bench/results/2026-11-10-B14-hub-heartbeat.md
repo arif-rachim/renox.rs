@@ -30,7 +30,7 @@ B1 (`shop`, N = 100): 9.89, 9.87, 9.89 MB, **9.89 MB**, V8 heap 3.93 MB. Unchang
 
 Gap to the refinement's 75 MB: **8.2 MB**.
 
-**Measurement note.** A release `renox-worker` built from a checkout reads `crates/renox-runtime/src/js/bootstrap.js` from that checkout when it creates an isolate; the file is not embedded at build time. The binary embeds the path, and changing the file does not rebuild it. A first set of task 2 runs (80.2 MB) had task 3's `bootstrap.js` on disk, and was thrown away. The numbers above are the same binary with the committed `bootstrap.js` of task 2 (`c8533d2`).
+**Measurement note.** A release `renox-worker` built from a checkout without the `renox-runtime/packaged` feature (the bench's build; `release-worker.yml` sets the feature) reads `crates/renox-runtime/src/js/bootstrap.js` from that checkout when the process builds its startup snapshot. The file is not embedded at build time. The binary embeds the path, and changing the file does not rebuild it. A first set of task 2 runs (80.2 MB) had task 3's `bootstrap.js` on disk, and was thrown away. The numbers above are the same binary with the committed `bootstrap.js` of task 2 (`c8533d2`).
 
 Raw: `bench/results/raw/2026-11-10-B14-680-task2*.json`, `bench/results/raw/2026-11-10-B1-680-task2.json`.
 

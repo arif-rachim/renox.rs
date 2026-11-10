@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Host | dev container: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 vCPU, 16 GB RAM, Linux 6.18.44-fc-v338 |
-| Build | release `renox-worker`, `CARGO_PROFILE_RELEASE_DEBUG=0`, the binary of task 2 (task 3 changes only `bootstrap.js`, which that binary reads from the checkout at isolate creation; see the measurement note in `2026-11-10-B14-hub-heartbeat.md`) |
+| Build | release `renox-worker`, `CARGO_PROFILE_RELEASE_DEBUG=0`, the binary of task 2 (task 3 changes only `bootstrap.js`, which a build without the `packaged` feature reads from the checkout when the process starts; see the measurement note in `2026-11-10-B14-hub-heartbeat.md`) |
 | Before | #680 task 2 (`c8533d2`, `bench/results/2026-11-10-B14-hub-heartbeat.md`) |
 | After | task 3 (`crates/renox-runtime/src/js/bootstrap.js`) |
 | Scenario | `bench/run.sh B14 --runs 3` (10 s hold) and one run with `B14_HOLD_S=30`; B1 `shop` N = 100 |
