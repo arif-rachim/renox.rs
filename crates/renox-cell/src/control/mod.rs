@@ -22,6 +22,7 @@
 //! | Artifacts | [`crate::artifact_s3`] |
 
 pub mod degraded;
+pub mod files_export;
 pub mod health;
 pub mod http;
 pub mod log_sink;
