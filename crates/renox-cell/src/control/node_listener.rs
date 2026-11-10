@@ -127,7 +127,6 @@ impl Drop for FileBody {
 /// The largest file `import` takes: the paid tier's database quota.
 pub const IMPORT_LIMIT: u64 = renox_data::PAID_QUOTA_BYTES;
 
-/// An import refused (`RENOX_IMPORT_REJECTED`, `deploy-api.md` section 14).
 /// Removes the staging file and any `-wal`/`-shm` next to it (#645).
 fn remove_import_files(dir: &std::path::Path) {
     for suffix in ["", "-wal", "-shm"] {
@@ -135,6 +134,7 @@ fn remove_import_files(dir: &std::path::Path) {
     }
 }
 
+/// An import refused (`RENOX_IMPORT_REJECTED`, `deploy-api.md` section 14).
 fn import_rejected(field: &str, reason: &str) -> Resp {
     error(
         StatusCode::UNPROCESSABLE_ENTITY,
