@@ -23,6 +23,33 @@ pub struct Csp {
     pub report_only: bool,
 }
 
+impl Csp {
+    /// Drops every source that holds `;` or `,` (`manifest.md` MF17,
+    /// `artifact.md` 1.9.2): in a `Content-Security-Policy` header `;` ends a
+    /// directive and `,` starts a second policy, so a source must never change
+    /// the policy's structure. The cell and the CLI refuse such a manifest; this
+    /// is the gateway's own guard, so a bad source is never merged into the
+    /// header. Each dropped source is logged as a platform warning.
+    fn drop_structural_sources(&mut self) {
+        for (directive, list) in [
+            ("script_src", &mut self.script_src),
+            ("style_src", &mut self.style_src),
+            ("img_src", &mut self.img_src),
+            ("connect_src", &mut self.connect_src),
+            ("frame_src", &mut self.frame_src),
+            ("font_src", &mut self.font_src),
+        ] {
+            list.retain(|src| {
+                let bad = src.contains([';', ',']);
+                if bad {
+                    tracing::warn!(directive, source = %src, "dropped a CSP source with ';' or ',' (MF17)");
+                }
+                !bad
+            });
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Cors {
@@ -131,9 +158,11 @@ impl DeploymentInfo {
     /// ignored here (the cell validates them).
     pub fn parse(json: &str) -> Result<DeploymentInfo, String> {
         let head: ManifestHead = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        let mut security = head.security.unwrap_or_default();
+        security.csp.drop_structural_sources();
         Ok(DeploymentInfo {
             version: head.artifact.version,
-            security: head.security.unwrap_or_default(),
+            security,
             client_events: head.client.is_none_or(|c| c.events),
         })
     }
@@ -204,5 +233,15 @@ mod tests {
         assert_eq!(shop.version, 1);
         assert_eq!(shop.security.csp.script_src, ["https://js.stripe.com"]);
         assert!(!shop.security.csp.allow_unsafe);
+    }
+
+    #[test]
+    fn a_csp_source_with_semicolon_or_comma_is_dropped() {
+        let info = DeploymentInfo::parse(
+            r#"{"artifact":{"version":1},"security":{"csp":{"script_src":["https://cdn.example/;report-uri","https://ok.example","https://a.example/x,y"],"img_src":["https://i.example/a;b"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(info.security.csp.script_src, ["https://ok.example"]);
+        assert!(info.security.csp.img_src.is_empty());
     }
 }

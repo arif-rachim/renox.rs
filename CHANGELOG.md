@@ -4,8 +4,13 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.12 (unreleased)
 
+**Worker**
+
+- The gateway drops a `security.csp.*` source that holds `;` or `,` at load, with a platform warning, and never merges it into the `Content-Security-Policy` header: `;` ends a directive and `,` starts a second policy, so a source must not change the policy's structure (artifact 1.9.2, manifest 1.6.2, MF17) (#679).
+
 **CLI**
 
+- `renox check` refuses a `[security].csp.*` source with `;` or `,` with the MF17 message, the same grammar as a module's CSP source; the contract schema's `cspSource` pattern no longer allows them (#679).
 - `renox approve <module>` resolves the whole `[modules]` table, so a module with dependencies (billing with auth and i18n) no longer fails MF5; approving a changed permission set no longer needs `renox add <module> --yes` (#678).
 
 ## 0.1.11 (2026-11-10)

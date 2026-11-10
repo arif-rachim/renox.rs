@@ -534,8 +534,8 @@
     "cspSource": {
       "type": "string",
       "maxLength": 256,
-      "description": "https origin with an optional *. host wildcard and path, data:, blob:, or (with allow_unsafe, V16) 'unsafe-inline' / 'unsafe-eval'.",
-      "pattern": "^(https://(\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(:[0-9]{1,5})?(/[A-Za-z0-9._~%!$&()*+,;=:@/-]*)?|data:|blob:|'unsafe-inline'|'unsafe-eval')$"
+      "description": "https origin with an optional *. host wildcard and path (no ';' or ',', which separate directives and policies in the header), data:, blob:, or (with allow_unsafe, V16) 'unsafe-inline' / 'unsafe-eval'.",
+      "pattern": "^(https://(\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(:[0-9]{1,5})?(/[A-Za-z0-9._~%!$&()*+=:@/-]*)?|data:|blob:|'unsafe-inline'|'unsafe-eval')$"
     },
     "origin": {
       "type": "string",
