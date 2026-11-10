@@ -23,7 +23,7 @@
       <a href="/admin"><r-t key="backoffice.nav.dashboard" /></a>
       <a href="/admin/settings"><r-t key="backoffice.nav.settings" /></a>
       <a href="/admin/branches"><r-t key="backoffice.nav.branches" /></a>
-      <a href="/admin/users"><r-t key="backoffice.nav.users" /></a>
+      <a href="/admin/people"><r-t key="backoffice.nav.users" /></a>
       <a href="/admin/audit"><r-t key="backoffice.nav.audit" /></a>
       <a href="/"><r-t key="backoffice.open_work" /></a>
     </nav>

@@ -51,9 +51,9 @@ version = "1.0.0"
 source = "official"
 hash = "9efa4220677750186c5f2e70846746ce477f9da045046f37aaa28df77bf8c5db"
 isolation = "shared"
-mount = "/system/admin"
+mount = "/admin"
 dependencies = ["audit", "auth", "i18n"]
-config = { base_path = "/system/admin", title = "Admin" }
+config = { base_path = "/admin", title = "Back office" }
 approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
@@ -152,7 +152,7 @@ hash = "27bcd15c5b6be45c9a42bd035cb429e7b7dc0b686d3527d53cce511a22dae191"
 isolation = "shared"
 mount = "/reports"
 dependencies = ["auth", "email", "i18n", "tax_gcc"]
-config = { email_to = "accounts@fixit.example", base_path = "/reports" }
+config = { email_to = "", base_path = "/reports" }
 approved = { tables = "reports__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
