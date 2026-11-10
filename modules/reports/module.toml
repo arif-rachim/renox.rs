@@ -1,6 +1,6 @@
 [module]
 name = "reports"
-version = "1.1.0"
+version = "1.2.0"
 description = "Sales (from tax_gcc) and cash (from billing) reports per period: a page, CSV and Excel exports, import files for Xero, QuickBooks and Zoho Books, a nightly emailed summary"
 
 [dependencies]
@@ -25,6 +25,7 @@ csv = "Rows as RFC 4180 CSV with a UTF-8 BOM (Excel opens Arabic text correctly)
 accounting = "tax_gcc documents as an import file: (system: xero|quickbooks|zoho, documents) -> csv"
 nightly = "The nightly report for the day before a time: (now_ms) -> { day, sent_to }; the snapshot, and the email when email_to is set (the job runs it at 03:00 UTC)"
 xlsx = "Rows as a one-sheet .xlsx (strings never formulas): (sheet, rows) -> bytes"
+readXlsx = "The first sheet of an .xlsx as rows of cells: (bytes) -> (string | number | null)[][]; at most 10 MiB and 100,000 cells"
 cash = "Money received and refunded per day of a period, from billing's events: (from_ms, to_ms) -> rows (fils)"
 
 [exports.hooks."reports.nightly_to"]

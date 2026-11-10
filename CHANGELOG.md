@@ -8,6 +8,10 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - `renox export` no longer writes `localhost` into `routes.json`: the worker's route table refuses a one-label name (V13), so an exported app did not start. The control plane now gzips the artifact it exports (`deploy-api.md` 0.10.1), which `renox export` refused before ("not a gzip file"). `docs/self-host.md` takes an export to a VPS behind Caddy and systemd, and `cli/tests/export-selfhost.e2e.test.ts` runs the exported app on `renox-worker` (#674).
 
+**Modules**
+
+- `reports` 1.2.0: the service `reports.readXlsx(bytes)` returns the first sheet of an `.xlsx` (written by Excel, LibreOffice or `reports.xlsx`; shared and inline strings, a formula's cached value) as rows of `string | number | null`; a `Uint8Array` of at most 10 MiB and 100,000 cells, else `TypeError`, `RangeError` or "not an .xlsx file" (#724).
+
 ## 0.1.12 (2026-11-10)
 
 **Install**
