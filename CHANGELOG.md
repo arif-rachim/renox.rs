@@ -30,8 +30,6 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.10 (2026-11-09)
 
-**Worker**
-
 **Install**
 
 ```sh
@@ -40,13 +38,13 @@ curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.10
 
 On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
 
+**Worker**
+
 - Pins `renox-worker` 0.6.1.
 - **macOS is back.** `renox-worker` 0.6.1 is built for macOS again (x86_64 and arm64, default and pdf), next to Linux and Windows, and the CLI pins it on every target; `install.sh` installs the worker on a Mac as before 0.1.9 (#625). Worker 0.6.1 has the same code as 0.6.0.
 - `cli-v0.1.9` was tagged but never published as a CLI release: its Windows smoke test could not download the worker (GitHub answered HTTP 504). Only `@renoxium/sdk` 0.1.9 reached npm. Its notes below are part of 0.1.10.
 
 ## 0.1.9 (2026-11-09)
-
-**Worker**
 
 **Install**
 
@@ -55,6 +53,8 @@ curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.9/
 ```
 
 On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
+
+**Worker**
 
 - Pins `renox-worker` 0.6.0.
 - **No macOS worker in this release.** `renox-worker` 0.6.0 is built for Linux (x86_64, aarch64) and Windows only: the macOS builds failed on the release runner (HTTP 504 downloads) and are off until #625. On macOS, `install.sh` installs the CLI without a worker and says so; `renox new`, `check` and `build` work, `renox dev` and `renox test` need `RENOX_WORKER_PATH` to a worker you trust, or stay on `cli-v0.1.8` (worker 0.5.0).
@@ -91,8 +91,6 @@ On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/relea
 
 ## 0.1.8 (2026-11-08)
 
-**Worker**
-
 **Install**
 
 ```sh
@@ -100,6 +98,8 @@ curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.8/
 ```
 
 On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
+
+**Worker**
 
 - Pins `renox-worker` 0.5.0.
 - `ctx.render(template, data)` renders a page or partial of the deployment to an HTML string (`op_render_template`, `ops.md` 1.8.0 section 25), in the request's locale and direction; the time counts as `render_ms` and `render_fuel`, a limit is `RENOX_RENDER_LIMIT`, an unknown id or one with `..` or a leading `/` is a `TypeError` (#577).

@@ -271,9 +271,11 @@ export const changelogRelease = (changelog: string, version: string, date: strin
   let section = changelog.slice(start, end).replace(heading, `## ${version} (${date})`);
   if (!section.includes("**Install**")) {
     const lines = section.split("\n");
-    // heading, blank, first paragraph..., blank: insert after the first paragraph.
+    // heading, blank, first paragraph..., blank: insert after the first paragraph,
+    // or right after the heading when the entry opens with a subheading (`**Worker**`).
     let i = 2;
-    while (i < lines.length && lines[i] !== "") i++;
+    if (/^\*\*[^*]+\*\*$/u.test(lines[2] ?? "")) i = 1;
+    else while (i < lines.length && lines[i] !== "") i++;
     lines.splice(i + 1, 0, ...installBlock(version).split("\n"));
     section = lines.join("\n");
   }

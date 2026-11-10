@@ -86,7 +86,9 @@ const applyVersionStrings = (from: string, to: string): void => {
   for (const file of ["ops/README.md", "ops/scripts/bootstrap-node.sh"])
     replaceIn(file, new RegExp(`--worker-version ${f}\\b`, "u"), `--worker-version ${to}`);
   for (const doc of INSTALL_DOCS) replaceIn(doc, new RegExp(`\\(renox-worker ${f}\\)`, "u"), `(renox-worker ${to})`);
-  replaceIn("README.md", new RegExp(`worker-v${f}\\b`, "u"), `worker-v${to}`);
+  // Only the current pin and the download line: "from `worker-v0.4.0`, ..." is history and stays.
+  replaceIn("README.md", new RegExp(`The CLI pins \`worker-v${f}\``, "u"), `The CLI pins \`worker-v${to}\``);
+  replaceIn("README.md", new RegExp(`gh release download worker-v${f}\\b`, "u"), `gh release download worker-v${to}`);
   replaceIn("README.md", new RegExp(`renox-worker-${f}-`, "u"), `renox-worker-${to}-`);
   replaceIn("docs/12-developer-experience.md", new RegExp(`\\bv=${f};`, "u"), `v=${to};`);
 };

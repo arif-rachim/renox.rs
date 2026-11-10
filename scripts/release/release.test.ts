@@ -72,6 +72,13 @@ test("changelogRelease dates the entry and adds the install block", () => {
   expect(() => changelogRelease(CHANGELOG, "0.1.8", "2026-11-08")).toThrow("it has 0.1.7");
 });
 
+test("changelogRelease puts the install block before a leading subheading", () => {
+  const opensWithWorker = CHANGELOG.replace("Pins a new worker.\n\n**Worker**", "**Worker**");
+  const out = changelogRelease(opensWithWorker, "0.1.7", "2026-11-08");
+  expect(out).toContain("## 0.1.7 (2026-11-08)\n\n**Install**\n\n```sh\n");
+  expect(out).toContain("| iex`.\n\n**Worker**\n\n- Old line.");
+});
+
 test("changelogAddWorkerLine adds under **Worker**, or creates the entry", () => {
   expect(changelogAddWorkerLine(CHANGELOG, "- Pins 0.5.0.", "0.1.7")).toContain("**Worker**\n\n- Pins 0.5.0.\n- Old line.");
   const released = CHANGELOG.replace("## 0.1.7 (unreleased)\n\nPins a new worker.\n\n**Worker**\n\n- Old line.\n\n", "");
