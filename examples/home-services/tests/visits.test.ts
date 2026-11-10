@@ -406,7 +406,9 @@ describe("the visit page on a phone", () => {
   test("the open visit has the signature canvas and its script, with the page's nonce", async () => {
     const res = await ali.page("/me/visits/jb_seed_10");
     expect(res.html).toContain('id="sig-canvas"');
-    expect(res.html).toMatch(/<script nonce="[^"]+">\s*\(\(\) => \{/u);
+    // The script is the file public/visit.js since #728, with the page's nonce, and no inline script is left.
+    expect(res.html).toMatch(/<script src="\/visit\.[0-9a-f]{16}\.js" defer nonce="[^"]+"><\/script>/u);
+    expect(res.html).not.toMatch(/<script nonce="[^"]+">/u);
     // The photo form: the file goes to a signed URL (public/upload.js, from the page's own origin), the form posts its key.
     expect(res.html).toMatch(/<script src="\/upload\.[0-9a-f]{16}\.js" defer nonce="[^"]+"><\/script>/u);
     expect(res.html).toContain('data-upload-action="/me/visits/jb_seed_10?/photo_url"');

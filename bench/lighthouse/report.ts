@@ -84,6 +84,8 @@ export interface ReportMeta {
   commit: string;
   worker: string;
   runs: number;
+  /** Extra seed files (names) applied after the demo seed, e.g. busy-day.sql (#728). */
+  extraSeeds?: string[];
 }
 
 const bytes = (n: number): string => (n >= 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${n} B`);
@@ -93,7 +95,7 @@ export function markdown(results: TargetResult[], meta: ReportMeta): string {
   const lines: string[] = [
     `# Lighthouse of the home-services dispatch board and technician visit page: ${meta.date}`,
     "",
-    `Commit ${meta.commit}; renox-worker ${meta.worker}; Lighthouse mobile emulation and throttling (the default phone profile); the app under \`renox dev\` with \`seeds/001_demo.sql\`; ${meta.runs} run${meta.runs === 1 ? "" : "s"} per target, median per column. Thresholds: accessibility >= ${THRESHOLDS.accessibility}, performance >= ${THRESHOLDS.performance}.`,
+    `Commit ${meta.commit}; renox-worker ${meta.worker}; Lighthouse mobile emulation and throttling (the default phone profile); the app under \`renox dev\` with \`seeds/001_demo.sql\`${(meta.extraSeeds ?? []).map((f) => ` and \`${f}\``).join("")}; ${meta.runs} run${meta.runs === 1 ? "" : "s"} per target, median per column. Thresholds: accessibility >= ${THRESHOLDS.accessibility}, performance >= ${THRESHOLDS.performance}.`,
     "",
     "| Target | Role | Accessibility | Performance | LCP ms | TBT ms | CLS | Total bytes |",
     "|---|---|---:|---:|---:|---:|---:|---:|",

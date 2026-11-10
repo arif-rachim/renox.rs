@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { failures, markdown, median, medianOf, summarize, type LhrLike, type RunSummary, type TargetResult } from "./report.ts";
-import { parseArgs } from "./run.ts";
+import { BUSY_SEED, parseArgs } from "./run.ts";
 
 const run = (accessibility: number, performance: number, extra: Partial<RunSummary> = {}): RunSummary => ({
   accessibility,
@@ -82,5 +82,20 @@ describe("parseArgs", () => {
     expect(o).toMatchObject({ assert: true, runs: 1, out: "/tmp/x" });
     expect(() => parseArgs(["--runs", "0"])).toThrow();
     expect(() => parseArgs(["--nope"])).toThrow(/unknown/u);
+  });
+  test("--busy adds the busy-day seed once, before and with other --seed files in order", () => {
+    expect(parseArgs([]).busy).toBe(false);
+    expect(parseArgs([]).extraSeeds).toEqual([]);
+    expect(parseArgs(["--busy"])).toMatchObject({ busy: true, extraSeeds: [BUSY_SEED] });
+    expect(parseArgs(["--busy", "--busy"]).extraSeeds).toEqual([BUSY_SEED]);
+    expect(parseArgs(["--seed", "a.sql", "--busy", "--seed", "b.sql"]).extraSeeds).toEqual(["a.sql", BUSY_SEED, "b.sql"]);
+    expect(BUSY_SEED.endsWith("bench/lighthouse/busy-day.sql")).toBe(true);
+  });
+});
+
+describe("markdown seeds", () => {
+  test("names the extra seed files in the header", () => {
+    const md = markdown([{ target: "/dispatch", role: "dispatcher", runs: [run(100, 100)] }], { date: "2026-11-10", commit: "abc1234", worker: "0.7.1", runs: 1, extraSeeds: ["busy-day.sql"] });
+    expect(md).toContain("with `seeds/001_demo.sql` and `busy-day.sql`;");
   });
 });

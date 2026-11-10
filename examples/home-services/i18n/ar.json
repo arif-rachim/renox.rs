@@ -260,6 +260,7 @@
     "offline": "غير متصل. أعد تحميل الصفحة.",
     "unassigned": "بلا فني بعد",
     "empty": "لا شيء هنا.",
+    "show_all": "عرض الكل ({n})",
     "announce": {
       "new": "مهمة جديدة {number} في {column}.",
       "moved": "انتقلت المهمة {number} إلى {column}.",

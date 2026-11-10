@@ -13,7 +13,8 @@
 /* The organisation switcher and the notification badge come from modules into the header: the same 44 px. */
 .site-header :is(select, button, input) { min-block-size: 44px; }
 .brand-link { display: inline-flex; gap: .5rem; align-items: center; justify-content: flex-start; }
-.brand-logo { block-size: 2rem; inline-size: auto; }
+/* The logo is an upload of any shape: a fixed 32 x 32 box (the width and height attributes), so the header never shifts when it arrives (#728). */
+.brand-logo { block-size: 2rem; inline-size: 2rem; object-fit: contain; }
 .site-header .spacer { flex: 1; }
 .i18n-language { display: flex; gap: .5rem; }
 main { padding: 1.5rem; max-inline-size: 72rem; margin-inline: auto; }

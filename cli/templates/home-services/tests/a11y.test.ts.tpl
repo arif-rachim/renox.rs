@@ -277,10 +277,14 @@ describe("the dispatch board", () => {
   });
 
   test("the client script announces a new card and a card that changed column", async () => {
+    // The script is the file public/board.js since #728 (no inline script): the same text, served from /board.<hash>.js.
     const res = await dispatcher.page(withLang("/dispatch", "en"));
-    expect(res.html).toContain('sentence("new"');
-    expect(res.html).toContain('sentence("moved"');
-    expect(res.html).toContain("say(sentence");
+    const src = /<script src="(\/board\.[0-9a-f]{16}\.js)"/u.exec(res.html)?.[1] ?? "";
+    expect(src).not.toBe("");
+    const js = (await dispatcher.request("GET", src)).html;
+    expect(js).toContain('sentence("new"');
+    expect(js).toContain('sentence("moved"');
+    expect(js).toContain("say(sentence");
   });
 });
 
@@ -352,7 +356,10 @@ describe("the signature step", () => {
     const res = await ali.page(withLang("/me/visits/jb_seed_06", "en"));
     expect(res.html).toMatch(/<canvas id="sig-canvas" class="sig-canvas" role="img" aria-label="Sign in the box"/u);
     expect(res.html).toMatch(/<input type="checkbox" id="sig-typed">\s*Type the customer(&#39;|')s name instead/u);
-    expect(res.html).toContain('document.getElementById("sig-typed")');
+    // The script is the file public/visit.js since #728: the typed name is written onto the canvas there.
+    const src = /<script src="(\/visit\.[0-9a-f]{16}\.js)"/u.exec(res.html)?.[1] ?? "";
+    expect(src).not.toBe("");
+    expect((await ali.request("GET", src)).html).toContain('document.getElementById("sig-typed")');
   });
 
   test("every control of the technician's pages is at least 44 px: the rule is on the page", async () => {

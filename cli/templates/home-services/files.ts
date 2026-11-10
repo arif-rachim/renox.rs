@@ -167,35 +167,37 @@ import f161 from "./policies/tests/reports.json.tpl" with { type: "text" };
 import f162 from "./policies/tests/tools.json.tpl" with { type: "text" };
 import f163 from "./policies/tests/visits.json.tpl" with { type: "text" };
 import f164 from "./public/app.css.tpl" with { type: "text" };
-import f165 from "./public/doto-OFL.txt.tpl" with { type: "text" };
-import f166 from "./public/doto-black.woff2.base64.tpl" with { type: "text" };
-import f167 from "./public/icons/icon-192.png.base64.tpl" with { type: "text" };
-import f168 from "./public/icons/icon-512.png.base64.tpl" with { type: "text" };
-import f169 from "./public/me.js.tpl" with { type: "text" };
-import f170 from "./public/renox-ui.css.tpl" with { type: "text" };
-import f171 from "./public/sw.js.tpl" with { type: "text" };
-import f172 from "./public/upload.js.tpl" with { type: "text" };
-import f173 from "./renox.lock.tpl" with { type: "text" };
-import f174 from "./renox.toml.tpl" with { type: "text" };
-import f175 from "./scripts/make-icons.ts.tpl" with { type: "text" };
-import f176 from "./seeds/001_demo.sql.tpl" with { type: "text" };
-import f177 from "./seeds/README.md.tpl" with { type: "text" };
-import f178 from "./tests/a11y.test.ts.tpl" with { type: "text" };
-import f179 from "./tests/admin.test.ts.tpl" with { type: "text" };
-import f180 from "./tests/app.test.ts.tpl" with { type: "text" };
-import f181 from "./tests/contracts.test.ts.tpl" with { type: "text" };
-import f182 from "./tests/customers.test.ts.tpl" with { type: "text" };
-import f183 from "./tests/dispatch.test.ts.tpl" with { type: "text" };
-import f184 from "./tests/import.test.ts.tpl" with { type: "text" };
-import f185 from "./tests/invoices.test.ts.tpl" with { type: "text" };
-import f186 from "./tests/jobs.test.ts.tpl" with { type: "text" };
-import f187 from "./tests/notifications.test.ts.tpl" with { type: "text" };
-import f188 from "./tests/outbox.ts.tpl" with { type: "text" };
-import f189 from "./tests/pwa.test.ts.tpl" with { type: "text" };
-import f190 from "./tests/quotes.test.ts.tpl" with { type: "text" };
-import f191 from "./tests/reports.test.ts.tpl" with { type: "text" };
-import f192 from "./tests/tools.test.ts.tpl" with { type: "text" };
-import f193 from "./tests/visits.test.ts.tpl" with { type: "text" };
+import f165 from "./public/board.js.tpl" with { type: "text" };
+import f166 from "./public/doto-OFL.txt.tpl" with { type: "text" };
+import f167 from "./public/doto-black.woff2.base64.tpl" with { type: "text" };
+import f168 from "./public/icons/icon-192.png.base64.tpl" with { type: "text" };
+import f169 from "./public/icons/icon-512.png.base64.tpl" with { type: "text" };
+import f170 from "./public/me.js.tpl" with { type: "text" };
+import f171 from "./public/renox-ui.css.tpl" with { type: "text" };
+import f172 from "./public/sw.js.tpl" with { type: "text" };
+import f173 from "./public/upload.js.tpl" with { type: "text" };
+import f174 from "./public/visit.js.tpl" with { type: "text" };
+import f175 from "./renox.lock.tpl" with { type: "text" };
+import f176 from "./renox.toml.tpl" with { type: "text" };
+import f177 from "./scripts/make-icons.ts.tpl" with { type: "text" };
+import f178 from "./seeds/001_demo.sql.tpl" with { type: "text" };
+import f179 from "./seeds/README.md.tpl" with { type: "text" };
+import f180 from "./tests/a11y.test.ts.tpl" with { type: "text" };
+import f181 from "./tests/admin.test.ts.tpl" with { type: "text" };
+import f182 from "./tests/app.test.ts.tpl" with { type: "text" };
+import f183 from "./tests/contracts.test.ts.tpl" with { type: "text" };
+import f184 from "./tests/customers.test.ts.tpl" with { type: "text" };
+import f185 from "./tests/dispatch.test.ts.tpl" with { type: "text" };
+import f186 from "./tests/import.test.ts.tpl" with { type: "text" };
+import f187 from "./tests/invoices.test.ts.tpl" with { type: "text" };
+import f188 from "./tests/jobs.test.ts.tpl" with { type: "text" };
+import f189 from "./tests/notifications.test.ts.tpl" with { type: "text" };
+import f190 from "./tests/outbox.ts.tpl" with { type: "text" };
+import f191 from "./tests/pwa.test.ts.tpl" with { type: "text" };
+import f192 from "./tests/quotes.test.ts.tpl" with { type: "text" };
+import f193 from "./tests/reports.test.ts.tpl" with { type: "text" };
+import f194 from "./tests/tools.test.ts.tpl" with { type: "text" };
+import f195 from "./tests/visits.test.ts.tpl" with { type: "text" };
 
 export const HOME_SERVICES: Readonly<Record<string, string>> = {
   ".env.test": f0,
@@ -363,35 +365,37 @@ export const HOME_SERVICES: Readonly<Record<string, string>> = {
   "policies/tests/tools.json": f162,
   "policies/tests/visits.json": f163,
   "public/app.css": f164,
-  "public/doto-OFL.txt": f165,
-  "public/doto-black.woff2": f166,
-  "public/icons/icon-192.png": f167,
-  "public/icons/icon-512.png": f168,
-  "public/me.js": f169,
-  "public/renox-ui.css": f170,
-  "public/sw.js": f171,
-  "public/upload.js": f172,
-  "renox.lock": f173,
-  "renox.toml": f174,
-  "scripts/make-icons.ts": f175,
-  "seeds/001_demo.sql": f176,
-  "seeds/README.md": f177,
-  "tests/a11y.test.ts": f178,
-  "tests/admin.test.ts": f179,
-  "tests/app.test.ts": f180,
-  "tests/contracts.test.ts": f181,
-  "tests/customers.test.ts": f182,
-  "tests/dispatch.test.ts": f183,
-  "tests/import.test.ts": f184,
-  "tests/invoices.test.ts": f185,
-  "tests/jobs.test.ts": f186,
-  "tests/notifications.test.ts": f187,
-  "tests/outbox.ts": f188,
-  "tests/pwa.test.ts": f189,
-  "tests/quotes.test.ts": f190,
-  "tests/reports.test.ts": f191,
-  "tests/tools.test.ts": f192,
-  "tests/visits.test.ts": f193,
+  "public/board.js": f165,
+  "public/doto-OFL.txt": f166,
+  "public/doto-black.woff2": f167,
+  "public/icons/icon-192.png": f168,
+  "public/icons/icon-512.png": f169,
+  "public/me.js": f170,
+  "public/renox-ui.css": f171,
+  "public/sw.js": f172,
+  "public/upload.js": f173,
+  "public/visit.js": f174,
+  "renox.lock": f175,
+  "renox.toml": f176,
+  "scripts/make-icons.ts": f177,
+  "seeds/001_demo.sql": f178,
+  "seeds/README.md": f179,
+  "tests/a11y.test.ts": f180,
+  "tests/admin.test.ts": f181,
+  "tests/app.test.ts": f182,
+  "tests/contracts.test.ts": f183,
+  "tests/customers.test.ts": f184,
+  "tests/dispatch.test.ts": f185,
+  "tests/import.test.ts": f186,
+  "tests/invoices.test.ts": f187,
+  "tests/jobs.test.ts": f188,
+  "tests/notifications.test.ts": f189,
+  "tests/outbox.ts": f190,
+  "tests/pwa.test.ts": f191,
+  "tests/quotes.test.ts": f192,
+  "tests/reports.test.ts": f193,
+  "tests/tools.test.ts": f194,
+  "tests/visits.test.ts": f195,
 };
 
 export const HOME_SERVICES_BINARY: readonly string[] = [

@@ -39,3 +39,12 @@ export async function memberName(db: DbStatements, branch: Pick<Branch, "org_id"
   );
   return row?.display_name ?? userId;
 }
+
+/** The display names of every member of the branch's organisation by user id, in one query (the board names the technician on each card from it). */
+export async function memberNames(db: DbStatements, branch: Pick<Branch, "org_id">): Promise<Map<string, string>> {
+  const rows = await db.query<{ user_id: string; display_name: string | null }>(
+    "select m.user_id as user_id, u.display_name as display_name from org__public_members_v1 m join auth__public_users_v1 u on u.id = m.user_id where m.org_id = ?",
+    [branch.org_id],
+  );
+  return new Map(rows.map((r) => [r.user_id, r.display_name ?? r.user_id]));
+}

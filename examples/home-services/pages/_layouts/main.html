@@ -17,7 +17,7 @@
 <body>
   <a class="skip" href="#main"><r-t key="app.skip" /></a>
   <header class="site-header">
-    <a href="/" class="brand-link"><img r-if="brand.logo" :src="brand.logo" alt="" class="brand-logo"><strong>{{ brand.name }}</strong></a>
+    <a href="/" class="brand-link"><img r-if="brand.logo" :src="brand.logo" alt="" class="brand-logo" width="32" height="32"><strong>{{ brand.name }}</strong></a>
     <span class="spacer"></span>
     <r-slot name="app.header" />
     <nav class="i18n-language" :aria-label="'app.lang.label' | t" r-if="i18n_links">

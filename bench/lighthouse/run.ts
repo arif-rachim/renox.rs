@@ -1,7 +1,7 @@
 // `make lighthouse` (#725): Lighthouse accessibility and performance of the
 // home-services dispatch board and technician visit page, English and Arabic,
 // on the phone profile. Usage:
-//   RENOX_WORKER_PATH=<renox-worker> bun bench/lighthouse/run.ts [--assert] [--runs <n>] [--out <dir>]
+//   RENOX_WORKER_PATH=<renox-worker> bun bench/lighthouse/run.ts [--assert] [--busy] [--seed <sql>]... [--runs <n>] [--out <dir>]
 //
 // Starts the app under `renox dev` with the demo seed, signs in through the real
 // login form (dispatcher and technician, two browser contexts of Playwright's
@@ -9,10 +9,12 @@
 // and not Bun) against that Chromium's debugging port, the signed-in cookies
 // passed as an extra header. Writes <out>/<date>-lighthouse-home-services.md and
 // the raw reports under <out>/raw/lighthouse/<date>/. --assert exits 1 when a
-// median accessibility is under 90 or a performance under 80.
+// median accessibility is under 90 or a performance under 80. --busy (#728) adds
+// busy-day.sql: 200 jobs today and a visit with 12 photos; the result file is then
+// <date>-lighthouse-home-services-busy.md.
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   type App,
@@ -30,8 +32,13 @@ import {
 } from "./app.ts";
 import { failures, type LhrLike, markdown, summarize, type TargetResult } from "./report.ts";
 
+/** The busy-day seed (#728), applied by --busy after the demo seed. */
+export const BUSY_SEED = join(import.meta.dir, "busy-day.sql");
+
 export interface Options {
   assert: boolean;
+  /** --busy: the busy-day seed is among extraSeeds. */
+  busy: boolean;
   runs: number;
   out: string;
   /** Extra seed SQL files applied after the demo seed (#728). */
@@ -39,10 +46,14 @@ export interface Options {
 }
 
 export function parseArgs(argv: string[]): Options {
-  const o: Options = { assert: false, runs: 3, out: join(REPO, "bench/results"), extraSeeds: [] };
+  const o: Options = { assert: false, busy: false, runs: 3, out: join(REPO, "bench/results"), extraSeeds: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
     if (a === "--assert") o.assert = true;
+    else if (a === "--busy") {
+      if (!o.busy) o.extraSeeds.push(BUSY_SEED);
+      o.busy = true;
+    }
     else if (a === "--runs") {
       const n = Number(argv[++i]);
       if (!Number.isInteger(n) || n < 1) throw new Error("--runs takes a positive integer");
@@ -55,7 +66,7 @@ export function parseArgs(argv: string[]): Options {
       const v = argv[++i];
       if (!v) throw new Error("--seed takes an SQL file");
       o.extraSeeds.push(v);
-    } else throw new Error(`unknown argument ${a} (usage: run.ts [--assert] [--runs <n>] [--out <dir>])`);
+    } else throw new Error(`unknown argument ${a} (usage: run.ts [--assert] [--busy] [--seed <sql>] [--runs <n>] [--out <dir>])`);
   }
   return o;
 }
@@ -135,8 +146,8 @@ export async function main(argv: string[]): Promise<number> {
       results.push({ target: t.path, role: t.role, runs });
     }
 
-    const file = join(opts.out, `${date}-lighthouse-home-services.md`);
-    writeFileSync(file, markdown(results, { date, commit: git("rev-parse", "--short", "HEAD"), worker: await workerVersion(worker), runs: opts.runs }));
+    const file = join(opts.out, `${date}-lighthouse-home-services${opts.busy ? "-busy" : ""}.md`);
+    writeFileSync(file, markdown(results, { date, commit: git("rev-parse", "--short", "HEAD"), worker: await workerVersion(worker), runs: opts.runs, extraSeeds: opts.extraSeeds.map((f) => basename(f)) }));
     console.log(`wrote ${file}`);
 
     const bad = failures(results);

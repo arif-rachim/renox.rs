@@ -257,6 +257,7 @@
     "offline": "Not connected. Reload the page.",
     "unassigned": "No technician yet",
     "empty": "Nothing here.",
+    "show_all": "Show all {n}",
     "announce": {
       "new": "New job {number} in {column}.",
       "moved": "Job {number} moved to {column}.",
