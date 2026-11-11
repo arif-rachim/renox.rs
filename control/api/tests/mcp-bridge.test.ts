@@ -243,4 +243,17 @@ describe("the owner connector's bridge (#698)", () => {
     }
     expect(s.nodeCalls).toHaveLength(0);
   });
+
+  test("#700: a confirm app tool's own confirmation goes as _meta renox/confirmation with the same token; without it no _meta is sent", async () => {
+    const s = await setup();
+    const run = (opts: { confirmation?: string }) => requestScope.run({ tenantId: TENANT, scoped: false }, () => s.bridge.callAppTool(s.agent, APP, "update_settings", { settings: { brand_color: "#EE4400" } }, opts));
+    expect((await run({})).ok).toBe(true);
+    expect((await run({ confirmation: "app-confirmation-1" })).ok).toBe(true);
+    const sent = s.appCalls.map((c) => (c.body as { params: { _meta?: unknown } }).params._meta);
+    expect(sent).toEqual([undefined, { "renox/confirmation": "app-confirmation-1" }]);
+    // One minted token for both rounds.
+    expect(s.nodeCalls).toHaveLength(1);
+    expect(s.appCalls[0]?.headers.authorization).toBe(s.appCalls[1]?.headers.authorization as string);
+    expect(await run({ confirmation: "" })).toMatchObject({ ok: false, status: 400, error: { code: "invalid_input" } });
+  });
 });

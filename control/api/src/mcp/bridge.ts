@@ -75,9 +75,19 @@ export interface BridgeInject {
   nodeCall?: NodeCall;
 }
 
+/**
+ * `scopes`: the app tools the minted token may call (default `["tools:<tool>"]`).
+ * `confirmation` (#700): the app's own confirmation token of a `confirm` tool's
+ * preview, sent as `_meta["renox/confirmation"]` (section 2, step 5).
+ */
+export interface CallOptions {
+  scopes?: string[];
+  confirmation?: string;
+}
+
 /** The bridge of one API process; its token cache is per `deps`, shared by every bridge made from it. */
 export interface Bridge {
-  callAppTool(agent: BridgeAgent, app: string, tool: string, args: Record<string, unknown>, opts?: { scopes?: string[] }): Promise<AppToolResult>;
+  callAppTool(agent: BridgeAgent, app: string, tool: string, args: Record<string, unknown>, opts?: CallOptions): Promise<AppToolResult>;
 }
 
 export function createBridge(deps: Deps, inject: BridgeInject = {}): Bridge {
@@ -195,7 +205,7 @@ const textOf = (r: { content?: { type?: unknown; text?: unknown }[] }): string =
  * them each time. Never throws for an app-side failure: the answer is an
  * `AppToolResult`, `untrusted` either way.
  */
-async function callAppTool(deps: Deps, inject: BridgeInject, agent: BridgeAgent, app: string, tool: string, args: Record<string, unknown>, opts: { scopes?: string[] } = {}): Promise<AppToolResult> {
+async function callAppTool(deps: Deps, inject: BridgeInject, agent: BridgeAgent, app: string, tool: string, args: Record<string, unknown>, opts: CallOptions = {}): Promise<AppToolResult> {
   if (!APP.test(app)) return fail(400, "invalid_input", "app is not an app name");
   if (!TOOL.test(tool)) return fail(400, "invalid_input", "tool is not a tool name");
   const scopes = [...new Set(opts.scopes ?? [`tools:${tool}`])];
@@ -207,7 +217,9 @@ async function callAppTool(deps: Deps, inject: BridgeInject, agent: BridgeAgent,
   if (known === undefined) return fail(404, "RENOX_NOT_FOUND", `No app named ${app} in this team.`);
   const call = inject.appCall ?? httpAppCall;
   const url = `https://${app}.${deps.config.platformDomain}/mcp`;
-  const rpc = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } });
+  if (opts.confirmation !== undefined && (typeof opts.confirmation !== "string" || opts.confirmation.length === 0 || opts.confirmation.length > 2048)) return fail(400, "invalid_input", "confirmation is the app's confirmation token");
+  const params = { name: tool, arguments: args, ...(opts.confirmation === undefined ? {} : { _meta: { "renox/confirmation": opts.confirmation } }) };
+  const rpc = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params });
   let t = await tokenFor(deps, inject, agent, app, scopes, false);
   for (let attempt = 0; ; attempt++) {
     if (!t.ok) return t.result;
