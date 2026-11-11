@@ -3,7 +3,8 @@
 //! on throw and on a refused result), action results (object, `Response`,
 //! `{ fragments }`), `load` re-run after an object, out-of-band fragments,
 //! `.ts`-only and `.html`-only pages, the trailing-slash redirect, and that
-//! tenant code never sees the token.
+//! tenant code never sees the token. #734: a module service that throws
+//! inside an action rolls back only its own call.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -128,6 +129,41 @@ export const actions = {
 };
 "#;
 
+/// #734: an import page whose action catches a failed `reports.readXlsx`
+/// and writes on (`ops.md` 1.17.0 section 15.2).
+const IMPORT_JS: &str = r#"
+import { reports } from "renox:modules";
+export async function load({ db }) {
+  const notes = (await db.query("select name from app__notes order by id")).map((r) => r.name);
+  return Response.json({ notes, imports: await reports.imports() });
+}
+export const actions = {
+  async rescue({ db, form }) {
+    await db.execute("insert into app__notes (name) values ('A')");
+    let caught = null;
+    try { await reports.readXlsx(form.get("file")); } catch (e) { caught = { code: e.code, module: e.module, service: e.service }; }
+    await db.execute("insert into app__notes (name) values ('C')");
+    return Response.json({ caught });
+  },
+  async uncaught({ db, form }) {
+    await db.execute("insert into app__notes (name) values ('U')");
+    await reports.readXlsx(form.get("file"));
+    return Response.json({ ok: true });
+  },
+};
+"#;
+
+const REPORTS_JS: &str = r#"
+export async function readXlsx(ctx, file) {
+  await ctx.db.execute("insert into reports__imports (file) values (?)", [file]);
+  if (file === "corrupt.xlsx") throw new Error("not an xlsx file");
+  return { file };
+}
+export async function imports(ctx) {
+  return (await ctx.db.query("select file from reports__imports order by id")).map((r) => r.file);
+}
+"#;
+
 const API_JS: &str = r#"
 export function POST() { return Response.json({ ok: true }); }
 "#;
@@ -150,30 +186,41 @@ fn write_artifact(artifacts: &Path) -> String {
         ("pages/cart", CART_JS),
         ("pages/tsonly", TSONLY_JS),
         ("pages/signup", SIGNUP_JS),
+        ("pages/import", IMPORT_JS),
         ("functions/api/x", API_JS),
+        ("modules/reports/services", REPORTS_JS),
     ];
     for (id, js) in code {
         let p = tmp.join("code").join(format!("{id}.js"));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, js).unwrap();
     }
-    let sql = "create table app__cart (id integer primary key, sku text not null);\n";
-    std::fs::create_dir_all(tmp.join("migrations/app")).unwrap();
-    std::fs::write(tmp.join("migrations/app/001_init.sql"), sql).unwrap();
-    let file_sha = {
+    let sql = "create table app__cart (id integer primary key, sku text not null);\n\
+        create table app__notes (id integer primary key, name text not null);\n";
+    let reports_sql =
+        "create table reports__imports (id integer primary key, file text not null);\n";
+    let sha = |s: &str| {
         use sha2::Digest;
-        let d = sha2::Sha256::digest(sql.as_bytes());
+        let d = sha2::Sha256::digest(s.as_bytes());
         d.iter().map(|b| format!("{b:02x}")).collect::<String>()
     };
+    std::fs::create_dir_all(tmp.join("migrations/app")).unwrap();
+    std::fs::write(tmp.join("migrations/app/001_init.sql"), sql).unwrap();
+    std::fs::create_dir_all(tmp.join("migrations/reports")).unwrap();
+    std::fs::write(tmp.join("migrations/reports/001_init.sql"), reports_sql).unwrap();
     std::fs::write(
         tmp.join("migrations/checksums.json"),
-        serde_json::json!({ "version": 0, "files": { "app/001_init.sql": file_sha } }).to_string(),
+        serde_json::json!({ "version": 0, "files": {
+            "app/001_init.sql": sha(sql), "reports/001_init.sql": sha(reports_sql),
+        } })
+        .to_string(),
     )
     .unwrap();
     let entry: serde_json::Map<String, serde_json::Value> = code
         .iter()
         .map(|(id, _)| (id.to_string(), format!("{id}.js").into()))
         .collect();
+    let reports_perms = serde_json::json!({ "tables": "reports__*", "network": [], "secrets": [], "slots": [], "hooks": [] });
     let manifest = serde_json::json!({
         "artifact": { "version": 1 },
         "app": { "name": "shop", "timezone": "Asia/Dubai" },
@@ -184,11 +231,18 @@ fn write_artifact(artifacts: &Path) -> String {
             { "kind": "page", "path": "/tsonly", "module": "pages/tsonly", "load": true, "actions": ["default", "object"] },
             { "kind": "page", "path": "/signup", "module": "pages/signup", "load": true,
               "actions": ["invalid", "teapot", "conflict", "redirectish", "fine"], "template": "pages/signup" },
+            { "kind": "page", "path": "/import", "module": "pages/import", "load": true, "actions": ["rescue", "uncaught"] },
             { "kind": "page", "path": "/about", "template": "pages/about" },
             { "kind": "function", "method": "POST", "path": "/api/x", "module": "functions/api/x", "export": "POST" }
         ],
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] },
+        "modules": [{
+            "name": "reports", "version": "1.0.0", "hash": "0".repeat(64), "source": "path:modules/reports",
+            "mount": "/reports", "isolation": "shared", "dependencies": [], "config": {},
+            "permissions": reports_perms, "approved": reports_perms,
+            "exports": { "services": ["readXlsx", "imports"] },
+        }],
         "security": { "ratelimit": [
             { "method": "POST", "path": "/api/x", "requests": 2, "window_s": 60, "key": "ip" }
         ] }
@@ -670,4 +724,96 @@ meter_flush_ms = 50
         assert_eq!(r.status, 500, "{action}: {}", r.body);
         assert!(!r.body.contains("teapot"), "{}", r.body);
     }
+}
+
+/// #734 (`ops.md` 1.17.0 section 15.2): a page action writes A, calls a
+/// module service that writes and throws (`reports.readXlsx` on a corrupt
+/// file), catches it, writes C, and commits: A and C are kept, the
+/// service's row is not. Uncaught, the service's error fails the action
+/// and its whole transaction rolls back, as before; a call that returns
+/// keeps its writes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_service_call_in_an_action_rolls_back_only_the_call() {
+    let root = scratch("savepoint");
+    std::fs::create_dir_all(root.join("artifacts")).unwrap();
+    let text = r#"
+listen = "127.0.0.1:0"
+data_dir = "data"
+artifacts_dir = "artifacts"
+routes_file = "routes.json"
+meters_dir = "meters"
+logs_dir = "logs"
+idle_timeout_secs = 60
+meter_flush_ms = 50
+"#;
+    let config = WorkerConfig::parse(text, &root).unwrap();
+    let hash = write_artifact(&config.artifacts_dir);
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "shop.test", "tenant_id": "t_shop", "deployment_hash": hash, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(config.clone()).await.unwrap();
+    let addr = worker.addr;
+
+    let first = http(addr, "GET", "/cart", &[], "").await;
+    assert_eq!(first.status, 200, "{}", first.body);
+    let cookies = first.set_cookies();
+    let sid = cookies[0].split(';').next().unwrap().to_string();
+    let csrf = cookies[1].split(';').next().unwrap().to_string();
+    let token = csrf.strip_prefix("__Host-renox_csrf=").unwrap().to_string();
+    let jar = format!("{sid}; {csrf}");
+    let post = |action: &'static str, file: &'static str| {
+        let jar = jar.clone();
+        let token = token.clone();
+        async move {
+            http(
+                addr,
+                "POST",
+                &format!("/import?/{action}"),
+                &[("cookie", &jar), FORM, ("x-renox-csrf", &token)],
+                &format!("file={file}"),
+            )
+            .await
+        }
+    };
+    let state = || {
+        let jar = jar.clone();
+        async move {
+            let r = http(addr, "GET", "/import", &[("cookie", &jar)], "").await;
+            assert_eq!(r.status, 200, "{}", r.body);
+            serde_json::from_str::<serde_json::Value>(&r.body).unwrap()
+        }
+    };
+
+    let r = post("rescue", "corrupt.xlsx").await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(
+        v["caught"],
+        serde_json::json!({ "code": "RENOX_MODULE_SERVICE", "module": "reports", "service": "readXlsx" })
+    );
+    assert_eq!(
+        state().await,
+        serde_json::json!({ "notes": ["A", "C"], "imports": [] })
+    );
+
+    // Uncaught: the action fails and nothing of it is kept.
+    let r = post("uncaught", "corrupt.xlsx").await;
+    assert_eq!(r.status, 500, "{}", r.body);
+    assert!(!r.body.contains("not an xlsx file"), "{}", r.body);
+    assert_eq!(
+        state().await,
+        serde_json::json!({ "notes": ["A", "C"], "imports": [] })
+    );
+
+    // A call that returns keeps its writes.
+    let r = post("rescue", "good.xlsx").await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert_eq!(
+        state().await,
+        serde_json::json!({ "notes": ["A", "C", "A", "C"], "imports": ["good.xlsx"] })
+    );
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&root);
 }

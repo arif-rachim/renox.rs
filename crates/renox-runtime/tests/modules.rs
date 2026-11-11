@@ -6,7 +6,8 @@
 //! `undeclared_filler_fails_the_deployment`) and "Module reading secrets it
 //! did not declare" (`each_module_gets_its_own_secrets_tables_and_hosts`),
 //! and the `docs/23-failure-modes.md` row "Module service throws"
-//! (`callee_throw_rolls_back_the_callers_transaction`).
+//! (`callee_throw_rolls_back_only_its_call`; #734, ops.md 1.17.0: the
+//! call runs in a savepoint of its own, nested calls the same way).
 #![cfg(feature = "v8")]
 
 mod support;
@@ -58,6 +59,10 @@ export async function fail(ctx) {
   e.code = "RENOX_DB_CONSTRAINT";
   throw e;
 }
+export async function writeThenFail(ctx, email) {
+  await ctx.db.execute("insert into auth__users (email) values (?)", [email]);
+  throw new Error("auth refused " + email);
+}
 const caught = async (f) => { try { return await f(); } catch (e) { return { error: { code: e.code, details: e.details } }; } };
 export async function callBilling(ctx) {
   return caught(() => ctx.services.billing.charge("x"));
@@ -84,6 +89,17 @@ export async function charge(ctx, email) {
   });
 }
 const caught = async (f) => { try { return await f(); } catch (e) { return { error: { code: e.code, details: e.details } }; } };
+export async function chargeThenAuthFails(ctx, email, catchIt) {
+  await ctx.db.execute("insert into billing__invoices (email) values (?)", [email]);
+  if (!catchIt) return auth.writeThenFail(email);
+  let caught = null;
+  try { await auth.writeThenFail(email); } catch (e) { caught = e.code; }
+  await ctx.db.execute("insert into billing__invoices (email) values (?)", [email + ".after"]);
+  return { caught };
+}
+export async function invoices(ctx) {
+  return (await ctx.db.query("select email from billing__invoices order by id")).map((r) => r.email);
+}
 export async function readAuthTable(ctx) {
   return caught(() => ctx.db.query("select * from auth__users"));
 }
@@ -150,6 +166,49 @@ export async function GET(ctx) {
       const left = await ctx.db.query("select count(*) as n from app__items");
       return Response.json({ caught, outcome, items: left[0].n });
     }
+    case "savepoint": {
+      // #734: each call in the transaction rolls back alone.
+      const out = {};
+      out.outcome = await attempt(() => ctx.db.transaction(async (tx) => {
+        await tx.execute("insert into app__items (name) values ('A')");
+        try { await auth.writeThenFail("b@example.com"); } catch (e) { out.caught = err(e); }
+        out.ok = (await auth.register("ok@example.com")).module;
+        out.nestedCaught = await billing.chargeThenAuthFails("n@example.com", true);
+        try { await billing.chargeThenAuthFails("u@example.com", false); } catch (e) { out.nestedUncaught = err(e); }
+        await tx.execute("insert into app__items (name) values ('C')");
+        return "committed";
+      }));
+      out.items = (await ctx.db.query("select name from app__items order by id")).map((r) => r.name);
+      out.users = (await ctx.db.query("select email from auth__public_users_v1 order by id")).map((r) => r.email);
+      out.invoices = await billing.invoices();
+      return Response.json(out);
+    }
+    case "outside": {
+      // No transaction: the callee's autocommit write stays, as before.
+      let caught = null;
+      try { await auth.writeThenFail("out@example.com"); } catch (e) { caught = e.code; }
+      await ctx.db.execute("insert into app__items (name) values ('after')");
+      const users = (await ctx.db.query("select email from auth__public_users_v1 order by id")).map((r) => r.email);
+      const items = (await ctx.db.query("select name from app__items order by id")).map((r) => r.name);
+      return Response.json({ caught, users, items });
+    }
+    case "concurrent": {
+      // Calls in flight together: both kept when both return; a throw
+      // while a sibling's savepoint is open rolls the whole transaction back.
+      const both = await attempt(() => ctx.db.transaction(async () => {
+        await Promise.all([auth.register("c1@example.com"), auth.register("c2@example.com")]);
+        return "committed";
+      }));
+      const mixed = await attempt(() => ctx.db.transaction(async (tx) => {
+        await tx.execute("insert into app__items (name) values ('M')");
+        const r = await Promise.allSettled([auth.register("m1@example.com"), auth.writeThenFail("m2@example.com")]);
+        await tx.execute("insert into app__items (name) values ('M2')");
+        return r.map((x) => x.status);
+      }));
+      const users = (await ctx.db.query("select email from auth__public_users_v1 order by email")).map((r) => r.email);
+      const items = (await ctx.db.query("select name from app__items order by id")).map((r) => r.name);
+      return Response.json({ both, mixed, users, items });
+    }
     case "hooks": {
       const r = await auth.login("u1");
       return Response.json({ halt: r.halt, module: r.module, status: r.response?.status, order: globalThis.__order });
@@ -173,7 +232,7 @@ fn artifact(
             &[],
             &["AUTH_SECRET"],
             &[],
-            serde_json::json!({ "services": ["register", "fail", "callBilling", "login", "runForeignHook", "info"], "hooks": ["auth.after_login"], "views": ["auth__public_users_v1"] }),
+            serde_json::json!({ "services": ["register", "fail", "writeThenFail", "callBilling", "login", "runForeignHook", "info"], "hooks": ["auth.after_login"], "views": ["auth__public_users_v1"] }),
         ),
         module(
             "billing",
@@ -181,7 +240,7 @@ fn artifact(
             &["api.billing.example.com"],
             &["BILLING_KEY"],
             &["auth.after_login"],
-            serde_json::json!({ "services": ["charge", "readAuthTable", "fetchAppHost", "info"], "hooks": ["billing.before_charge"] }),
+            serde_json::json!({ "services": ["charge", "chargeThenAuthFails", "invoices", "readAuthTable", "fetchAppHost", "info"], "hooks": ["billing.before_charge"] }),
         ),
         module(
             "audit",
@@ -346,10 +405,11 @@ async fn declared_call_runs_in_the_callees_ctx_within_the_callers_transaction() 
 }
 
 /// docs/23-failure-modes.md "Module service throws": the caller gets a
-/// RenoxError with module and service, the enclosing transaction is rolled
-/// back at once, and its commit then fails with RENOX_DB_TX_STATE.
+/// RenoxError with module and service; since ops.md 1.17.0 (#734) only the
+/// call is rolled back (its savepoint), so the caller that catches keeps
+/// its transaction: its earlier write commits.
 #[tokio::test]
-async fn callee_throw_rolls_back_the_callers_transaction() {
+async fn callee_throw_rolls_back_only_its_call() {
     let (rt, sink) = runtime();
     let iso = isolate(&rt).await;
     let v = case(&iso, &sink, "rollback").await;
@@ -365,14 +425,86 @@ async fn callee_throw_rolls_back_the_callers_transaction() {
             .starts_with("auth.fail failed"),
         "{v}"
     );
-    assert_eq!(v["outcome"]["error"]["code"], "RENOX_DB_TX_STATE", "{v}");
-    assert_eq!(v["items"], 0);
+    assert_eq!(v["outcome"]["ok"], "answered", "{v}");
+    assert_eq!(v["items"], 1, "{v}");
     // The callee's error is logged with the callee's module.
     let lines = sink.lines();
     assert!(
         lines.iter().any(|l| l.message.contains("auth.fail threw")),
         "{lines:?}"
     );
+}
+
+/// #734 (ops.md 1.17.0 section 15.2): a service that throws inside the
+/// caller's transaction undoes only its own writes (B); the caller's writes
+/// before and after (A, C) and a call that returned commit. Two levels deep,
+/// the innermost failure undoes only its writes when the middle module
+/// catches it, and the middle call's too when it does not.
+#[tokio::test]
+async fn a_failed_call_rolls_back_to_its_savepoint_and_the_transaction_goes_on() {
+    let (rt, sink) = runtime();
+    let iso = isolate(&rt).await;
+    let v = case(&iso, &sink, "savepoint").await;
+    assert_eq!(v["outcome"]["ok"], "committed", "{v}");
+    assert_eq!(v["caught"]["code"], "RENOX_MODULE_SERVICE", "{v}");
+    assert_eq!(v["caught"]["module"], "auth");
+    assert_eq!(v["caught"]["service"], "writeThenFail");
+    assert_eq!(v["ok"], "auth");
+    assert_eq!(
+        v["nestedCaught"],
+        serde_json::json!({ "caught": "RENOX_MODULE_SERVICE" })
+    );
+    assert_eq!(v["nestedUncaught"]["code"], "RENOX_MODULE_SERVICE", "{v}");
+    assert_eq!(v["nestedUncaught"]["module"], "billing");
+    assert_eq!(v["nestedUncaught"]["service"], "chargeThenAuthFails");
+    assert_eq!(
+        v["nestedUncaught"]["details"]["cause_code"],
+        "RENOX_MODULE_SERVICE"
+    );
+    assert_eq!(v["items"], serde_json::json!(["A", "C"]), "{v}");
+    assert_eq!(v["users"], serde_json::json!(["ok@example.com"]), "{v}");
+    assert_eq!(
+        v["invoices"],
+        serde_json::json!(["n@example.com", "n@example.com.after"]),
+        "{v}"
+    );
+    let lines = sink.lines();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.message.contains("auth.writeThenFail threw")),
+        "{lines:?}"
+    );
+}
+
+/// #734: outside a transaction nothing changes: the callee's autocommit
+/// write stays and the caller goes on.
+#[tokio::test]
+async fn a_failed_call_outside_a_transaction_is_unchanged() {
+    let (rt, sink) = runtime();
+    let iso = isolate(&rt).await;
+    let v = case(&iso, &sink, "outside").await;
+    assert_eq!(v["caught"], "RENOX_MODULE_SERVICE", "{v}");
+    assert_eq!(v["users"], serde_json::json!(["out@example.com"]), "{v}");
+    assert_eq!(v["items"], serde_json::json!(["after"]), "{v}");
+}
+
+/// #734: calls in flight together in one transaction. Two that return both
+/// commit; a call that throws while a sibling's savepoint is open cannot be
+/// undone alone, so the whole transaction rolls back as before 1.17.0.
+#[tokio::test]
+async fn concurrent_calls_in_a_transaction() {
+    let (rt, sink) = runtime();
+    let iso = isolate(&rt).await;
+    let v = case(&iso, &sink, "concurrent").await;
+    assert_eq!(v["both"]["ok"], "committed", "{v}");
+    assert_eq!(v["mixed"]["error"]["code"], "RENOX_DB_TX_STATE", "{v}");
+    assert_eq!(
+        v["users"],
+        serde_json::json!(["c1@example.com", "c2@example.com"]),
+        "{v}"
+    );
+    assert_eq!(v["items"], serde_json::json!([]), "{v}");
 }
 
 /// ops.md 1.3.0 section 15.3: fillers in priority order (lower first), a

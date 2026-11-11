@@ -27,22 +27,32 @@ const words = (q: string): string[] =>
 
 const SNIPPET = 240;
 
-/** The line, or a window of it around the first matched term when it is long. */
-function snippet(line: string, terms: string[]): string {
+/**
+ * The line, or a window of it when it is long: around the query phrase when
+ * the line contains it, else around the first matched term.
+ */
+function snippet(line: string, terms: string[], phrase: string): string {
   if (line.length <= SNIPPET) return line;
-  const at = Math.min(...terms.map((t) => line.toLowerCase().indexOf(t)).filter((i) => i >= 0));
+  const lower = line.toLowerCase();
+  const p = terms.length > 1 ? lower.indexOf(phrase) : -1;
+  const at = p >= 0 ? p : Math.min(...terms.map((t) => lower.indexOf(t)).filter((i) => i >= 0));
   const start = Math.max(0, Math.min(at - 60, line.length - SNIPPET));
   return `${start > 0 ? "…" : ""}${line.slice(start, start + SNIPPET)}${start + SNIPPET < line.length ? "…" : ""}`;
 }
 
 /**
- * Lines that contain every query word (case-insensitive), ranked by how many
- * times the words occur in the line's section; at most `limit` hits.
+ * Lines that contain every query word (case-insensitive), the lines with the
+ * words as one phrase first, then ranked by how many times the words occur
+ * in the line's section; at most `limit` hits.
  */
 export function searchDocs(query: string, limit = 10): DocHit[] {
   const terms = words(query);
   if (terms.length === 0) return [];
-  const hits: DocHit[] = [];
+  // A line with the query words in order, as one phrase, ranks first (#734:
+  // a long section that only mentions the words apart, such as a changelog
+  // table, no longer outranks the line that states the phrase).
+  const phrase = terms.join(" ");
+  const hits: (DocHit & { phrase: boolean })[] = [];
   for (const [path, text] of Object.entries(DOCS)) {
     const lines = text.split("\n");
     let section = titleOf(path);
@@ -62,8 +72,12 @@ export function searchDocs(query: string, limit = 10): DocHit[] {
       const lower = raw.toLowerCase();
       if (!terms.every((t) => lower.includes(t))) return;
       const score = terms.reduce((n, t) => n + sectionLower.split(t).length - 1, 0) + (i === sectionStart ? 5 : 0);
-      hits.push({ uri: `docs://${path}`, title: titleOf(path), section, line: i + 1, snippet: snippet(raw.trim(), terms), score });
+      const hasPhrase = terms.length > 1 && lower.includes(phrase);
+      hits.push({ uri: `docs://${path}`, title: titleOf(path), section, line: i + 1, snippet: snippet(raw.trim(), terms, phrase), score, phrase: hasPhrase });
     });
   }
-  return hits.sort((a, b) => b.score - a.score || a.uri.localeCompare(b.uri) || a.line - b.line).slice(0, limit);
+  return hits
+    .sort((a, b) => Number(b.phrase) - Number(a.phrase) || b.score - a.score || a.uri.localeCompare(b.uri) || a.line - b.line)
+    .slice(0, limit)
+    .map(({ phrase: _, ...hit }) => hit);
 }
