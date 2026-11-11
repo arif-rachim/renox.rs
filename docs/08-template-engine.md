@@ -48,6 +48,7 @@ Arabic is a first-class target (`21-uae-gcc-strategy.md`), so RTL is a template-
 - Platform CSS and all official module templates use logical properties (`margin-inline-start`, `padding-inline-end`, `text-align: start`) and are snapshot-tested in both `ltr` and `rtl`.
 - Built-in components (`<x-form>`, `<x-image>`, admin tables, pagination, date pickers) mirror correctly; icons that imply direction have RTL variants.
 - Filters `money`, `date`, `number` follow the locale (AED formatting, Eastern Arabic digits optional, Hijri display optional); `t` resolves translations with Arabic plural categories.
+- `_404.html` and `_error.html` receive `locale`, `dir` and `app_name` (the manifest's `app.name`) next to `status`, `code`, `request_id` and `message`. The cell resolves the locale from `?lang=` and `Accept-Language` (then the i18n module's default), `en` and `ltr` without the i18n module, and reads no database for it, so `<r-t>` translates and `<html lang dir>` is right even when the database or the isolate is what failed.
 - Bilingual documents (invoices, emails) are rendered from one template with side-by-side EN/AR blocks; PDF rendering uses fonts with Arabic shaping.
 
 ## Built-in components
