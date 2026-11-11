@@ -13,6 +13,7 @@
 //! | `POST /nodes/{node}/tenants/{tenant}/snapshot`, `PUT …/import` | #258 |
 //! | `GET /nodes/{node}/tenants/{tenant}/files?database=` | #670 |
 //! | `POST /nodes/{node}/tenants/{tenant}/move` | #259 |
+//! | `POST /nodes/{node}/tenants/{tenant}/apps/{app}/agent-tokens` | #698 |
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -216,6 +217,142 @@ fn not_found() -> Resp {
     error(StatusCode::NOT_FOUND, "RENOX_NOT_FOUND", "Not found.", None)
 }
 
+/// 404 with one `{ field, reason }` (`nodeMintAgentToken`: `not_an_app_user`).
+fn not_found_because(field: &str, reason: &str) -> Resp {
+    error(
+        StatusCode::NOT_FOUND,
+        "RENOX_NOT_FOUND",
+        "Not found.",
+        Some(json!([{ "field": field, "reason": reason }])),
+    )
+}
+
+fn unavailable() -> Resp {
+    let mut r = error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "RENOX_UNAVAILABLE",
+        "The service is temporarily unavailable.",
+        None,
+    );
+    r.headers_mut()
+        .insert(header::RETRY_AFTER, http::HeaderValue::from_static("1"));
+    r
+}
+
+/// How long `auth.mintAgentToken` may take, cell creation aside.
+const MINT_DEADLINE: Duration = Duration::from_secs(10);
+/// A minted token lives at most this long (`agent_token_request.ttl_seconds`).
+pub const MINT_MAX_TTL_SECONDS: u64 = 300;
+const MINT_MIN_TTL_SECONDS: u64 = 30;
+
+/// An app name: `^[a-z][a-z0-9-]{0,49}$` (`control-messages.schema.json#/$defs/app`).
+fn valid_app(app: &str) -> bool {
+    !app.is_empty()
+        && app.len() <= 50
+        && app.as_bytes()[0].is_ascii_lowercase()
+        && app
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// `tools:<name>`, `<name>` = `^[a-z][a-z0-9_]{0,63}$`; never `tools:*`.
+pub fn mint_scope_ok(scope: &str) -> bool {
+    scope.strip_prefix("tools:").is_some_and(|n| {
+        !n.is_empty()
+            && n.len() <= 64
+            && n.as_bytes()[0].is_ascii_lowercase()
+            && n.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    })
+}
+
+/// `renox_agt_` + 16 to 128 of `[0-9A-Za-z_-]` (`agent_token_minted.token`).
+fn token_ok(t: &str) -> bool {
+    t.strip_prefix("renox_agt_").is_some_and(|r| {
+        (16..=128).contains(&r.len())
+            && r.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MintRequest {
+    #[serde(rename = "type")]
+    kind: String,
+    schema_version: u32,
+    tenant_id: String,
+    app: String,
+    email: String,
+    scopes: Vec<String>,
+    ttl_seconds: u64,
+    client_name: String,
+    grant_id: String,
+    #[serde(rename = "$comment", default)]
+    _comment: Option<String>,
+}
+
+/// `agent_token_request` against the path, or the first `(field, reason)`.
+fn check_mint_request(
+    tenant: &str,
+    app: &str,
+    body: Value,
+) -> Result<MintRequest, (&'static str, &'static str)> {
+    let req: MintRequest =
+        serde_json::from_value(body).map_err(|_| ("body", "not an agent_token_request"))?;
+    if req.kind != "agent_token_request" || req.schema_version != 0 {
+        return Err(("type", "agent_token_request, schema_version 0"));
+    }
+    if req.tenant_id != tenant {
+        return Err(("tenant_id", "not the tenant of the path"));
+    }
+    if req.app != app {
+        return Err(("app", "not the app of the path"));
+    }
+    let at = req.email.find('@');
+    let email_ok = req.email.len() <= 254
+        && !req.email.chars().any(char::is_whitespace)
+        && at.is_some_and(|i| {
+            let (local, domain) = (&req.email[..i], &req.email[i + 1..]);
+            !local.is_empty()
+                && !domain.contains('@')
+                && domain
+                    .find('.')
+                    .is_some_and(|d| d > 0 && d + 1 < domain.len())
+        });
+    if !email_ok {
+        return Err(("email", "an email address"));
+    }
+    if req.scopes.is_empty() || req.scopes.len() > 10 {
+        return Err(("scopes", "1 to 10 scopes"));
+    }
+    if !req.scopes.iter().all(|s| mint_scope_ok(s)) {
+        return Err((
+            "scopes",
+            "each scope is tools:<name>; tools:* is never minted",
+        ));
+    }
+    let unique: std::collections::HashSet<&String> = req.scopes.iter().collect();
+    if unique.len() != req.scopes.len() {
+        return Err(("scopes", "scopes are unique"));
+    }
+    if !(MINT_MIN_TTL_SECONDS..=MINT_MAX_TTL_SECONDS).contains(&req.ttl_seconds) {
+        return Err(("ttl_seconds", "30 to 300 seconds"));
+    }
+    if req.client_name.is_empty() || req.client_name.chars().count() > 80 {
+        return Err(("client_name", "1 to 80 characters"));
+    }
+    let grant_ok = (1..=64).contains(&req.grant_id.len())
+        && req
+            .grant_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if !grant_ok {
+        return Err(("grant_id", "1 to 64 of [0-9A-Za-z_-]"));
+    }
+    Ok(req)
+}
+
 /// A database id of `tenant`: the tenant id or `<tenant_id>.<app>`.
 pub fn database_of(tenant: &str, database: &str) -> bool {
     if database == tenant {
@@ -360,6 +497,29 @@ impl NodeListener {
         }
         let path = req.uri().path().to_string();
         let segs: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+        // 0.9 (#698): `POST /nodes/{node}/tenants/{tenant}/apps/{app}/agent-tokens`.
+        if let [
+            "nodes",
+            node,
+            "tenants",
+            tenant,
+            "apps",
+            app,
+            "agent-tokens",
+        ] = segs.as_slice()
+        {
+            if *node != self.node_id || !valid_tenant_id(tenant) || !valid_app(app) {
+                return not_found();
+            }
+            if req.method() != Method::POST {
+                return not_found();
+            }
+            let (tenant, app) = (tenant.to_string(), app.to_string());
+            return match read_json(req).await {
+                Ok(body) => self.mint_agent_token(&tenant, &app, body).await,
+                Err(r) => *r,
+            };
+        }
         let (node, tenant, action) = match segs.as_slice() {
             ["nodes", node, "tenants", tenant] => (*node, *tenant, ""),
             ["nodes", node, "tenants", tenant, action] => (*node, *tenant, *action),
@@ -436,6 +596,85 @@ impl NodeListener {
             }
             _ => not_found(),
         }
+    }
+
+    /// #698 (`nodeMintAgentToken`, deploy-api.md 0.9 section 15): the
+    /// owner connector's bridge. Runs `auth.mintAgentToken` as the platform
+    /// in the cell of the app's active deployment on this node and answers
+    /// `agent_token_minted`. The body is checked here first (400 for a scope
+    /// that is not `tools:<name>`, a ttl above 300 s); an app that is not
+    /// the tenant's, not active here, or without `auth`, and an email that is
+    /// no app user's, are 404. The token is never logged: this line names
+    /// the tenant, the app, the scope count and the grant only.
+    async fn mint_agent_token(&self, tenant: &str, app: &str, body: Value) -> Resp {
+        let req = match check_mint_request(tenant, app, body) {
+            Ok(r) => r,
+            Err((field, reason)) => return validation(field, reason),
+        };
+        let Some(hash) = self.manager.active_deployment(tenant, app) else {
+            return not_found_because("app", "not_active_on_this_node");
+        };
+        let args = json!([{
+            "email": req.email,
+            "scopes": req.scopes,
+            "ttl_seconds": req.ttl_seconds,
+            "client_name": req.client_name,
+            "grant_id": req.grant_id,
+        }]);
+        let mut id = [0u8; 13];
+        let _ = getrandom::fill(&mut id);
+        let request_id: String = id.iter().map(|b| format!("{b:02x}")).collect();
+        let outcome = self
+            .manager
+            .invoke_service(
+                tenant,
+                &hash,
+                "auth",
+                "mintAgentToken",
+                args.to_string(),
+                &request_id,
+                Instant::now() + MINT_DEADLINE,
+            )
+            .await;
+        use renox_runtime::isolate::InvokeOutcome;
+        let answer = match outcome {
+            Ok(InvokeOutcome::Ok(json)) => json,
+            Ok(InvokeOutcome::NoHandler) => return not_found_because("app", "no_auth_module"),
+            Ok(InvokeOutcome::Threw { code }) if code.as_deref() == Some("RENOX_VALIDATION") => {
+                return validation("body", "refused by the auth module");
+            }
+            Ok(other) => {
+                tracing::warn!(tenant_id = %tenant, app = %app, request_id = %request_id, outcome = ?other, "auth.mintAgentToken failed");
+                return unavailable();
+            }
+            Err(e) => {
+                tracing::warn!(tenant_id = %tenant, app = %app, error = %e, "nodeMintAgentToken: the cell could not be created");
+                return unavailable();
+            }
+        };
+        let minted: Value = serde_json::from_str(&answer).unwrap_or(Value::Null);
+        if minted.is_null() {
+            return not_found_because("email", "not_an_app_user");
+        }
+        let token = minted.get("token").and_then(|t| t.as_str());
+        let expires_at = minted.get("expires_at").and_then(|e| e.as_u64());
+        let (Some(token), Some(expires_at)) = (token.filter(|t| token_ok(t)), expires_at) else {
+            tracing::warn!(tenant_id = %tenant, app = %app, request_id = %request_id, "auth.mintAgentToken answered something that is not a token");
+            return unavailable();
+        };
+        tracing::info!(tenant_id = %tenant, app = %app, scopes = req.scopes.len(), grant_id = %req.grant_id, "agent token minted");
+        json_response(
+            StatusCode::OK,
+            json!({
+                "type": "agent_token_minted",
+                "schema_version": 0,
+                "node_id": self.node_id,
+                "tenant_id": tenant,
+                "app": app,
+                "token": token,
+                "expires_at": expires_at,
+            }),
+        )
     }
 
     /// #259: marks the tenant moving (its requests answer 503

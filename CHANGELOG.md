@@ -10,6 +10,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **Modules**
 
+- auth 1.2.0: the platform-only service `auth.mintAgentToken({ email, scopes, ttl_seconds, client_name, grant_id })` mints a short-lived (at most 300 s) agent token for the app user with that verified email, scoped to named `tools:<name>`, for the owner connector's bridge; callable only by the platform, never from tenant code, a route or another module; `verifyAgentToken` also answers `expires_at` and `client.grant_id` (#698).
 - `reports` 1.2.0: the service `reports.readXlsx(bytes)` returns the first sheet of an `.xlsx` (written by Excel, LibreOffice or `reports.xlsx`; shared and inline strings, a formula's cached value) as rows of `string | number | null`; a `Uint8Array` of at most 10 MiB and 100,000 cells, else `TypeError`, `RangeError` or "not an .xlsx file" (#724).
 
 ## 0.1.12 (2026-11-10)

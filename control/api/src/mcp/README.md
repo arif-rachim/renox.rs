@@ -8,6 +8,7 @@ The control API serves the platform MCP of `docs/20-ai-agents-mcp.md` (section 1
 | `return.ts` | The sealed authorization request that a sign-up carries as `return_to`, the public origin, the script-free HTML pages |
 | `server.ts` | `POST /mcp` (Streamable HTTP, stateless JSON answers), the tools, per-tool scopes, confirmation tokens, the audit row of each call |
 | `seal.ts` | AES-256-GCM sealing with a key derived (HKDF) from `CONTROL_MASTER_KEY`; without a master key the OAuth endpoints answer 503 |
+| `bridge.ts` | The owner connector's bridge (#698): `createBridge(deps).callAppTool(agent, app, tool, args)` mints an agent token of the app's own `auth` through the owning node and calls the app's `/mcp` with it |
 
 ## Flow
 
@@ -51,7 +52,16 @@ Scopes are the #113 token scopes. The MCP offers `apps:read`, `apps:write`, `dep
 | `update_settings`, `upload_logo`, `add_branch`, `update_branch`, `add_service`, `update_service` — owner connector (#686) | `app:settings` | yes | the bridge: the app tool of the same name |
 | `invite_people` — owner connector (#686) | `app:people` | yes | the bridge: `org.invite_member`, one call per person |
 
-The rows marked "owner connector (#686)" are the contract of `docs/20-ai-agents-mcp.md` section 1b (#687); `create_app_from_template` is served (#689); the others are not served yet: #698 (the bridge), #699 (the app tools) and #700 (these tools and the scopes) build them. The scope profile `owner` = `apps:read apps:write domains:write app:settings app:people`. **The bridge** (section 1b, "The bridge"): for a bridged tool the server asks the owning node for a short-lived agent token of the app's own `auth` module for the app user with the signed-in account's verified email (`nodeMintAgentToken`, `deploy-api.md` 0.9 section 15; `tools:<name>` scopes, at most 5 minutes), keeps it in memory only, and calls `https://<app>.<platform domain>/mcp` with it, so the app's policies decide as that user. The minted token is never stored, logged, audited or returned.
+The rows marked "owner connector (#686)" are the contract of `docs/20-ai-agents-mcp.md` section 1b (#687); `create_app_from_template` is served (#689); the bridge is built (#698, below); the others are not served yet: #699 (the app tools) and #700 (these tools and the scopes) build them. The scope profile `owner` = `apps:read apps:write domains:write app:settings app:people`.
+
+**The bridge** (section 1b, "The bridge"; `bridge.ts`, #698). `createBridge(deps).callAppTool(agent, app, tool, args, { scopes? })` is how a bridged tool reaches the app, in four steps:
+
+1. It resolves `app` inside the access token's tenant (another tenant's app, or a deleted one, is 404 `RENOX_NOT_FOUND`) and the owning node from the route table. An app with no active deployment, or a node without a listener, is 503 `RENOX_UNAVAILABLE`.
+2. It asks the node for a token (`nodeMintAgentToken`, `deploy-api.md` 0.9 section 15). The request carries the signed-in account's **verified** email, never a tool argument: the access token's user, still a member of the team, the token live. It also carries `scopes` (default `["tools:<tool>"]`, only `tools:<name>`, never `tools:*`), `ttl_seconds: 300`, `client_name: "Renoxium connector"` and `grant_id` = the access token's id. The node runs the app's `auth.mintAgentToken` as the platform; tenant code cannot call it. A 404 with `not_an_app_user` becomes the tool error `not_an_app_user`, "Your account is not a user of this app", and is not retried.
+3. It calls `POST https://<app>.<platform domain>/mcp` (`tools/call`) with the token, so the app's scopes, rate limit, confirmation and Cedar policies decide as that app user. The answer is `{ ok: true, untrusted: true, result }` or `{ ok: false, untrusted: true, status, error: { code, message, details? } }`; the app's own codes (`RENOX_TOOL_SCOPE`, a confirmation) pass through. A cached token the app answers 401 to (revoked in the app) is dropped and minted once more.
+4. It keeps the token in memory only, per (access token hash, app, scopes), until 30 s before its `expires_at`, so the confirmation round of one tool reuses it.
+
+The token is never written to the database, a log line, an audit row or a result: every answer is scrubbed of it (`tests/mcp-bridge.test.ts`, stubbed node and app). The node side is `crates/renox-cell/tests/agent_tokens.rs`, and the `auth` side is `modules/auth/tests/agents.test.ts`. The owner tools of #700 call the bridge. Until then nothing in `server.ts` does.
 
 Each tool runs as an internal request to the deploy API with the agent's token. The token's scopes, the user's current role, the tenant scoping and IDOR rules of #113, and the deploy API's own audit row all apply unchanged. `tools/list` shows only the tools the token's scopes allow. A call to any other tool gets `insufficient_scope`.
 

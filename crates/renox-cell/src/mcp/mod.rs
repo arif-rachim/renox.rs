@@ -77,9 +77,17 @@ pub struct Agent {
     pub principal: Arc<renox_authz::Principal>,
     pub scopes: Vec<String>,
     pub client: serde_json::Value,
+    /// When the token stops working (Unix ms), if `auth` said (#698: a
+    /// minted token lives at most 5 minutes): the cache keeps it no longer.
+    pub expires_at: Option<u64>,
 }
 
 impl Agent {
+    /// The token's own expiry has passed.
+    fn expired(&self) -> bool {
+        self.expires_at.is_some_and(|e| now_ms() >= e)
+    }
+
     /// `tools:*`, `tools:<name>`, or the bare tool name.
     fn covers(&self, tool: &str) -> bool {
         self.scopes
@@ -523,7 +531,7 @@ pub(crate) async fn serve(
         let tokens = cell.mcp.tokens.lock().expect("mcp lock");
         tokens
             .get(&token_hash)
-            .filter(|(_, at)| at.elapsed() < TOKEN_TTL)
+            .filter(|(a, at)| at.elapsed() < TOKEN_TTL && !a.expired())
             .map(|(a, _)| a.clone())
     };
     let agent = match cached {
@@ -550,7 +558,7 @@ pub(crate) async fn serve(
                     .and_then(|v| agent_of(&v)),
                 _ => None,
             };
-            let Some(agent) = verified else {
+            let Some(agent) = verified.filter(|a| !a.expired()) else {
                 return unauthorized(&host, &id, &rid);
             };
             cell.mcp
@@ -627,7 +635,8 @@ pub(crate) async fn serve(
     }
 }
 
-/// `{ principal: { id, attrs?, roles?: [{ role, scope_type, scope_id }] }, scopes, client: { name, model? } }`.
+/// `{ principal: { id, attrs?, roles?: [{ role, scope_type, scope_id }] }, scopes, client: { name, model? }, expires_at? }`
+/// (`expires_at`: Unix ms, #698).
 fn agent_of(v: &serde_json::Value) -> Option<Agent> {
     let p = v.get("principal")?;
     let id = p.get("id")?.as_str()?;
@@ -675,6 +684,7 @@ fn agent_of(v: &serde_json::Value) -> Option<Agent> {
         principal: Arc::new(principal),
         scopes,
         client,
+        expires_at: v.get("expires_at").and_then(|e| e.as_u64()),
     })
 }
 
