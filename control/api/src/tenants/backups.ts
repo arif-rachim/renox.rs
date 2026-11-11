@@ -227,7 +227,7 @@ export async function storeExport(deps: Deps, db: Db, input: StoreExportInput): 
   return { url, expires_at: expires, created_at: now, size_bytes: body.length, sha256, kind, ...(hash === null ? {} : { hash }) };
 }
 
-/** The content type and file name suffix of the API download, by the row's `kind` (0.10.2, #703). */
+/** The content type and file name suffix of the API download, by the row's `kind` (0.11.2, #703). */
 const EXPORT_DOWNLOAD: Record<string, { type: string; suffix: string }> = {
   database: { type: "application/vnd.sqlite3", suffix: "db" },
   files: { type: "application/x-tar+gzip", suffix: "files.tar.gz" },
@@ -238,7 +238,7 @@ const EXPORT_DOWNLOAD: Record<string, { type: string; suffix: string }> = {
 export const EXPORT_SWEEP_LIMIT = 500;
 
 /**
- * The export expiry sweep (0.10.2, #703), hourly: for each `exports` row past
+ * The export expiry sweep (0.11.2, #703), hourly: for each `exports` row past
  * its `expires_at` (at most 500 per run, oldest first) the object is deleted
  * from the store, then the row; a missing object is not an error, a store that
  * fails keeps the row for the next run. One `exportsExpired` audit row names
@@ -358,7 +358,7 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const sig = c.req.query("sig") ?? "";
     if (!/^exp_[0-9A-Za-z]{26}$/u.test(id) || !Number.isFinite(expires) || !/^[0-9a-f]{64}$/u.test(sig)) throw notFound();
     if (!exportSignatureValid(deps, id, expires, sig) || deps.now() > expires) throw new ApiError("RENOX_TOKEN_SCOPE");
-    // An expired row is 404 even before the sweep has deleted it (0.10.2, #703).
+    // An expired row is 404 even before the sweep has deleted it (0.11.2, #703).
     const rows = await crossTenant(deps.db, "a signed export URL names its export, not a tenant").query<{ object_key: string; app: string; kind: string; created_at: unknown }>("select object_key, app, kind, created_at from exports where id = $1 and expires_at >= $2", [id, deps.now()]);
     const row = rows[0];
     const bytes = row === undefined ? null : await deps.store.get(row.object_key);

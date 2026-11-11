@@ -277,7 +277,7 @@ describe("backups (deploy-api.md section 14)", () => {
     });
   });
 
-  describe("export expiry and download types (0.10.2, #703)", () => {
+  describe("export expiry and download types (0.11.2, #703)", () => {
     const TAR = new TextEncoder().encode("pretend gzip tar of three files");
     const HOUR = 3_600_000;
     const exportAll = async (h: Harness, token: string) => {
