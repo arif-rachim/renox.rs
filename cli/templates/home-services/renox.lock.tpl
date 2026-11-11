@@ -36,9 +36,9 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 
 [[module]]
 name = "auth"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "0cfbcde39e870cefa80d29abffb9ce59018d4110ca1395cb906ca100c2af87db"
+hash = "228b5d63193f50371a3732cab4c4a83a41efdc2d390f5d7dc0720aa598830b2a"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -169,9 +169,9 @@ approved = { tables = "twofa__*", network = [], secrets = ["TWOFA_KEY"], slots =
 
 [[module]]
 name = "whatsapp"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "8000bf02afdb68398997885bf1350a584d0a6b2fefb262d3bedea627eb2d7da4"
+hash = "292195dd9041ce9d70f17d73401b04b7ecbd7c4193808ee0e9dfb4369681a062"
 isolation = "shared"
 mount = "/whatsapp"
 dependencies = []

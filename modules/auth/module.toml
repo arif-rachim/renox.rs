@@ -1,6 +1,6 @@
 [module]
 name = "auth"
-version = "1.1.0"
+version = "1.2.0"
 description = "Users, passwords (argon2id), sessions, and the login, register and account pages"
 
 # The page locale of auth's pages (#244): auth passes the user to i18n.
@@ -53,6 +53,7 @@ verifyAgentToken = "The cell's check of an agent token on /mcp (#286): token -> 
 oauthMetadata = "RFC 8414 metadata of the authorization server for agents: issuer -> the metadata object (the cell serves it, #286)"
 listAgentTokens = "The signed-in user's connected agents (live tokens), newest first"
 revokeAgentToken = "Disconnect one of the signed-in user's agents: id -> true when a token was revoked"
+mintAgentToken = "Platform only (#698): { email, scopes: [tools:<name>], ttl_seconds <= 300, client_name, grant_id } -> { token, expires_at } of the verified app user, or null; else AUTH_PLATFORM_ONLY"
 
 [exports.events."auth.user_registered"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth"] } } }

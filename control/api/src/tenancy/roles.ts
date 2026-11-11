@@ -8,6 +8,9 @@
 // holds: a token never manages the team or billing, or erases the tenant.
 // From deploy-api.md 0.7 (#536) `apps:delete` is a token scope too: the CLI's
 // `renox apps rm` deletes an app with a token (the role still caps it).
+// From 0.11 (#700) `app:settings` and `app:people` are token scopes held by
+// owner and admin: no deploy-API operation needs them, only the platform MCP's
+// bridged owner tools (src/mcp/server.ts), which check this matrix themselves.
 
 import { ACTIONS, type Action } from "../auth/tokens.ts";
 
@@ -36,6 +39,9 @@ export const MATRIX: Record<Permission, readonly Role[]> = {
   "registry:publish": ["owner", "admin"],
   billing: ["owner"],
   "apps:delete": ["owner", "admin"],
+  // deploy-api.md 0.11 (#700): the owner connector's settings and people tools.
+  "app:settings": ["owner", "admin"],
+  "app:people": ["owner", "admin"],
   "tenant:delete": ["owner"],
 };
 

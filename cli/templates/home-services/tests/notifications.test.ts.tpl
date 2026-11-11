@@ -300,6 +300,18 @@ describe("a customer's reply", () => {
     expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(tasks);
     expect(rows("select count(*) as n from notifications__items")[0]?.n).toBe(notes);
   });
+
+  test("edge case: a phone with 201 earlier inbound messages still gets its cancel task (the message is read by id, not found in a page)", async () => {
+    const tasks = Number(rows("select count(*) as n from app__tasks")[0]?.n);
+    rw((db) => db.transaction(() => {
+      const q = db.query("insert into whatsapp__messages (id, direction, kind, wa_id, phone, body, status, at, updated_at) values (?, 'in', 'text', ?, '+971501110001', 'thanks', 'received', ?, ?)");
+      for (let i = 0; i < 201; i++) q.run(`01HSBULK${String(i).padStart(18, "0")}`, `wamid.bulk${i}`, Date.now() + i, Date.now() + i);
+    }).immediate());
+    expect((await inbound("971501110001", "cancel", undefined, "wamid.layla-cancel-late")).status).toBe(200);
+    await handled();
+    expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(tasks + 1);
+    expect(rows("select count(*) as n from app__tasks where message_id = (select id from whatsapp__messages where wa_id = 'wamid.layla-cancel-late')")[0]?.n).toBe(1);
+  });
 });
 
 describe("the ownership fence", () => {

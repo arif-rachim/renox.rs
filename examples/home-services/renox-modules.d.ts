@@ -7,6 +7,8 @@
 declare module "renox:modules" {
   export const auth: {
     currentUser(): Promise<{ id: string; email: string; display_name: string } | null>;
+    /** The account and a confirmation (sign-in) link by mail; the same `message` whether or not the email was taken (#711: the setup's owner). */
+    register(input: { email: string; password: string; display_name?: string }): Promise<{ message: string } | { error: string }>;
   };
   export const i18n: {
     detectLocale(who?: { user_id?: string | null; org_locale?: string | null }): Promise<{ locale: string; dir: "ltr" | "rtl"; alternates: { locale: string; href: string; current: boolean }[] }>;
@@ -22,6 +24,8 @@ declare module "renox:modules" {
     /** Messages newest first; an inbound one has direction "in". */
     /** Outgoing messages newest first (a sandbox app's would-have-sent list); a template's body is `{ name, language, components }` as JSON. */
     outbox(limit?: number): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
+    /** One stored message by id (the shape of an `inbox()` row; an OTP's body shows as `[otp]`), or null. */
+    message(id: string): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number } | null>;
     inbox(filter?: { phone?: string; direction?: "in" | "out"; limit?: number }): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
   };
   export const email: {
@@ -40,6 +44,8 @@ declare module "renox:modules" {
     uploadUrl(owner: string, name: string, options: { contentType: string; maxBytes: number; public?: boolean }): Promise<{ url: string; expires_at: number; max_bytes: number; key: string }>;
     list(owner: string, options?: { limit?: number; cursor?: string | null }): Promise<{ items: { key: string; bytes: number; content_type: string; sha256: string; width: number | null; height: number | null; public: boolean; created_at: number }[]; next_cursor: string | null }>;
     link(owner: string, name: string, ttlSeconds: number): Promise<{ url: string; expires_at: number }>;
+    /** The SVG with scripts, event handlers, foreign objects and external references removed, or null when it is no SVG or something dangerous is left. */
+    sanitizeSvg(text: string): Promise<string | null>;
   };
   /** The reports module: the app's own reports are exported through `csv` (amounts stay in the rows' units). */
   export const reports: {
