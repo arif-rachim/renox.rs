@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::pages::errors::ErrorRequest;
 use bytes::Bytes;
 use http::{HeaderMap, Response};
 use renox_authz::Principal;
@@ -61,6 +62,11 @@ pub struct PageRenderer {
     authz: Option<renox_runtime::ops::authz::AuthzSlot>,
     /// `partial` template ids: what a realtime `fragment` payload may name.
     partials: BTreeSet<String>,
+    /// `app.name` of the manifest, for the error pages (#739).
+    app_name: String,
+    /// The i18n module's options, when installed: the error pages' locale
+    /// (#739). `None`: `en`, left to right.
+    i18n: Option<crate::pages::errors::I18nOptions>,
 }
 
 /// Why a realtime `fragment` could not be rendered (#281).
@@ -264,6 +270,8 @@ impl PageRenderer {
             client_script,
             authz: None,
             partials,
+            app_name: manifest.app.name.clone(),
+            i18n: crate::pages::errors::I18nOptions::from_modules(manifest.modules.as_ref()),
         }))
     }
 
@@ -495,6 +503,30 @@ impl PageRenderer {
         head: bool,
         now_ms: Option<i64>,
     ) -> Rendered {
+        self.render_page_for(
+            page,
+            request_id,
+            csp_nonce,
+            csrf_token,
+            head,
+            now_ms,
+            &ErrorRequest::default(),
+        )
+    }
+
+    /// [`Self::render_page`] with the request, which the error page of a
+    /// failed render reads its locale from (#739).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_page_for(
+        &self,
+        page: &PageRender,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+        csrf_token: Option<&str>,
+        head: bool,
+        now_ms: Option<i64>,
+        req: &ErrorRequest,
+    ) -> Rendered {
         let Some(template) = page.template.as_deref() else {
             return self.failure(
                 request_id,
@@ -502,6 +534,7 @@ impl PageRenderer {
                 Failure::internal("no_template", None),
                 0,
                 None,
+                req,
             );
         };
         let data: Value = match serde_json::from_str(&page.data_json) {
@@ -513,6 +546,7 @@ impl PageRenderer {
                     Failure::internal("data_not_serialisable", Some(e.to_string())),
                     0,
                     None,
+                    req,
                 );
             }
         };
@@ -529,6 +563,7 @@ impl PageRenderer {
                 Failure::internal("unknown_fragment", Some(format!("fragment `{unknown}`"))),
                 0,
                 None,
+                req,
             );
         }
         let mut cx = Self::with_locale(
@@ -619,6 +654,7 @@ impl PageRenderer {
                     failure,
                     stats.fuel_used,
                     Some(stats.ms),
+                    req,
                 );
                 page.authz_evals = stats.authz_evals;
                 page.authz_warnings = authz_warnings;
@@ -634,6 +670,7 @@ impl PageRenderer {
         failure: Failure,
         fuel: u64,
         ms: Option<f64>,
+        req: &ErrorRequest,
     ) -> Rendered {
         let mut page = self.error_page(
             500,
@@ -641,6 +678,7 @@ impl PageRenderer {
             failure.message,
             request_id,
             csp_nonce,
+            req,
         );
         page.fuel += fuel;
         page.ms = match (page.ms, ms) {
@@ -653,9 +691,9 @@ impl PageRenderer {
     }
 
     /// The error page (`errors.md` section 1): the tenant's `pages/_error`
-    /// with exactly `status`, `code`, `request_id`, `message`, under the
-    /// fixed error-page budget; the platform default page when there is no
-    /// error template or it fails.
+    /// with `status`, `code`, `request_id`, `message` and (#739) `locale`,
+    /// `dir`, `app_name`, under the fixed error-page budget; the platform
+    /// default page when there is no error template or it fails.
     pub fn error_page(
         &self,
         status: u16,
@@ -663,6 +701,7 @@ impl PageRenderer {
         message: &str,
         request_id: &str,
         csp_nonce: Option<&str>,
+        req: &ErrorRequest,
     ) -> Rendered {
         self.render_status_page(
             self.error_template.as_deref(),
@@ -671,12 +710,18 @@ impl PageRenderer {
             message,
             request_id,
             csp_nonce,
+            req,
         )
     }
 
     /// The 404 page for a `GET`/`HEAD` that matched no route: `pages/_404`,
     /// then `pages/_error`, then the default page.
-    pub fn not_found_page(&self, request_id: &str, csp_nonce: Option<&str>) -> Rendered {
+    pub fn not_found_page(
+        &self,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+        req: &ErrorRequest,
+    ) -> Rendered {
         let template = self
             .not_found_template
             .as_deref()
@@ -688,9 +733,11 @@ impl PageRenderer {
             NOT_FOUND_MESSAGE,
             request_id,
             csp_nonce,
+            req,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_status_page(
         &self,
         template: Option<&str>,
@@ -699,6 +746,7 @@ impl PageRenderer {
         message: &str,
         request_id: &str,
         csp_nonce: Option<&str>,
+        req: &ErrorRequest,
     ) -> Rendered {
         let input = ErrorPage {
             status,
@@ -721,12 +769,30 @@ impl PageRenderer {
                 authz_warnings: Vec::new(),
             };
         };
-        // Exactly the four fields (errors.md section 1).
-        let data: Value = serde_json::from_value(input.data()).expect("plain JSON deserialises");
+        // The four fields, then the locale, its direction and the app's name
+        // (errors.md section 1; #739). No isolate, no database: the locale
+        // comes from the request alone.
+        let locale = self
+            .i18n
+            .as_ref()
+            .map(|o| o.resolve(req))
+            .unwrap_or_default();
+        let mut data = input.data();
+        if let Some(m) = data.as_object_mut() {
+            m.insert("locale".into(), locale.locale.clone().into());
+            m.insert("dir".into(), locale.dir.as_str().into());
+            m.insert("app_name".into(), self.app_name.clone().into());
+        }
+        let data: Value = serde_json::from_value(data).expect("plain JSON deserialises");
+        let cx = Self::with_locale_tag(
+            self.context(csp_nonce),
+            Some(&locale.locale),
+            Some(locale.dir.as_str()),
+        );
         match self.renderer.render(
             RenderTarget::Page(template),
             data,
-            &self.context(csp_nonce),
+            &cx,
             &RenderLimits::ERROR_PAGE,
         ) {
             Ok(out) => Rendered {

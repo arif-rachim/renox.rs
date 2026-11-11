@@ -137,3 +137,66 @@ fn bad_options_are_compile_errors() {
         assert!(show(&d).contains(needle), "{src}: {}", show(&d));
     }
 }
+
+fn render_tag(attrs: &str) -> String {
+    render(
+        &format!(r#"<x-image :src="photo" width="160" {attrs}></x-image>"#),
+        photo(),
+        &RenderContext::default(),
+    )
+}
+
+#[test]
+fn loading_defaults_to_lazy_without_fetchpriority() {
+    let html = render_tag("");
+    assert!(
+        html.ends_with(" loading=\"lazy\" decoding=\"async\">"),
+        "{html}"
+    );
+    assert!(!html.contains("fetchpriority"), "{html}");
+}
+
+#[test]
+fn an_author_loading_eager_is_written_once() {
+    let html = render_tag(r#"loading="eager""#);
+    assert!(
+        html.ends_with(" loading=\"eager\" decoding=\"async\">"),
+        "{html}"
+    );
+    assert_eq!(html.matches("loading=").count(), 1, "{html}");
+}
+
+#[test]
+fn an_author_loading_lazy_is_written_once() {
+    let html = render_tag(r#"loading="lazy""#);
+    assert_eq!(html.matches("loading=\"lazy\"").count(), 1, "{html}");
+    assert_eq!(html.matches("loading=").count(), 1, "{html}");
+}
+
+#[test]
+fn fetchpriority_high_is_passed_through_once() {
+    let html = render_tag(r#"loading="eager" fetchpriority="high""#);
+    assert!(html.contains(" fetchpriority=\"high\""), "{html}");
+    assert_eq!(html.matches("fetchpriority=").count(), 1, "{html}");
+    assert_eq!(html.matches("loading=").count(), 1, "{html}");
+}
+
+#[test]
+fn an_invalid_or_bound_loading_or_fetchpriority_is_a_compile_error() {
+    for attrs in [
+        r#"loading="auto""#,
+        r#":loading="'eager'""#,
+        r#"fetchpriority="fast""#,
+        r#":fetchpriority="'high'""#,
+    ] {
+        let src = format!(r#"<x-image :src="photo" width="160" {attrs}></x-image>"#);
+        let d = compile_files(&[("pages/p.html", src.as_str())])
+            .err()
+            .unwrap_or_else(|| panic!("{attrs} should not compile"));
+        let msg = show(&d);
+        assert!(
+            msg.contains("pages/p.html") && msg.contains("<x-image>"),
+            "{msg}"
+        );
+    }
+}

@@ -10,6 +10,36 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 
+/// At most this many `form_action` origins (`artifact.md` 1.10).
+const MAX_FORM_ACTION: usize = 8;
+
+/// `https://host[:port]`, the host lowercase with at least one dot and no
+/// wildcard; no path, no `;` or `,` (`artifact.md` 1.10, #740). A form target
+/// is an origin: a path would pin one URL, which a form does not need.
+fn is_form_action_origin(src: &str) -> bool {
+    let Some(rest) = src.strip_prefix("https://") else {
+        return false;
+    };
+    let (host, port) = match rest.split_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (rest, None),
+    };
+    if port.is_some_and(|p| p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit())) {
+        return false;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    labels.len() >= 2
+        && labels.iter().all(|l| {
+            let b = l.as_bytes();
+            !b.is_empty()
+                && b.len() <= 63
+                && b.iter()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+                && b[0] != b'-'
+                && b[b.len() - 1] != b'-'
+        })
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Csp {
@@ -19,6 +49,9 @@ pub struct Csp {
     pub connect_src: Vec<String>,
     pub frame_src: Vec<String>,
     pub font_src: Vec<String>,
+    /// Extra origins a form may post to (`form-action 'self' <sources>`, #740):
+    /// `https://` origins only, from the app's own `renox.toml`.
+    pub form_action: Vec<String>,
     pub allow_unsafe: bool,
     pub report_only: bool,
 }
@@ -47,6 +80,14 @@ impl Csp {
                 !bad
             });
         }
+        self.form_action.retain(|src| {
+            let ok = is_form_action_origin(src);
+            if !ok {
+                tracing::warn!(directive = "form_action", source = %src, "dropped a form_action source that is not an https:// origin (#740)");
+            }
+            ok
+        });
+        self.form_action.truncate(MAX_FORM_ACTION);
     }
 }
 
@@ -243,5 +284,17 @@ mod tests {
         .unwrap();
         assert_eq!(info.security.csp.script_src, ["https://ok.example"]);
         assert!(info.security.csp.img_src.is_empty());
+    }
+
+    #[test]
+    fn form_action_keeps_only_https_origins() {
+        let info = DeploymentInfo::parse(
+            r#"{"artifact":{"version":1},"security":{"csp":{"form_action":["https://api.example.com","https://*.example.com","http://api.example.com","data:","https://a.example/x;y","https://b.example/path","https://c.example:8443"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            info.security.csp.form_action,
+            ["https://api.example.com", "https://c.example:8443"]
+        );
     }
 }

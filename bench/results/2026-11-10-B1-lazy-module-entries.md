@@ -39,6 +39,6 @@ RENOX_BUILD_LAZY_MODULES=1 RENOX_WORKER_PATH=$PWD/target/release/renox-worker B1
   BENCH_WORKER_EXTRA_TOML=$'[tiers.free]\ncpu_ms = 1000\n' bench/run.sh B1 --profile dev-laptop
 ```
 
-`RENOX_BUILD_LAZY_MODULES=1`: since f136974, `renox build` writes lazy module entries only when the pinned worker is 0.8.0 or later. Until that pin, this variable makes the CLI build the artifacts these runs measured. The runs above predate the gate and built them lazy.
+`RENOX_BUILD_LAZY_MODULES=1`: since f136974, `renox build` writes lazy module entries only when the pinned worker is at least the CLI's `LAZY_MODULES_WORKER` (`cli/src/lib/hook-keys.ts`). The worker that carries #640 and #680 is 0.7.1 (tag `worker-v0.7.1`, pinned by `cli-v0.1.12`), but that constant still says 0.8.0, so a CLI up to 0.1.12 builds the entries eager; until the constant is lowered to 0.7.1 (#743), this variable makes the CLI build the artifacts these runs measured. The runs above predate the gate and built them lazy.
 
 Run it once at `main` and once at the branch. The CLI of the same checkout builds the artifact, so each run measures its own `renox build`.

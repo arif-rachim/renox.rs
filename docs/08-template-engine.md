@@ -48,6 +48,7 @@ Arabic is a first-class target (`21-uae-gcc-strategy.md`), so RTL is a template-
 - Platform CSS and all official module templates use logical properties (`margin-inline-start`, `padding-inline-end`, `text-align: start`) and are snapshot-tested in both `ltr` and `rtl`.
 - Built-in components (`<x-form>`, `<x-image>`, admin tables, pagination, date pickers) mirror correctly; icons that imply direction have RTL variants.
 - Filters `money`, `date`, `number` follow the locale (AED formatting, Eastern Arabic digits optional, Hijri display optional); `t` resolves translations with Arabic plural categories.
+- `_404.html` and `_error.html` receive `locale`, `dir` and `app_name` (the manifest's `app.name`) next to `status`, `code`, `request_id` and `message`. The cell resolves the locale from `?lang=` and `Accept-Language` (then the i18n module's default), `en` and `ltr` without the i18n module, and reads no database for it, so `<r-t>` translates and `<html lang dir>` is right even when the database or the isolate is what failed.
 - Bilingual documents (invoices, emails) are rendered from one template with side-by-side EN/AR blocks; PDF rendering uses fonts with Arabic shaping.
 
 ## Built-in components
@@ -56,7 +57,7 @@ Some components are provided by the platform or official modules and are compile
 
 | Component | Provided by | Emits |
 | --- | --- | --- |
-| `<x-image :src="file" width="400" alt="...">` | `storage` module | `<img>` with `srcset` (1x/2x), `width`/`height` from stored metadata, `loading="lazy"`, `decoding="async"`, and URLs to the image pipeline (`06-data.md`, `18-build-plan.md` M6). Options: `fit="cover|contain"`, `focus="face|center"`, `placeholder="blur"`, `sizes="..."` |
+| `<x-image :src="file" width="400" alt="...">` | `storage` module | `<img>` with `srcset` (1x/2x), `width`/`height` from stored metadata, `loading="lazy"` (an author `loading="eager"` overrides it), `decoding="async"`, and URLs to the image pipeline (`06-data.md`, `18-build-plan.md` M6). Options: `fit="cover|contain"`, `focus="face|center"`, `placeholder="blur"`, `sizes="..."`, `loading="eager|lazy"`, `fetchpriority="high|low|auto"` (literals only; a bound or other value is a compile error). For the page's main image write `<x-image :src="hero" width="800" loading="eager" fetchpriority="high">`; `fetchpriority` is not written unless given |
 | `<x-form action="addToCart">` | platform | `<form>` with the CSRF token, `hx-post`, and `hx-target` wired to the action's declared fragments |
 | `<x-csrf />` | platform | Hidden CSRF input for hand-written forms |
 | `<x-script src="...">` | platform | `<script>` with the per-request CSP nonce |

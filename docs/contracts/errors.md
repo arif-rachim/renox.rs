@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0.11** (F7, #658: `RENOX_TOOL_CALL`, the log line of every App MCP tool call, for `ops.md` 1.14.1). 0.10 (F2, #640: wording; `RENOX_MODULE_EVAL` is also logged for a lazy module entry, ops 1.14.0). 0.9 (F7, #579: `RENOX_STORAGE_CONFLICT`, a reused upload URL, for `ops.md` 1.10.0). 0.8 (F7, #507: `RENOX_CLI_WORKER_UNAVAILABLE`). 0.7 (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
+| Version | **0.11.1** (F7, #739: wording; the error template's inputs gain `locale`, `dir` and `app_name`, for `artifact.md` 1.9.3). 0.11 (F7, #658: `RENOX_TOOL_CALL`, the log line of every App MCP tool call, for `ops.md` 1.14.1). 0.10 (F2, #640: wording; `RENOX_MODULE_EVAL` is also logged for a lazy module entry, ops 1.14.0). 0.9 (F7, #579: `RENOX_STORAGE_CONFLICT`, a reused upload URL, for `ops.md` 1.10.0). 0.8 (F7, #507: `RENOX_CLI_WORKER_UNAVAILABLE`). 0.7 (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
 | Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
 | Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
 | Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
@@ -35,7 +35,7 @@ A platform error on a page route (`artifact.md` section 3, "Page routes") is ans
 1. The tenant's `pages/_error.html`: the template with `kind: "error"` in `manifest.templates`.
 2. The **platform default page**, if the app has no error template, if rendering it fails, or if it hits a limit itself: a static HTML page with the HTTP status, the message, and the request id, and no tenant content. It is never rendered with tenant code or tenant templates. It is the same page the gateway already sends for its own HTML errors (413), and the page every collateral request of a recycled isolate gets (`ops.md` section 10).
 
-**Inputs.** The error template receives exactly four variables, and nothing else:
+**Inputs.** The error template receives exactly these variables, and nothing else (the last three since `artifact.md` 1.9.3, #739):
 
 | Variable | Type | Value |
 | --- | --- | --- |
@@ -43,8 +43,11 @@ A platform error on a page route (`artifact.md` section 3, "Page routes") is ans
 | `code` | string or `null` | The code from section 3; `null` only for the 404 page below |
 | `request_id` | string | Same as `x-renox-request-id` |
 | `message` | string | The fixed English text from the "Message" column |
+| `locale` | string | The page's locale (`ar`, `en`): `?lang=`, then `Accept-Language`, then the `i18n` module's default locale, among the locales the module offers. `en` when the `i18n` module is not installed. The locale the stored user or session preference would give is not read |
+| `dir` | string | `rtl` for the locales the i18n module marks right-to-left (`ar`, `fa`, `he`, `ur`, `ps`, `sd`, `ug`, `yi`, `dv`, `ckb`), else `ltr` |
+| `app_name` | string | `app.name` of the manifest |
 
-No loader runs: `pages/_error.ts` is a build error (`renox check`), and the template sees no `ctx`, no session, no loader data of the failed request, no `params`, and no detail of the cause (limit values, stack, SQL). Layouts and partials may be used, so the page can look like the rest of the app.
+The locale is resolved by the cell from the request alone, without an isolate and without the database, so the page renders when either is what failed; `<r-t>` and the `t` filter translate in it, and a missing key renders the key. No loader runs: `pages/_error.ts` is a build error (`renox check`), and the template sees no `ctx`, no session, no loader data of the failed request, no `params`, and no detail of the cause (limit values, stack, SQL). Layouts and partials may be used, so the page can look like the rest of the app.
 
 **Render budget: a fixed error-page budget**, decided here (#93 proposed "a tiny fixed fuel budget", version 0 of this file said "the normal render limits"; the fixed budget wins). The error page renders exactly when a request has already failed, often under load (`RENOX_CPU_LIMIT`, `RENOX_BUSY`). With the normal limits, a heavy `_error.html` would double the cost of every failure, and a flood of failures would become a flood of renders. So the error template gets the same small budget on every tier, independent of what the failed request used:
 
@@ -210,3 +213,4 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 | 0.9 | #579 | Ops 1.10.0 (F7): `RENOX_STORAGE_CONFLICT`, the answer to a second `PUT` with a used upload URL |
 | 0.10 | #640 | Wording (no code added): the `RENOX_MODULE_EVAL` row states that ops 1.14.0 also logs it when a lazy module entry fails its first evaluation, while the caller gets `RENOX_MODULE_SERVICE` with it as `cause_code` |
 | 0.11 | #658 | Ops 1.14.1 (F7): `RENOX_TOOL_CALL`, the `info` log line of every App MCP `tools/call` (HTTP "—", like `RENOX_CLIENT_EVENTS_DROPPED`) |
+| 0.11.1 | #739 | Wording (F7): the error template's inputs gain `locale`, `dir` and `app_name`, resolved by the cell from the request alone (`artifact.md` 1.9.3); no code changes |

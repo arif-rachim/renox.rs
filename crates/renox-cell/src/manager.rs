@@ -1413,6 +1413,8 @@ impl CellManager {
         let get_or_head = is_head || parts.method == http::Method::GET;
         let wants_html = prefers_html(&parts.headers);
         let encoding = compress::negotiate(&parts.headers);
+        // What an error page reads its locale from (#739).
+        let error_req = crate::pages::errors::ErrorRequest::of(parts.uri.query(), &parts.headers);
         let body = match body.collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => Bytes::new(),
@@ -1463,6 +1465,7 @@ impl CellManager {
                     Some(pages) => {
                         let request_id = ctx.request_id.clone();
                         let nonce = nonce.clone();
+                        let req = error_req.clone();
                         on_render_pool(move || {
                             pages.error_page(
                                 403,
@@ -1470,6 +1473,7 @@ impl CellManager {
                                 CSRF_MESSAGE,
                                 &request_id,
                                 nonce.as_deref(),
+                                &req,
                             )
                         })
                         .await
@@ -1557,6 +1561,7 @@ impl CellManager {
                                     pages,
                                     nonce: nonce.clone(),
                                     csrf_token: csrf_token.clone(),
+                                    error_req: error_req.clone(),
                                 };
                                 return self.stream_shell(&cell, dispatch, sent, rc, encoding, set_cookie);
                             }
@@ -1593,15 +1598,17 @@ impl CellManager {
             if let Some(page) = out.render.take() {
                 let token = csrf_token.clone();
                 let nonce = nonce.clone();
+                let req = error_req.clone();
                 rendered = Some(
                     on_render_pool(move || {
-                        pages.render_page(
+                        pages.render_page_for(
                             &page,
                             &request_id,
                             nonce.as_deref(),
                             token.as_deref(),
                             is_head,
                             None,
+                            &req,
                         )
                     })
                     .await,
@@ -1611,6 +1618,7 @@ impl CellManager {
                 && let Some((status, code, message)) = platform_error(&out.response)
             {
                 let nonce = nonce.clone();
+                let req = error_req.clone();
                 rendered = Some(
                     on_render_pool(move || {
                         pages.error_page(
@@ -1619,6 +1627,7 @@ impl CellManager {
                             &message,
                             &request_id,
                             nonce.as_deref(),
+                            &req,
                         )
                     })
                     .await,
@@ -1629,9 +1638,12 @@ impl CellManager {
                 && wants_html
             {
                 let nonce = nonce.clone();
+                let req = error_req.clone();
                 rendered = Some(
-                    on_render_pool(move || pages.not_found_page(&request_id, nonce.as_deref()))
-                        .await,
+                    on_render_pool(move || {
+                        pages.not_found_page(&request_id, nonce.as_deref(), &req)
+                    })
+                    .await,
                 );
             }
         } else if out.render.is_some() {
@@ -1893,6 +1905,7 @@ impl CellManager {
                 pages,
                 nonce,
                 csrf_token,
+                error_req,
             } = sent;
             let mut used = RenderUse {
                 fuel: shell.fuel,
@@ -1909,15 +1922,24 @@ impl CellManager {
             let mut rest: Option<Bytes> = None;
             if let Some(page) = out.render.take() {
                 if live {
-                    let (p, r, n, t) = (
+                    let (p, r, n, t, q) = (
                         pages.clone(),
                         request_id.clone(),
                         nonce.clone(),
                         csrf_token.clone(),
+                        error_req.clone(),
                     );
                     let now = shell.now_ms;
                     let rendered = on_render_pool(move || {
-                        p.render_page(&page, &r, n.as_deref(), t.as_deref(), false, Some(now))
+                        p.render_page_for(
+                            &page,
+                            &r,
+                            n.as_deref(),
+                            t.as_deref(),
+                            false,
+                            Some(now),
+                            &q,
+                        )
                     })
                     .await;
                     used.fuel += rendered.fuel;
@@ -1998,9 +2020,14 @@ impl CellManager {
                     f,
                 );
                 if live {
-                    let (p, r, n) = (pages.clone(), request_id.clone(), nonce.clone());
+                    let (p, r, n, q) = (
+                        pages.clone(),
+                        request_id.clone(),
+                        nonce.clone(),
+                        error_req.clone(),
+                    );
                     let page = on_render_pool(move || {
-                        p.error_page(status, Some(&code), &message, &r, n.as_deref())
+                        p.error_page(status, Some(&code), &message, &r, n.as_deref(), &q)
                     })
                     .await;
                     used.fuel += page.fuel;
@@ -2095,6 +2122,8 @@ struct ShellSent {
     pages: Arc<PageRenderer>,
     nonce: Option<String>,
     csrf_token: Option<String>,
+    /// For the error page's locale (#739).
+    error_req: crate::pages::errors::ErrorRequest,
 }
 
 /// Keeps a cell counted as in flight while a streamed body is sent after

@@ -83,6 +83,18 @@ const HOSTILE_ERROR: &str = "<!doctype html><html><head><title>e</title></head><
 /// Writes an artifact; `templates` are `(path, source)` pairs of the
 /// template project besides the pages.
 fn write_artifact(artifacts: &Path, templates: &[(&str, String)]) -> String {
+    write_artifact_with(artifacts, templates, &Extra::default())
+}
+
+/// What an app adds to the base artifact: installed modules (the manifest's
+/// `modules` array) and the app's translation catalogs `(locale, json)`.
+#[derive(Default)]
+struct Extra {
+    modules: Option<serde_json::Value>,
+    catalogs: Vec<(&'static str, &'static str)>,
+}
+
+fn write_artifact_with(artifacts: &Path, templates: &[(&str, String)], extra: &Extra) -> String {
     let mut project = TemplateProject::new();
     for (path, src) in templates {
         project.insert(path.to_string(), src.clone());
@@ -122,7 +134,12 @@ fn write_artifact(artifacts: &Path, templates: &[(&str, String)]) -> String {
             "kind": "page", "path": format!("/{name}"), "module": id, "load": true, "template": id
         }));
     }
-    let manifest = serde_json::json!({
+    for (locale, json) in &extra.catalogs {
+        let p = tmp.join("code/i18n").join(format!("{locale}.json"));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, json).unwrap();
+    }
+    let mut manifest = serde_json::json!({
         "artifact": { "version": 1 },
         "app": { "name": "errors", "timezone": "Asia/Dubai" },
         "code": { "format": "esm-dir", "entry": entry },
@@ -130,6 +147,9 @@ fn write_artifact(artifacts: &Path, templates: &[(&str, String)]) -> String {
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] }
     });
+    if let Some(modules) = &extra.modules {
+        manifest["modules"] = modules.clone();
+    }
     std::fs::write(
         tmp.join("manifest.json"),
         serde_json::to_vec_pretty(&manifest).unwrap(),
@@ -148,9 +168,14 @@ struct Reply {
 }
 
 async fn get(addr: SocketAddr, host: &str, path: &str) -> Reply {
+    get_with(addr, host, path, "").await
+}
+
+/// `extra` is header lines, each ending in `\r\n`.
+async fn get_with(addr: SocketAddr, host: &str, path: &str, extra: &str) -> Reply {
     let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
     let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: text/html,application/xhtml+xml,*/*;q=0.8\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: text/html,application/xhtml+xml,*/*;q=0.8\r\n{extra}Connection: close\r\n\r\n"
     );
     s.write_all(req.as_bytes()).await.unwrap();
     let mut buf = Vec::new();
@@ -316,6 +341,135 @@ heap_mb = 32
     let logs = std::fs::read_to_string(config.logs_dir.join("tenant.ndjson")).unwrap();
     assert!(logs.contains("database is down"), "{logs}");
     assert!(logs.contains("RENOX_RENDER_LIMIT"));
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An i18n module entry as the manifest lists it (`artifact.md` section 3).
+fn i18n_module() -> serde_json::Value {
+    serde_json::json!([{
+        "name": "i18n", "version": "1.0.0", "hash": "0".repeat(64), "source": "path:modules/i18n",
+        "mount": "/i18n", "isolation": "shared", "dependencies": [],
+        "config": { "locales": "en,ar", "default_locale": "en" },
+        "permissions": { "tables": "i18n__*", "network": [], "secrets": [], "slots": [], "hooks": [] },
+        "approved": { "tables": "i18n__*", "network": [], "secrets": [], "slots": [], "hooks": [] },
+        "exports": { "services": [] }
+    }])
+}
+
+const ERROR_I18N: &str = "<!doctype html><html><head><title>e</title></head><body>\
+<h1 id=\"h\"><r-t key=\"error.title\"></r-t></h1>\
+<h2 id=\"m\"><r-t key=\"error.no_such_key\"></r-t></h2>\
+<p id=\"d\">{{ locale }}|{{ dir }}|{{ app_name }}|{{ status }}</p></body></html>";
+
+const CATALOG_EN: &str = r#"{ "error": { "title": "Something went wrong" } }"#;
+const CATALOG_AR: &str = r#"{ "error": { "title": "حدث خطأ ما" } }"#;
+
+/// #739: `_404` and `_error` get `locale`, `dir` and `app_name`, and
+/// `<r-t>` translates in that locale; no i18n module: `en`, `ltr`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn error_pages_get_locale_dir_and_app_name() {
+    let root = scratch("locale");
+    std::fs::create_dir_all(root.join("artifacts")).unwrap();
+    let text = r#"
+listen = "127.0.0.1:0"
+data_dir = "data"
+artifacts_dir = "artifacts"
+routes_file = "routes.json"
+meters_dir = "meters"
+logs_dir = "logs"
+idle_timeout_secs = 60
+meter_flush_ms = 50
+"#;
+    let config = WorkerConfig::parse(text, &root).unwrap();
+    let templates = [
+        ("pages/_error.html", ERROR_I18N.to_string()),
+        ("pages/_404.html", ERROR_I18N.to_string()),
+    ];
+    let with = write_artifact_with(
+        &config.artifacts_dir,
+        &templates,
+        &Extra {
+            modules: Some(i18n_module()),
+            catalogs: vec![("en", CATALOG_EN), ("ar", CATALOG_AR)],
+        },
+    );
+    // Catalogs but no i18n module: the locale cannot be resolved.
+    let without = write_artifact_with(
+        &config.artifacts_dir,
+        &templates,
+        &Extra {
+            modules: None,
+            catalogs: vec![("en", CATALOG_EN), ("ar", CATALOG_AR)],
+        },
+    );
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "with.test", "tenant_id": "t_with", "deployment_hash": with, "status": "active", "updated_at": 1 },
+        { "hostname": "without.test", "tenant_id": "t_without", "deployment_hash": without, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(config.clone()).await.unwrap();
+    let addr = worker.addr;
+
+    let ar_page = |r: &Reply, status: u16| {
+        assert_eq!(r.status, status, "{}", r.body);
+        assert!(
+            r.body.contains(r#"<html lang="ar" dir="rtl">"#),
+            "{}",
+            r.body
+        );
+        assert!(r.body.contains(">حدث خطأ ما</h1>"), "{}", r.body);
+        assert!(
+            r.body.contains(&format!("ar|rtl|errors|{status}")),
+            "{}",
+            r.body
+        );
+        // A missing key renders the key.
+        assert!(r.body.contains("error.no_such_key"), "{}", r.body);
+    };
+    // ?lang
+    let r = get(addr, "with.test", "/nothing?lang=ar").await;
+    ar_page(&r, 404);
+    // Accept-Language
+    let r = get_with(
+        addr,
+        "with.test",
+        "/nothing",
+        "Accept-Language: fr;q=0.9, ar-AE;q=0.8\r\n",
+    )
+    .await;
+    ar_page(&r, 404);
+    // A loader that throws: `_error` in Arabic.
+    let r = get(addr, "with.test", "/throws?lang=ar").await;
+    ar_page(&r, 500);
+    assert!(!r.body.contains("database is down"), "{}", r.body);
+    // The default: English, left to right.
+    let r = get(addr, "with.test", "/nothing").await;
+    assert!(
+        r.body.contains(r#"<html lang="en" dir="ltr">"#),
+        "{}",
+        r.body
+    );
+    assert!(r.body.contains(">Something went wrong</h1>"), "{}", r.body);
+    assert!(r.body.contains("en|ltr|errors|404"), "{}", r.body);
+
+    // No i18n module: en and ltr, whatever the request asks for.
+    let r = get_with(
+        addr,
+        "without.test",
+        "/nothing?lang=ar",
+        "Accept-Language: ar\r\n",
+    )
+    .await;
+    assert_eq!(r.status, 404);
+    assert!(
+        r.body.contains(r#"<html lang="en" dir="ltr">"#),
+        "{}",
+        r.body
+    );
+    assert!(r.body.contains("en|ltr|errors|404"), "{}", r.body);
+    assert!(r.body.contains(">Something went wrong</h1>"), "{}", r.body);
 
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);

@@ -2224,6 +2224,7 @@ Arabic is a first-class target (`21-uae-gcc-strategy.md`), so RTL is a template-
 - Platform CSS and all official module templates use logical properties (`margin-inline-start`, `padding-inline-end`, `text-align: start`) and are snapshot-tested in both `ltr` and `rtl`.
 - Built-in components (`<x-form>`, `<x-image>`, admin tables, pagination, date pickers) mirror correctly; icons that imply direction have RTL variants.
 - Filters `money`, `date`, `number` follow the locale (AED formatting, Eastern Arabic digits optional, Hijri display optional); `t` resolves translations with Arabic plural categories.
+- `_404.html` and `_error.html` receive `locale`, `dir` and `app_name` (the manifest's `app.name`) next to `status`, `code`, `request_id` and `message`. The cell resolves the locale from `?lang=` and `Accept-Language` (then the i18n module's default), `en` and `ltr` without the i18n module, and reads no database for it, so `<r-t>` translates and `<html lang dir>` is right even when the database or the isolate is what failed.
 - Bilingual documents (invoices, emails) are rendered from one template with side-by-side EN/AR blocks; PDF rendering uses fonts with Arabic shaping.
 
 ## Built-in components
@@ -2232,7 +2233,7 @@ Some components are provided by the platform or official modules and are compile
 
 | Component | Provided by | Emits |
 | --- | --- | --- |
-| `<x-image :src="file" width="400" alt="...">` | `storage` module | `<img>` with `srcset` (1x/2x), `width`/`height` from stored metadata, `loading="lazy"`, `decoding="async"`, and URLs to the image pipeline (`06-data.md`, `18-build-plan.md` M6). Options: `fit="cover|contain"`, `focus="face|center"`, `placeholder="blur"`, `sizes="..."` |
+| `<x-image :src="file" width="400" alt="...">` | `storage` module | `<img>` with `srcset` (1x/2x), `width`/`height` from stored metadata, `loading="lazy"` (an author `loading="eager"` overrides it), `decoding="async"`, and URLs to the image pipeline (`06-data.md`, `18-build-plan.md` M6). Options: `fit="cover|contain"`, `focus="face|center"`, `placeholder="blur"`, `sizes="..."`, `loading="eager|lazy"`, `fetchpriority="high|low|auto"` (literals only; a bound or other value is a compile error). For the page's main image write `<x-image :src="hero" width="800" loading="eager" fetchpriority="high">`; `fetchpriority` is not written unless given |
 | `<x-form action="addToCart">` | platform | `<form>` with the CSRF token, `hx-post`, and `hx-target` wired to the action's declared fragments |
 | `<x-csrf />` | platform | Hidden CSRF input for hand-written forms |
 | `<x-script src="...">` | platform | `<script>` with the per-request CSP nonce |
@@ -3208,17 +3209,17 @@ The back office at `/admin` holds the branding settings, the branches, the users
 | `auth` | Staff sign-in by email or phone, sessions, the CSRF token. |
 | `org` | One organisation per branch; the active branch of a user; members. |
 | `twofa` | The second factor that sensitive actions (invoice, payment, settings, users) require. |
-| `audit` | One row per sensitive or important action; the audit page of the back office. |
+| `audit` | One row per sensitive or important action; its audit page in the back office at `/admin`. |
 | `notifications` | The in-app badge and the WhatsApp or email fallback of every customer message. |
-| `email` | Email messages and the nightly report summary. |
-| `whatsapp` | WhatsApp Cloud API templates, the webhook, the inbox the app sweeps for "cancel" and "reschedule" replies. |
+| `email` | Email messages and the nightly report summary, sent to the address the app's `hooks.ts` gives through the `reports.nightly_to` filler (the accounts email of the settings). |
+| `whatsapp` | WhatsApp Cloud API templates and the webhook; a customer's "cancel" or "reschedule" reply reaches the app's `hooks.ts` on `whatsapp.message_received` and becomes the dispatcher's task. |
 | `billing` | Installed because `booking` needs it; no payment provider is configured. |
 | `booking` | Technicians as resources, their slots and holds per branch. |
-| `jobs` | The scheduled jobs: AMC visits, renewal reminders, the inbox sweep. |
+| `jobs` | The scheduled jobs: AMC visits and renewal reminders. |
 | `storage` | Photos of a visit in the visit's folder, uploaded through signed URLs (`uploadUrl`), and signed links to show them. |
 | `tax_gcc` | FTA tax invoices and credit notes, 5 % VAT, the seller's TRN. |
 | `reports` | Sales per day, CSV export, the nightly summary by email. |
-| `admin` | The operator's back office (`/system/admin`); the app's own back office is `/admin`. |
+| `admin` | The back office, mounted at `/admin`; the app fills its `admin.sidebar` and `admin.dashboard` slots through `[[slots]]` in `renox.toml`, and its users page is `/admin/people`. An invited person's pending role is applied by `hooks.ts` on `org.member_added`, which emits the app's own `app.member_ready`. |
 | `gcc` | Emirates, +971 numbers, TRN and trade licence checks. |
 
 The PDFs (quotation, visit report, invoice, statement, contract) are `ctx.pdf` templates under `partials/pdf/`; the PDF engine renders text only, so photos are listed by caption and the signature by the signer's name.
@@ -3963,7 +3964,7 @@ Source: docs/contracts/errors.md (https://github.com/arif-rachim/renox.rs/blob/m
 
 | | |
 | --- | --- |
-| Version | **0.11** (F7, #658: `RENOX_TOOL_CALL`, the log line of every App MCP tool call, for `ops.md` 1.14.1). 0.10 (F2, #640: wording; `RENOX_MODULE_EVAL` is also logged for a lazy module entry, ops 1.14.0). 0.9 (F7, #579: `RENOX_STORAGE_CONFLICT`, a reused upload URL, for `ops.md` 1.10.0). 0.8 (F7, #507: `RENOX_CLI_WORKER_UNAVAILABLE`). 0.7 (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
+| Version | **0.11.1** (F7, #739: wording; the error template's inputs gain `locale`, `dir` and `app_name`, for `artifact.md` 1.9.3). 0.11 (F7, #658: `RENOX_TOOL_CALL`, the log line of every App MCP tool call, for `ops.md` 1.14.1). 0.10 (F2, #640: wording; `RENOX_MODULE_EVAL` is also logged for a lazy module entry, ops 1.14.0). 0.9 (F7, #579: `RENOX_STORAGE_CONFLICT`, a reused upload URL, for `ops.md` 1.10.0). 0.8 (F7, #507: `RENOX_CLI_WORKER_UNAVAILABLE`). 0.7 (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
 | Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
 | Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
 | Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
@@ -3996,7 +3997,7 @@ A platform error on a page route (`artifact.md` section 3, "Page routes") is ans
 1. The tenant's `pages/_error.html`: the template with `kind: "error"` in `manifest.templates`.
 2. The **platform default page**, if the app has no error template, if rendering it fails, or if it hits a limit itself: a static HTML page with the HTTP status, the message, and the request id, and no tenant content. It is never rendered with tenant code or tenant templates. It is the same page the gateway already sends for its own HTML errors (413), and the page every collateral request of a recycled isolate gets (`ops.md` section 10).
 
-**Inputs.** The error template receives exactly four variables, and nothing else:
+**Inputs.** The error template receives exactly these variables, and nothing else (the last three since `artifact.md` 1.9.3, #739):
 
 | Variable | Type | Value |
 | --- | --- | --- |
@@ -4004,8 +4005,11 @@ A platform error on a page route (`artifact.md` section 3, "Page routes") is ans
 | `code` | string or `null` | The code from section 3; `null` only for the 404 page below |
 | `request_id` | string | Same as `x-renox-request-id` |
 | `message` | string | The fixed English text from the "Message" column |
+| `locale` | string | The page's locale (`ar`, `en`): `?lang=`, then `Accept-Language`, then the `i18n` module's default locale, among the locales the module offers. `en` when the `i18n` module is not installed. The locale the stored user or session preference would give is not read |
+| `dir` | string | `rtl` for the locales the i18n module marks right-to-left (`ar`, `fa`, `he`, `ur`, `ps`, `sd`, `ug`, `yi`, `dv`, `ckb`), else `ltr` |
+| `app_name` | string | `app.name` of the manifest |
 
-No loader runs: `pages/_error.ts` is a build error (`renox check`), and the template sees no `ctx`, no session, no loader data of the failed request, no `params`, and no detail of the cause (limit values, stack, SQL). Layouts and partials may be used, so the page can look like the rest of the app.
+The locale is resolved by the cell from the request alone, without an isolate and without the database, so the page renders when either is what failed; `<r-t>` and the `t` filter translate in it, and a missing key renders the key. No loader runs: `pages/_error.ts` is a build error (`renox check`), and the template sees no `ctx`, no session, no loader data of the failed request, no `params`, and no detail of the cause (limit values, stack, SQL). Layouts and partials may be used, so the page can look like the rest of the app.
 
 **Render budget: a fixed error-page budget**, decided here (#93 proposed "a tiny fixed fuel budget", version 0 of this file said "the normal render limits"; the fixed budget wins). The error page renders exactly when a request has already failed, often under load (`RENOX_CPU_LIMIT`, `RENOX_BUSY`). With the normal limits, a heavy `_error.html` would double the cost of every failure, and a flood of failures would become a flood of renders. So the error template gets the same small budget on every tier, independent of what the failed request used:
 
@@ -4171,6 +4175,7 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 | 0.9 | #579 | Ops 1.10.0 (F7): `RENOX_STORAGE_CONFLICT`, the answer to a second `PUT` with a used upload URL |
 | 0.10 | #640 | Wording (no code added): the `RENOX_MODULE_EVAL` row states that ops 1.14.0 also logs it when a lazy module entry fails its first evaluation, while the caller gets `RENOX_MODULE_SERVICE` with it as `cause_code` |
 | 0.11 | #658 | Ops 1.14.1 (F7): `RENOX_TOOL_CALL`, the `info` log line of every App MCP `tools/call` (HTTP "—", like `RENOX_CLIENT_EVENTS_DROPPED`) |
+| 0.11.1 | #739 | Wording (F7): the error template's inputs gain `locale`, `dir` and `app_name`, resolved by the cell from the request alone (`artifact.md` 1.9.3); no code changes |
 
 ---
 
@@ -4343,7 +4348,7 @@ What the module asks the tenant to approve (section 3). Every key is optional; a
 | `slots` | slot names | The slots the module fills; must be exactly the names of its `[[slots]]` (MF8) | Renderer slot registry (`artifact.md` section 3) |
 | `hooks` | hook names | The hook points the module fills from `hooks.ts`; each must be exported by another installed module (MF8). A filler can halt another module's flow (`auth.after_login`), so filling is approved | Broker (`ops.md` 1.3.0, #226) |
 | `roles` (1.1) | role names, exactly the keys of `[authz.default_roles]` (MF13) | The roles the module may assign with `ctx.authz.roles.assign` (`ops.md` section 17). Assigning a role grants what its policies permit, so it is approved; any other role rejects with `RENOX_MODULE_UNDECLARED` | `op_authz_roles_*` (`ops.md` 1.5.0, #279) |
-| `csp` (1.6) | table of CSP source lists: `script_src`, `style_src`, `img_src`, `connect_src`, `frame_src`, `font_src`; each source is an `https://` origin with an optional `*.` host wildcard and path, `data:` or `blob:`, at most 32 per directive (MF17) | The third-party scripts, frames or other sources the module's pages need, such as a payment widget or a map: `csp = { script_src = ["https://js.stripe.com"], frame_src = ["https://js.stripe.com"] }`. The grammar is that of `renox.toml [security]` (`artifact.md`, "Security") without `'unsafe-inline'` and `'unsafe-eval'`, which a module never gets. Approved at install like every permission: `renox add` lists the sources, `renox approve` shows them per directive in the diff | `renox build` merges the approved sources of every installed module into the artifact's `security.csp.*`; the gateway applies that policy unchanged (`artifact.md` 1.8.1) |
+| `csp` (1.6) | table of CSP source lists: `script_src`, `style_src`, `img_src`, `connect_src`, `frame_src`, `font_src`; each source is an `https://` origin with an optional `*.` host wildcard and path, `data:` or `blob:`, at most 32 per directive (MF17) | The third-party scripts, frames or other sources the module's pages need, such as a payment widget or a map: `csp = { script_src = ["https://js.stripe.com"], frame_src = ["https://js.stripe.com"] }`. The grammar is that of `renox.toml [security]` (`artifact.md`, "Security") without `'unsafe-inline'` and `'unsafe-eval'`, which a module never gets; a module cannot declare `form_action` either, which only the app's own `renox.toml` sets (`artifact.md` 1.10). Approved at install like every permission: `renox add` lists the sources, `renox approve` shows them per directive in the diff | `renox build` merges the approved sources of every installed module into the artifact's `security.csp.*`; the gateway applies that policy unchanged (`artifact.md` 1.8.1) |
 | `app_access` (1.3) | `"read"` \| `"write"` | Access to the app's own `app__*` tables that the app grants this module by name in `renox.toml` (`app_tables`, section 4). `read`: `SELECT`; `write`: `SELECT`, `INSERT`, `UPDATE`, `DELETE`. Never DDL, never a table the app did not name, never another module's tables. Every write is audited (`ops.md` section 1, "App tables"). Absent: the module cannot touch any `app__*` table, whatever the app grants (MF16) | SQLite authorizer (`ops.md` 1.8.0 section 1) |
 
 Reading another module's public view needs no permission: it follows from `[dependencies]` and `[imports]` (MF7), and the authorizer allows `SELECT` on `<dep>__public_*` for declared dependencies only. Defining actions, entities, owned tables, and feeds (`[authz]`, `[realtime]`) needs no permission either: they concern the module's own tables and resources (MF14), and a policy that grants an action still comes from the app's or the module's policy set.
