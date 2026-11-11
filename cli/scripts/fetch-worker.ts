@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { sha256Hex } from "../src/lib/hash.ts";
 
 /** The worker release this CLI is tested against. */
-export const WORKER_VERSION = "0.7.1";
+export const WORKER_VERSION = "0.8.0";
 
 const REPO = process.env.RENOX_RELEASE_REPO ?? "arif-rachim/renox.rs";
 
