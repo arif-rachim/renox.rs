@@ -4,7 +4,7 @@
 
 import { Database } from "bun:sqlite";
 
-import type { Db, DbStatements, ExecuteResult, Param, Row } from "../src/db.ts";
+import type { Db, DbStatements, ExecuteResult, Param, Row, TxDb } from "../src/db.ts";
 
 export interface FakeDb extends Db {
   log: [string, Param[]][];
@@ -39,7 +39,9 @@ export function fakeDb(setup = "create table app__items (id integer primary key,
     async transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> {
       sqlite.exec("begin immediate");
       try {
-        const out = await fn(statements);
+        // ops.md 1.15.0: the tx has `scoped`, the same statements here.
+        const tx: TxDb = { ...statements, scoped: () => statements };
+        const out = await fn(tx);
         sqlite.exec("commit");
         return out;
       } catch (e) {

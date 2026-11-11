@@ -506,6 +506,36 @@ async fn the_token_stops_at_expires_at_even_when_cached() {
     assert_eq!(status, 401, "{gone}");
 }
 
+/// #748 (`ops.md` section 19): the cell's 60 s cache of a verified token
+/// never outlives the `expires_at` `verifyAgentToken` answered. A token that
+/// expires in 5 s is verified at second 1 (and cached), and refused at
+/// second 6, long before the 60 s are up. (A real 6 s wait: the cache reads
+/// the wall clock, and there is no injectable clock.)
+#[tokio::test]
+async fn a_token_expiring_in_five_seconds_is_refused_at_second_six() {
+    let n = node().await;
+    let a = n.mint(&["tools:list_notes"], 300).await;
+    let token = a.body["token"].as_str().unwrap().to_string();
+    let start = Instant::now();
+    let (status, _) = n
+        .app(
+            &format!("/auth/expire?token={token}&ms=5000"),
+            None,
+            json!({}),
+        )
+        .await;
+    assert_eq!(status, 200);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(n.call(&token, "list_notes").await.0, 200);
+    // Cached: still fine at second 3.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(n.call(&token, "list_notes").await.0, 200);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(start.elapsed() >= Duration::from_secs(6));
+    let (status, gone) = n.call(&token, "list_notes").await;
+    assert_eq!(status, 401, "{gone}");
+}
+
 /// 400: a scope that is not `tools:<name>` (`tools:*` included), a ttl
 /// above 300 s or below 30 s, a body of another tenant or app than the
 /// path, or not an `agent_token_request`. Nothing is minted.

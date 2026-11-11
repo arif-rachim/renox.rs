@@ -53,6 +53,10 @@ export async function paidThenRollback(ctx) {
 export async function paidOutside(ctx) {
   return ctx.events.emit("billing.invoice_paid", { invoice_id: "i2", amount: 7 });
 }
+export async function paidThenThrow(ctx) {
+  await ctx.events.emit("billing.invoice_paid", { invoice_id: "i3", amount: 9 });
+  throw new Error("card declined");
+}
 export async function badPayload(ctx) {
   return {
     schema: await caught(() => ctx.events.emit("billing.invoice_paid", { amount: 1 })),
@@ -87,6 +91,13 @@ export async function GET(ctx) {
   switch (which) {
     case "rollback": return Response.json(await billing.paidThenRollback());
     case "outside": return Response.json({ id: await billing.paidOutside() });
+    case "service_savepoint": return Response.json(await ctx.db.transaction(async () => {
+      // #734: the emit of a call that threw is undone with the call.
+      const kept = await billing.paidOutside();
+      let caught = null;
+      try { await billing.paidThenThrow(); } catch (e) { caught = e.code; }
+      return { kept, caught };
+    }));
     case "payload": return Response.json(await billing.badPayload());
     case "memory": { const id = await billing.cartChanged("c1"); return Response.json({ id, seen: globalThis.__seen }); }
     case "memory_throw": await billing.cartChanged("throw"); return new Response("unreachable");
@@ -102,7 +113,7 @@ fn artifact() -> (std::path::PathBuf, String) {
         module(
             "billing",
             &[],
-            serde_json::json!({ "services": ["paidThenRollback", "paidOutside", "badPayload", "cartChanged"],
+            serde_json::json!({ "services": ["paidThenRollback", "paidOutside", "paidThenThrow", "badPayload", "cartChanged"],
                 "events": { "billing.invoice_paid": paid, "billing.cart_changed": { "type": "object" } } }),
         ),
         module("email", &[], serde_json::json!({})),
@@ -217,6 +228,22 @@ async fn emit_inside_a_rolled_back_transaction_leaves_no_row() {
     assert_eq!(status, 200, "{:?}", f.sink.lines());
     assert!(v["error"].is_object(), "{v}");
     assert!(outbox(&f.db).await.is_empty());
+}
+
+/// #734 (ops.md 1.17.0 section 15.2): a durable event emitted by a service
+/// call that threw inside the caller's transaction is rolled back with the
+/// call's savepoint and never delivered; the caller's own emit commits.
+#[tokio::test]
+async fn emit_of_a_failed_service_call_is_undone_with_the_call() {
+    let _g = SERIAL.lock().await;
+    let f = fixture(Limits::FREE).await;
+    let (status, v) = case(&f, "service_savepoint").await;
+    assert_eq!(status, 200, "{:?}", f.sink.lines());
+    assert_eq!(v["caught"], "RENOX_MODULE_SERVICE", "{v}");
+    let rows = outbox(&f.db).await;
+    assert_eq!(rows.len(), 1, "{v}");
+    assert_eq!(rows[0].id, v["kept"].as_str().unwrap());
+    assert_eq!(rows[0].payload, r#"{"invoice_id":"i2","amount":7}"#);
 }
 
 /// Outside a transaction the emit is its own autocommit write: one row,

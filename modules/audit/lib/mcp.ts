@@ -1,11 +1,12 @@
 // The row of an App MCP tool call (#658). The cell emits the platform event
 // `mcp.tool_called` after every `tools/call` that passed the token check:
-// `{ tool, agent_user_id, client, outcome, request_id, at }`, `outcome` one of
+// `{ tool, agent_user_id, client, outcome, request_id, at, grant_id? }`, `outcome` one of
 // `preview`, `ok`, `forbidden`, `input`, `failed`, `rate_limited`.
 //
 // `action` is the event name (the column is `<module>.<verb>`; a tool name is
 // not), the tool is the resource, `result` keeps the table's three values and
-// the exact outcome stays in `details`.
+// the exact outcome stays in `details`, with the owner connector `grant_id`
+// when the cell knew it (#748).
 
 import type { AuditInput, Result } from "../services.ts";
 
@@ -19,12 +20,13 @@ export function toolCallRow(name: string, p: Record<string, unknown>): AuditInpu
   const result: Result = outcome === "ok" || outcome === "preview" ? "ok" : outcome === "forbidden" || outcome === "rate_limited" ? "denied" : "failed";
   const client = str(p.client);
   const requestId = str(p.request_id);
+  const grantId = str(p.grant_id);
   return {
     action: name,
     actor: { kind: "agent", id: agent, ...(client ? { client } : {}) },
     resource: { type: "mcp:Tool", id: tool },
     result,
-    details: { tool, outcome, at: p.at },
+    details: { tool, outcome, at: p.at, ...(grantId ? { grant_id: grantId } : {}) },
     ...(requestId ? { request_id: requestId } : {}),
   };
 }

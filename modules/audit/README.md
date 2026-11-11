@@ -67,7 +67,7 @@ These events become rows with no code in the app (`hooks.ts`, `on`):
 | `authz.roles_changed` | `system:authz`; `details` names the user, the role and `op` |
 | `org.created`, `org.member_added` | The user |
 | `org.member_removed` | `by`, the user who removed the member |
-| `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome |
+| `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome; `details.grant_id` is the owner connector grant the token was minted under, when the event carries it (#748) |
 
 ## Append-only
 

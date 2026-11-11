@@ -71,6 +71,15 @@ describe("mcp.tool_called (#658)", () => {
     expect(toolCallRow("mcp.tool_called", { ...payload, tool: "" })).toBeNull();
     expect(toolCallRow("mcp.tool_called", { ...payload, agent_user_id: undefined })).toBeNull();
   });
+
+  test("the owner connector grant_id is stored in details when the event carries it (#748)", () => {
+    const row = toolCallRow("mcp.tool_called", { ...payload, grant_id: "grant_1" });
+    expect(row?.details).toEqual({ tool: "delete_notes", outcome: "ok", at: 1, grant_id: "grant_1" });
+    expect(() => validate(row)).not.toThrow();
+    // Absent or not a string: no key at all.
+    expect(toolCallRow("mcp.tool_called", payload)?.details).not.toHaveProperty("grant_id");
+    expect(toolCallRow("mcp.tool_called", { ...payload, grant_id: 5 })?.details).not.toHaveProperty("grant_id");
+  });
 });
 
 describe.skipIf(!worker)("audit", () => {
