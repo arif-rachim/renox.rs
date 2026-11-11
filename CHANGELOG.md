@@ -12,6 +12,10 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - `reports` 1.2.0: the service `reports.readXlsx(bytes)` returns the first sheet of an `.xlsx` (written by Excel, LibreOffice or `reports.xlsx`; shared and inline strings, a formula's cached value) as rows of `string | number | null`; a `Uint8Array` of at most 10 MiB and 100,000 cells, else `TypeError`, `RangeError` or "not an .xlsx file" (#724).
 
+**Worker**
+
+- `<x-image>` writes an author-given `loading="eager"` or `loading="lazy"` instead of always `lazy`, and passes a literal `fetchpriority="high|low|auto"` through; a bound or other value is a compile error naming the template and line, and the default stays `loading="lazy"` (#738).
+
 ## 0.1.12 (2026-11-10)
 
 **Install**
