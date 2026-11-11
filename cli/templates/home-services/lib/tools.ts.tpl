@@ -25,7 +25,7 @@ export interface ToolCtx {
 }
 
 /** An answer that is not an exception: the agent reads `error` and `message` and may try again. */
-export type ToolError = { error: "not_found" | "forbidden" | "branch_required" | "bad_input" | "slot_unavailable"; message: string; branches?: string[] };
+export type ToolError = { error: "not_found" | "forbidden" | "branch_required" | "bad_input" | "slot_unavailable" | "unavailable"; message: string; branches?: string[] };
 export const refuse = (error: ToolError["error"], message: string, extra: Pick<ToolError, "branches"> = {}): ToolError => ({ error, message, ...extra });
 
 /** The branches the user belongs to (org's public view of memberships), oldest first. */

@@ -41,5 +41,7 @@ export function pdfBrand(settings: Settings, lang: Lang) {
 /** Where the layout loads the logo from: the image path of the platform (`/_img`, a public key needs no signature), or null without a logo. */
 export function logoSrc(settings: Settings): string | null {
   const key = settings.brand_logo_key ?? "";
-  return key === "" ? null : `/_img/${key}?w=400`;
+  if (key === "") return null;
+  // An SVG is served as it is, by /_files (a public key needs no signature).
+  return key.endsWith(".svg") ? `/_files/${key}` : `/_img/${key}?w=400`;
 }

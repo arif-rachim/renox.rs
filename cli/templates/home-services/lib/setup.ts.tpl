@@ -137,7 +137,7 @@ interface SetupCtx {
 const randomHex = (bytes: number): string => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 /** A unique service code from its name (`AC service` -> `AC-SERVICE`, `AC-SERVICE-2`, or `SERVICE-<n>` without a Latin letter or digit). */
-function serviceCode(name: string, i: number, taken: Set<string>): string {
+export function serviceCode(name: string, i: number, taken: Set<string>): string {
   const base = name.normalize("NFKD").toUpperCase().replace(/[^A-Z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 30) || `SERVICE-${i + 1}`;
   let code = base;
   for (let n = 2; taken.has(code); n++) code = `${base}-${n}`;

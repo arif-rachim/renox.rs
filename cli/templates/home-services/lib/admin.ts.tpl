@@ -8,7 +8,7 @@
 // global (they apply in every branch the person belongs to); changing a role
 // replaces them and keeps them for the person's other branches.
 import type { Authz, DbStatements, Storage } from "@renoxium/sdk";
-import { audit, org, twofa } from "renox:modules";
+import { audit, org, storage as storageModule, twofa } from "renox:modules";
 
 import { schema, text } from "./forms";
 import { DEFAULT_HOURS } from "./booking-sync";
@@ -82,9 +82,26 @@ export async function storeLogo(storage: Pick<Storage, "put" | "delete">, upload
   if (ext === undefined) return { ok: false, error: "type" };
   if (upload.bytes.length === 0) return { ok: false, error: "empty" };
   if (upload.bytes.length > MAX_LOGO_BYTES) return { ok: false, error: "size" };
+  return putLogo(storage, upload.bytes, upload.type, ext, false, previous);
+}
+
+/**
+ * An SVG logo (the owner connector's `upload_logo`; the page takes no SVG): the `storage` module's sanitiser removes
+ * scripts, event handlers, foreign objects and external references (null when it is no SVG or something dangerous is
+ * left), and the platform takes an SVG only with `sanitised: true` (ops.md section 21). Served as it is by `/_files`.
+ */
+export async function storeSvgLogo(storage: Pick<Storage, "put" | "delete">, bytes: Uint8Array, previous: string): Promise<LogoResult> {
+  if (bytes.length === 0) return { ok: false, error: "empty" };
+  if (bytes.length > MAX_LOGO_BYTES) return { ok: false, error: "size" };
+  const clean = await storageModule.sanitizeSvg(new TextDecoder().decode(bytes));
+  if (clean === null) return { ok: false, error: "type" };
+  return putLogo(storage, new TextEncoder().encode(clean), "image/svg+xml", "svg", true, previous);
+}
+
+async function putLogo(storage: Pick<Storage, "put" | "delete">, bytes: Uint8Array, type: string, ext: string, sanitised: boolean, previous: string): Promise<LogoResult> {
   const path = `app/brand/logo-${Date.now().toString(36)}.${ext}`;
   try {
-    await storage.put(path, upload.bytes, { contentType: upload.type, public: true });
+    await storage.put(path, bytes, { contentType: type, public: true, ...(sanitised ? { sanitised: true } : {}) });
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "RENOX_STORAGE_TYPE" || code === "RENOX_STORAGE_TOO_LARGE" || code === "RENOX_STORAGE_QUOTA") return { ok: false, error: "storage" };
@@ -144,13 +161,16 @@ export async function allBranches(db: DbStatements): Promise<BranchRow[]> {
   return db.query<BranchRow>("select id, org_id, name_en, name_ar, slug, emirate, area, phone, address from app__branches order by created_at, id", []);
 }
 
+/** The address name (slug) a branch of this English name gets; empty when the name has no Latin letter or digit. */
+export const branchSlug = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 40);
+
 /**
  * A new branch: an `org` organisation (the owner becomes its owner and it
  * becomes the active one, so the previous one is made active again), the
  * branch row, and the standard working hours.
  */
 export async function createBranch(ctx: AdminCtx, input: BranchInput, activeOrg: string): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const slugBase = input.name_en.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 40);
+  const slugBase = branchSlug(input.name_en);
   if (slugBase === "") return { ok: false, error: "backoffice.err.branch_name" };
   if ((await ctx.db.queryOne<{ n: number }>("select count(*) as n from app__branches where slug = ?", [slugBase]))?.n !== 0) return { ok: false, error: "backoffice.err.branch_exists" };
   const made = (await org.createOrg({ name: input.name_en, slug: slugBase })) as { org?: { id: string; slug: string }; error?: string };
@@ -164,12 +184,16 @@ export async function createBranch(ctx: AdminCtx, input: BranchInput, activeOrg:
   return { ok: true, id };
 }
 
-/** Changes a branch's own fields. The English name is the organisation's name too (`org.rename`); its slug (the dispatch socket's URL) and its organisation do not change. */
-export async function updateBranch(ctx: AdminCtx, id: string, input: BranchInput): Promise<boolean> {
+/**
+ * Changes a branch's own fields. The English name is the organisation's name too (`org.rename`); its slug (the dispatch
+ * socket's URL) and its organisation do not change. `renameOrg: false` leaves the organisation's name alone: `org.rename`
+ * answers the signed-in session only, and an agent's tool call has none (the owner connector's `update_branch`).
+ */
+export async function updateBranch(ctx: AdminCtx, id: string, input: BranchInput, renameOrg = true): Promise<boolean> {
   const won = await ctx.db.execute("update app__branches set name_en = ?, name_ar = ?, phone = ?, address = ?, emirate = ?, area = ? where id = ?", [input.name_en, input.name_ar, input.phone, input.address, input.emirate, input.area, id]);
   if (won.changes !== 1) return false;
   const branch = await ctx.db.queryOne<{ org_id: string }>("select org_id from app__branches where id = ?", [id]);
-  if (branch !== null) {
+  if (branch !== null && renameOrg) {
     const renamed = (await org.rename({ org: branch.org_id, name: input.name_en })) as { error?: string };
     if (renamed.error !== undefined) throw new Error(`org.rename: ${renamed.error}`);
   }
@@ -190,7 +214,7 @@ export interface StaffRow {
 }
 
 /** The roles of a person that apply in `branch`. */
-async function rolesIn(ctx: AdminCtx, userId: string, branch: Branch): Promise<string[]> {
+export async function rolesIn(ctx: AdminCtx, userId: string, branch: Branch): Promise<string[]> {
   const held = await ctx.authz.roles.list(userId);
   return held.filter((r) => isStaffRole(r.role) && (r.scope_type === "global" || r.scope_id === branch.org_id)).map((r) => r.role);
 }

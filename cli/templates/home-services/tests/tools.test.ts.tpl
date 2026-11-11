@@ -304,3 +304,393 @@ describe("the audit trail of an agent's tool call (#683)", () => {
     expect(line, page.html).toBeDefined();
   });
 });
+
+// #699 (#686): the settings, branches, services and people tools the owner connector calls
+// (docs/20-ai-agents-mcp.md section 1b): the owner's agent runs them, a technician's is refused by the cell
+// (403, no preview) wherever the admin page is forbidden. The mutating ones are `confirm` tools: the first call
+// writes nothing. The owner's token holds no second factor (an agent token never does), which is why the tools'
+// actions are `settings.update`, `branch.write` and `service.write` and not the pages' sensitive `settings.write`.
+// The owner belongs to two branches, so the consent must name one (t.tool cannot): this agent acts in Dubai.
+import { Database } from "bun:sqlite";
+import { agentToken, callTool, listTools } from "@renoxium/sdk/test";
+
+const ownerJar = await signIn("owner-tools", "owner@fixit.example");
+/** The owner's agent token: the cell allows 60 calls a minute per token, so a new one is minted well before that. */
+let ownerToken = "";
+let ownerCalls = 0;
+async function ownerAgentToken(calls: number): Promise<string> {
+  if (ownerToken === "" || ownerCalls + calls > 40) {
+    ownerToken = await agentToken(t, { request: (m, p, i) => ownerJar.request(m, p, i), action: (p, n, f) => ownerJar.action(p, n, { ...f, org_id: "org_dubai" }) });
+    ownerCalls = 0;
+  }
+  ownerCalls += calls;
+  return ownerToken;
+}
+/** A call as the owner's agent: a `confirm` tool answers its preview, or with `confirm` the real result. */
+const own = async (name: string, args: Record<string, unknown>, confirm = false) => callTool(t, await ownerAgentToken(confirm ? 2 : 1), name, args, confirm);
+
+const OWNER_TOOLS = ["get_settings", "update_settings", "upload_logo", "list_branches", "add_branch", "update_branch", "list_services", "add_service", "update_service", "list_people"];
+
+/** An invalid input: the cell's schema check answers a 400, or the tool's own check refuses inside its preview; no confirmation exists either way. */
+function expectInvalid(r: ToolReply, label: string): void {
+  expect(r.ok, label).toBe(false);
+  expect(r.confirmation, label).toBeUndefined();
+  expect(r.preview, label).toBeUndefined();
+  if (r.error?.code === "RENOX_TOOL_ERROR") expect(refusal(r), label).toMatchObject({ error: "bad_input" });
+  else expect(r.error?.code, label).toBe("RENOX_TOOL_INPUT");
+}
+
+const png = (size: number): Uint8Array => {
+  const b = new Uint8Array(size);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return b;
+};
+const b64 = (b: Uint8Array): string => Buffer.from(b).toString("base64");
+
+describe("the owner connector's tools: listing and policies", () => {
+  test("the owner's agent sees all ten; the mutating ones are the destructive kind, the readers read only", async () => {
+    const list = await listTools(t, await ownerAgentToken(1));
+    const names = list.tools.map((x) => x.name);
+    expect(names).toEqual(expect.arrayContaining(OWNER_TOOLS));
+    for (const name of ["update_settings", "upload_logo", "add_branch", "update_branch", "add_service", "update_service"]) expect(list.tools.find((x) => x.name === name)?.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
+    for (const name of ["get_settings", "list_branches", "list_services", "list_people"]) expect(list.tools.find((x) => x.name === name)?.annotations).toEqual({ readOnlyHint: true, destructiveHint: false });
+    expect(list.tools.find((x) => x.name === "upload_logo")?.inputSchema.required).toEqual(["image", "content_type"]);
+  });
+
+  test("a technician is forbidden every one of them (403, no preview, no confirmation)", async () => {
+    const calls: [string, Record<string, unknown>][] = [
+      ["get_settings", {}],
+      ["update_settings", { settings: { brand_name: "Nope" } }],
+      ["upload_logo", { image: b64(png(64)), content_type: "image/png" }],
+      ["list_branches", {}],
+      ["add_branch", { branch: { name: "Nope", emirate: "dubai" } }],
+      ["update_branch", { id: "br_dubai", branch: { name: "Nope" } }],
+      ["list_services", {}],
+      ["add_service", { service: { name: "Nope", price_aed: 1 } }],
+      ["update_service", { id: 1, service: { active: false } }],
+      ["list_people", {}],
+    ];
+    for (const [name, args] of calls) {
+      const r = await t.tool(name, args, { as: ali });
+      expect(r.ok, name).toBe(false);
+      expect(r.error?.code, name).toBe("RENOX_FORBIDDEN");
+      expect(r.preview, name).toBeUndefined();
+      expect(r.confirmation, name).toBeUndefined();
+    }
+    expect(rows("select count(*) as n from app__settings where key = 'brand_name' and value = 'Nope'")[0]?.n).toBe(0);
+  });
+
+  test("a dispatcher reads the catalogue (as /services lets her) but changes and reads nothing else of these", async () => {
+    expect((await t.tool("list_services", {}, { as: dina })).ok).toBe(true);
+    for (const [name, args] of [["add_service", { service: { name: "Nope", price_aed: 1 } }], ["update_branch", { id: "br_dubai", branch: { name: "Nope" } }], ["update_settings", { settings: { brand_name: "Nope" } }], ["list_people", {}]] as [string, Record<string, unknown>][]) {
+      const r = await t.tool(name, args, { as: dina });
+      expect(r.error?.code, name).toBe("RENOX_FORBIDDEN");
+    }
+  });
+});
+
+describe("get_settings and update_settings", () => {
+  test("get_settings: the branding of the seed, a logo flag, and no secret", async () => {
+    const r = await own("get_settings", {});
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(r.result).toMatchObject({ brand_name: expect.any(String), brand_color: expect.stringMatching(/^#[0-9a-fA-F]{6}$/u), accounts_email: "accounts@fixit.example", footers: { invoice: "", quote: "", job_card: "" }, logo: false, logo_url: null });
+    expect(JSON.stringify(r.result)).not.toMatch(/setup_hash|SETUP_KEY|setup_pending|token|secret/iu);
+    expectInvalid(await own("get_settings", { extra: 1 }), "an unknown property");
+  });
+
+  test("update_settings: the first call names each change and writes nothing; the confirmed one writes, audits and answers the settings", async () => {
+    const before = rows("select value from app__settings where key = 'brand_color'")[0]?.value as string;
+    const args = { settings: { brand_color: "#E40000", sender_name: "FixIt Care", footers: { invoice: "Pay within 30 days", quote: "Valid for 30 days" } } };
+    const preview = await own("update_settings", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.preview).toMatchObject({ would_change: expect.arrayContaining([{ key: "brand_color", from: before, to: "#E40000" }, { key: "footer_invoice", from: "", to: "Pay within 30 days" }]) });
+    expect(rows("select value from app__settings where key = 'brand_color'")[0]?.value).toBe(before);
+    const done = await own("update_settings", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    expect(done.result).toMatchObject({ brand_color: "#E40000", sender_name: "FixIt Care", footers: { invoice: "Pay within 30 days", quote: "Valid for 30 days", job_card: "" } });
+    expect(rows("select value from app__settings where key = 'brand_color'")[0]?.value).toBe("#E40000");
+    expect((await own("get_settings", {})).result).toMatchObject({ brand_color: "#E40000", footers: { invoice: "Pay within 30 days" } });
+    // The audit row names the keys, never the values.
+    const audit = rows("select details from audit__events where action = 'settings.update' order by rowid desc limit 1")[0]?.details as string;
+    expect(audit).toContain("brand_color");
+    expect(audit).not.toContain("Pay within");
+    // A footer is cleared with an empty string.
+    expect((await own("update_settings", { settings: { footers: { invoice: "" } } }, true)).result).toMatchObject({ footers: { invoice: "", quote: "Valid for 30 days" } });
+  });
+
+  test("update_settings: invalid input is a 400 and writes nothing; the limits themselves are accepted", async () => {
+    const colour = rows("select value from app__settings where key = 'brand_color'")[0]?.value;
+    const bad: Record<string, unknown>[] = [
+      {},
+      { settings: {} },
+      { settings: { brand_color: "red" } },
+      { settings: { brand_color: "#E40" } },
+      { settings: { brand_name: "" } },
+      { settings: { brand_name: "x".repeat(81) } },
+      { settings: { accounts_email: "not an email" } },
+      { settings: { sender_name: "a<b" } },
+      { settings: { footers: {} } },
+      { settings: { footers: { invoice: "x".repeat(501) } } },
+      { settings: { footers: { receipt: "x" } } },
+      { settings: { brand_name_ar: "x" } },
+      { settings: { brand_name: "ok" }, extra: true },
+    ];
+    for (const args of bad) {
+      expectInvalid(await own("update_settings", args), JSON.stringify(args));
+    }
+    expect(rows("select value from app__settings where key = 'brand_color'")[0]?.value).toBe(colour);
+    expect((await own("update_settings", { settings: { brand_name: "x".repeat(80), footers: { job_card: "y".repeat(500) } } }, true)).ok).toBe(true);
+  });
+});
+
+describe("upload_logo", () => {
+  test("a PNG: the first call stores nothing, the confirmed one stores it public and sets the logo", async () => {
+    const args = { image: b64(png(2048)), content_type: "image/png" };
+    const files = rows("select count(*) as n from renox__files where key like 'app/brand/%'")[0]?.n;
+    const preview = await own("upload_logo", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.preview).toEqual({ would_replace: { content_type: "image/png", bytes: 2048 } });
+    expect(rows("select count(*) as n from renox__files where key like 'app/brand/%'")[0]?.n).toBe(files);
+    const done = await own("upload_logo", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    const key = rows("select value from app__settings where key = 'brand_logo_key'")[0]?.value as string;
+    expect(key).toMatch(/^app\/brand\/logo-[a-z0-9]+\.png$/u);
+    expect(done.result).toEqual({ logo_url: `/_img/${key}?w=400` });
+    expect(rows("select public, content_type from renox__files where key = ?", [key])[0]).toMatchObject({ public: 1, content_type: "image/png" });
+    expect((await own("get_settings", {})).result).toMatchObject({ logo: true, logo_url: `/_img/${key}?w=400` });
+  });
+
+  test("a replaced logo is deleted: the previous file goes", async () => {
+    const old = rows("select value from app__settings where key = 'brand_logo_key'")[0]?.value as string;
+    const jpeg = new Uint8Array(1024);
+    jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+    const done = await own("upload_logo", { image: b64(jpeg), content_type: "image/jpeg" }, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    const key = rows("select value from app__settings where key = 'brand_logo_key'")[0]?.value as string;
+    expect(key).toMatch(/\.jpg$/u);
+    expect(rows("select count(*) as n from renox__files where key = ?", [old])[0]?.n).toBe(0);
+  });
+
+  test("the size cap: exactly 512 KiB is accepted, one byte more is refused", async () => {
+    const exact = await own("upload_logo", { image: b64(png(512 * 1024)), content_type: "image/png" }, true);
+    expect(exact.ok, JSON.stringify(exact)).toBe(true);
+    const key = rows("select value from app__settings where key = 'brand_logo_key'")[0]?.value as string;
+    expect(rows("select bytes from renox__files where key = ?", [key])[0]?.bytes).toBe(512 * 1024);
+    expectInvalid(await own("upload_logo", { image: b64(png(512 * 1024 + 1)), content_type: "image/png" }), "512 KiB + 1");
+    expect(rows("select value from app__settings where key = 'brand_logo_key'")[0]?.value).toBe(key);
+  });
+
+  test("a wrong type: the bytes decide, not the declared type", async () => {
+    const cases: [string, string, string][] = [
+      ["text declared as a PNG", b64(new TextEncoder().encode("this is not an image at all")), "image/png"],
+      ["a PNG declared as a JPEG", b64(png(256)), "image/jpeg"],
+      ["a GIF declared as a PNG", b64(new TextEncoder().encode("GIF89a\u0001\u0000\u0001\u0000")), "image/png"],
+      ["an HTML page declared as an SVG", b64(new TextEncoder().encode("<html><body>hi</body></html>")), "image/svg+xml"],
+      ["a PNG declared as an SVG", b64(png(256)), "image/svg+xml"],
+    ];
+    for (const [label, image, content_type] of cases) {
+      const r = refusal(await own("upload_logo", { image, content_type }));
+      expect(r.error, label).toBe("bad_input");
+    }
+    // A type outside the three is an input error, as is an image that is no base64.
+    expectInvalid(await own("upload_logo", { image: b64(png(64)), content_type: "image/webp" }), "invalid logo input");
+    expectInvalid(await own("upload_logo", { image: b64(png(64)), content_type: "image/gif" }), "invalid logo input");
+    expectInvalid(await own("upload_logo", { image: "not base64 !!", content_type: "image/png" }), "invalid logo input");
+    expectInvalid(await own("upload_logo", { image: "", content_type: "image/png" }), "invalid logo input");
+    expectInvalid(await own("upload_logo", { content_type: "image/png" }), "invalid logo input");
+  });
+
+  test("an SVG goes through the storage module's sanitiser: the script and the handler do not survive", async () => {
+    const svg = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><script>alert(1)</script><rect width="40" height="40" fill="#e40" onclick="alert(2)"/></svg>';
+    const done = await own("upload_logo", { image: b64(new TextEncoder().encode(svg)), content_type: "image/svg+xml" }, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    const key = rows("select value from app__settings where key = 'brand_logo_key'")[0]?.value as string;
+    expect(key).toMatch(/^app\/brand\/logo-[a-z0-9]+\.svg$/u);
+    expect(done.result).toEqual({ logo_url: `/_files/${key}` });
+    const served = await t.request("GET", `/_files/${key}`);
+    expect(served.status).toBe(200);
+    expect(served.html).toContain("<rect");
+    expect(served.html).not.toMatch(/<script|onclick|alert/u);
+  });
+});
+
+describe("list_branches, add_branch and update_branch", () => {
+  test("list_branches: the seed's two branches, as the page lists them", async () => {
+    const r = await own("list_branches", {});
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(r.result).toEqual({
+      branches: [
+        { id: "br_dubai", name: "Dubai", emirate: "dubai" },
+        { id: "br_sharjah", name: "Sharjah", emirate: "sharjah" },
+      ],
+    });
+    expectInvalid(await own("list_branches", { all: true }), "an unknown property");
+  });
+
+  test("add_branch: today an agent cannot create the organisation (org's services answer a browser session): `unavailable`, nothing written, no confirmation", async () => {
+    const args = { branch: { name: "Ajman Marina", emirate: "ajman" } };
+    const counts = () => [rows("select count(*) as n from org__orgs")[0]?.n, rows("select count(*) as n from app__branches")[0]?.n, rows("select count(*) as n from app__branch_hours")[0]?.n, rows("select count(*) as n from audit__events where action = 'branch.create'")[0]?.n];
+    const before = counts();
+    const preview = await own("add_branch", args);
+    expect(refusal(preview)).toMatchObject({ error: "unavailable" });
+    expect(preview.confirmation).toBeUndefined();
+    const done = await own("add_branch", args, true);
+    expect(refusal(done)).toMatchObject({ error: "unavailable" });
+    expect(counts()).toEqual(before);
+  });
+
+  test("add_branch: a taken name, a name with no Latin letter, an unknown emirate and a long name are refused; nothing is written", async () => {
+    const before = rows("select count(*) as n from app__branches")[0]?.n;
+    expect(refusal(await own("add_branch", { branch: { name: "  Dubai!  ", emirate: "dubai" } }))).toMatchObject({ error: "bad_input" });
+    expect(refusal(await own("add_branch", { branch: { name: "عجمان", emirate: "ajman" } }))).toMatchObject({ error: "bad_input" });
+    for (const branch of [{ name: "Nowhere", emirate: "atlantis" }, { name: "x".repeat(81), emirate: "dubai" }, { name: "", emirate: "dubai" }, { name: "Nowhere" }, { emirate: "dubai" }, { name: "Nowhere", emirate: "dubai", phone: "1" }]) {
+      expectInvalid(await own("add_branch", { branch }), JSON.stringify(branch));
+    }
+    expectInvalid(await own("add_branch", {}), "no branch");
+    expect(rows("select count(*) as n from app__branches")[0]?.n).toBe(before);
+  });
+
+  test("update_branch: the first call names the change; the confirmed one renames the branch and changes its emirate, the Arabic name and the address name stay", async () => {
+    const args = { id: "br_sharjah", branch: { name: "Sharjah Central", emirate: "ajman" } };
+    const preview = await own("update_branch", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.preview).toEqual({ would_change: [{ field: "name", from: "Sharjah", to: "Sharjah Central" }, { field: "emirate", from: "sharjah", to: "ajman" }] });
+    expect(rows("select name_en from app__branches where id = 'br_sharjah'")[0]?.name_en).toBe("Sharjah");
+    const done = await own("update_branch", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    expect(done.result).toEqual({ id: "br_sharjah", name: "Sharjah Central", emirate: "ajman" });
+    expect(rows("select name_en, name_ar, emirate, slug, org_id from app__branches where id = 'br_sharjah'")[0]).toMatchObject({ name_en: "Sharjah Central", name_ar: "الشارقة", emirate: "ajman", slug: "sharjah", org_id: "org_sharjah" });
+    expect(((await own("list_branches", {})).result as { branches: { id: string; name: string }[] }).branches.find((b) => b.id === "br_sharjah")?.name).toBe("Sharjah Central");
+    // One key alone; an English name that was also the Arabic one drags it along.
+    expect((await own("update_branch", { id: "br_dubai", branch: { emirate: "dubai" } }, true)).result).toEqual({ id: "br_dubai", name: "Dubai", emirate: "dubai" });
+    expect(rows("select name_ar from app__branches where id = 'br_dubai'")[0]?.name_ar).toBe("دبي");
+    expect(rows("select count(*) as n from audit__events where action = 'branch.update'")[0]?.n).toBeGreaterThanOrEqual(2);
+  });
+
+  test("update_branch: an unknown id is not_found; bad ids, an empty change and an unknown emirate are input errors", async () => {
+    expect(refusal(await own("update_branch", { id: "br_nowhere", branch: { name: "X" } }))).toMatchObject({ error: "not_found" });
+    for (const args of [{ id: "BR DUBAI", branch: { name: "X" } }, { id: "br_dubai", branch: {} }, { id: "br_dubai", branch: { emirate: "atlantis" } }, { id: "br_dubai", branch: { name: "x".repeat(81) } }, { branch: { name: "X" } }, { id: "br_dubai" }]) {
+      expectInvalid(await own("update_branch", args), JSON.stringify(args));
+    }
+    expect(rows("select name_en from app__branches where id = 'br_dubai'")[0]?.name_en).toBe("Dubai");
+  });
+
+  test("a branch manager is forbidden the branch tools the page forbids (the page needs settings.write)", async () => {
+    const manager = await signIn("manager-tools", "manager.dubai@fixit.example");
+    for (const [name, args] of [["add_branch", { branch: { name: "Nope", emirate: "dubai" } }], ["update_branch", { id: "br_dubai", branch: { name: "Nope" } }], ["list_branches", {}]] as [string, Record<string, unknown>][]) {
+      expect((await t.tool(name, args, { as: manager })).error?.code, name).toBe("RENOX_FORBIDDEN");
+    }
+  });
+});
+
+describe("list_services, add_service and update_service", () => {
+  test("list_services: the catalogue with ids, prices in AED and the active flag", async () => {
+    const r = await own("list_services", {});
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    const services = (r.result as { services: { id: number; name: string; price_aed: number; active: boolean }[] }).services;
+    const seeded = rows("select id, name_en, price_fils, active from app__services where branch_id is null order by id");
+    expect(services.length).toBe(seeded.length);
+    expect(services.map((s) => s.id)).toEqual(seeded.map((s) => Number(s.id)));
+    const ac = services.find((s) => s.name === "AC service");
+    expect(ac).toMatchObject({ price_aed: Number(rows("select price_fils from app__services where code = 'AC-SERVICE'")[0]?.price_fils) / 100, active: true });
+    expect(Object.keys(services[0] ?? {}).sort()).toEqual(["active", "id", "name", "price_aed"]);
+    // A dispatcher reads it too (the page's customer.read).
+    expect(((await t.tool("list_services", {}, { as: dina })).result as { services: unknown[] }).services).toHaveLength(services.length);
+  });
+
+  test("add_service: the first call creates nothing; the confirmed one adds a visit with a code, 5 % VAT, on offer", async () => {
+    const args = { service: { name: "Window cleaning", price_aed: 120.5 } };
+    const n = rows("select count(*) as n from app__services")[0]?.n;
+    const preview = await own("add_service", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.preview).toEqual({ would_create: { name: "Window cleaning", price_aed: 120.5 } });
+    expect(rows("select count(*) as n from app__services")[0]?.n).toBe(n);
+    const done = await own("add_service", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    const made = done.result as { id: number; name: string; price_aed: number; active: boolean };
+    expect(made).toMatchObject({ name: "Window cleaning", price_aed: 120.5, active: true });
+    expect(rows("select code, name_en, name_ar, unit, price_fils, vat_rate, active, branch_id from app__services where id = ?", [made.id])[0]).toEqual({ code: "WINDOW-CLEANING", name_en: "Window cleaning", name_ar: "Window cleaning", unit: "visit", price_fils: 12050, vat_rate: 5, active: 1, branch_id: null });
+    expect(rows("select count(*) as n from audit__events where action = 'service.create' and resource_id = ?", [String(made.id)])[0]?.n).toBe(1);
+    // The same name again gets its own code; a price of zero and the highest price are accepted.
+    const again = (await own("add_service", { service: { name: "Window cleaning", price_aed: 0 } }, true)).result as { id: number };
+    expect(rows("select code from app__services where id = ?", [again.id])[0]?.code).toBe("WINDOW-CLEANING-2");
+    expect((await own("add_service", { service: { name: "Tower", price_aed: 1_000_000 } }, true)).ok).toBe(true);
+    expect((((await own("list_services", {})).result as { services: { name: string }[] }).services).map((s) => s.name)).toContain("Window cleaning");
+    // The new service is one a job can be created for: the booking catalogue reads the same table.
+    expect(rows("select count(*) as n from app__services where active = 1 and code = 'WINDOW-CLEANING'")[0]?.n).toBe(1);
+  });
+
+  test("add_service: a negative or too high price, three decimals, a text price, no name and extra keys are input errors", async () => {
+    const n = rows("select count(*) as n from app__services")[0]?.n;
+    const bad = [{ name: "Nope", price_aed: -1 }, { name: "Nope", price_aed: 1_000_000.01 }, { name: "Nope", price_aed: 10.123 }, { name: "Nope", price_aed: "10" }, { name: "Nope" }, { price_aed: 10 }, { name: "", price_aed: 10 }, { name: "x".repeat(81), price_aed: 10 }, { name: "Nope", price_aed: 10, active: true }];
+    for (const service of bad) expectInvalid(await own("add_service", { service }), JSON.stringify(service));
+    expectInvalid(await own("add_service", {}), "no service");
+    expect(rows("select count(*) as n from app__services")[0]?.n).toBe(n);
+  });
+
+  test("update_service: the first call names the price change; the confirmed one changes price, name and the switch", async () => {
+    const id = Number(rows("select id from app__services where code = 'AC-SERVICE'")[0]?.id);
+    const old = Number(rows("select price_fils from app__services where id = ?", [id])[0]?.price_fils) / 100;
+    const preview = await own("update_service", { id, service: { price_aed: 180 } });
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.preview).toEqual({ would_change: [{ field: "price_aed", from: old, to: 180 }] });
+    expect(rows("select price_fils from app__services where id = ?", [id])[0]?.price_fils).toBe(old * 100);
+    const done = await own("update_service", { id, service: { price_aed: 180, active: false, name: "AC servicing" } }, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    expect(done.result).toEqual({ id, name: "AC servicing", price_aed: 180, active: false });
+    expect(rows("select name_en, price_fils, active, code from app__services where id = ?", [id])[0]).toEqual({ name_en: "AC servicing", price_fils: 18000, active: 0, code: "AC-SERVICE" });
+    expect(((await own("list_services", {})).result as { services: { id: number; active: boolean }[] }).services.find((s) => s.id === id)?.active).toBe(false);
+    expect(rows("select count(*) as n from audit__events where action = 'service.update' and resource_id = ?", [String(id)])[0]?.n).toBe(1);
+    // Switched back on, the price stays.
+    expect((await own("update_service", { id, service: { active: true } }, true)).result).toEqual({ id, name: "AC servicing", price_aed: 180, active: true });
+  });
+
+  test("update_service: an unknown id is not_found; a service of another branch is not found either; bad input is refused", async () => {
+    expect(refusal(await own("update_service", { id: 99999, service: { active: false } }))).toMatchObject({ error: "not_found" });
+    for (const args of [{ id: 0, service: { active: false } }, { id: 1.5, service: { active: false } }, { id: "1", service: { active: false } }, { id: 1, service: {} }, { id: 1, service: { price_aed: -5 } }, { id: 1, service: { active: "no" } }, { id: 1, service: { code: "X" } }, { service: { active: false } }]) {
+      expectInvalid(await own("update_service", args), JSON.stringify(args));
+    }
+  });
+
+  test("a branch manager and an accountant are forbidden to change the catalogue", async () => {
+    const manager = await signIn("manager-tools-2", "manager.dubai@fixit.example");
+    for (const user of [manager, accountant]) {
+      for (const [name, args] of [["add_service", { service: { name: "Nope", price_aed: 1 } }], ["update_service", { id: 1, service: { active: false } }]] as [string, Record<string, unknown>][]) {
+        expect((await t.tool(name, args, { as: user })).error?.code, name).toBe("RENOX_FORBIDDEN");
+      }
+    }
+  });
+});
+
+describe("list_people", () => {
+  test("the people of the branch the token acts in, with the contract's roles and no secret", async () => {
+    const r = await own("list_people", {});
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    const people = (r.result as { people: { email: string; role: string | null; status: string; branch: string }[] }).people;
+    expect(people).toEqual(expect.arrayContaining([
+      { email: "owner@fixit.example", role: "owner", status: "active", branch: "dubai" },
+      { email: "manager.dubai@fixit.example", role: "manager", status: "active", branch: "dubai" },
+      { email: "dispatcher.dubai@fixit.example", role: "dispatcher", status: "active", branch: "dubai" },
+      { email: "ali.dubai@fixit.example", role: "technician", status: "active", branch: "dubai" },
+      { email: "accountant.dubai@fixit.example", role: "accountant", status: "active", branch: "dubai" },
+    ]));
+    // Only the token's branch: nobody of Sharjah.
+    expect(people.map((p) => p.email)).not.toContain("dispatcher.sharjah@fixit.example");
+    expect(Object.keys(people[0] ?? {}).sort()).toEqual(["branch", "email", "role", "status"]);
+    expect(JSON.stringify(r.result)).not.toMatch(/argon2|password|u_dxb|twofa|token/iu);
+  });
+
+  test("an invitation that waits is listed as invited, with the role it will get", async () => {
+    // What the people page's ?/invite leaves (its own test sends it with a second factor): an org invitation and this row.
+    const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
+    db.query("insert into app__staff_invites (branch_id, org_id, email, role, invited_by, created_at, applied_at) values ('br_dubai', 'org_dubai', 'new.hire@example.com', 'branch_manager', 'u_owner', 1793000000, null)").run();
+    db.close();
+    const people = ((await own("list_people", {})).result as { people: { email: string; role: string | null; status: string; branch: string }[] }).people;
+    expect(people.find((p) => p.email === "new.hire@example.com")).toEqual({ email: "new.hire@example.com", role: "manager", status: "invited", branch: "dubai" });
+  });
+
+  test("a technician, a dispatcher and an accountant are forbidden the list (the page needs settings.read)", async () => {
+    for (const user of [ali, dina, accountant]) expect((await t.tool("list_people", {}, { as: user })).error?.code).toBe("RENOX_FORBIDDEN");
+  });
+});

@@ -11,10 +11,12 @@ timezone = "Asia/Dubai"
 network = []
 secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET", "SETUP_KEY"]
 
-# The platform's default types plus .xlsx: /admin/import stores the owner's
-# spreadsheets under app/imports/ (a list here replaces the defaults).
+# The platform's default types plus .xlsx (/admin/import stores the owner's
+# spreadsheets under app/imports/) and image/svg+xml (a logo sent by the owner
+# connector's upload_logo, sanitised by the storage module first); a list here
+# replaces the defaults.
 [storage]
-allowed_types = ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif", "application/pdf", "text/plain", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+allowed_types = ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif", "image/svg+xml", "application/pdf", "text/plain", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
 
 [modules]
 i18n ={ version = "^1.0.0" }
@@ -49,11 +51,11 @@ admin = { version = "^1.0.0", mount = "/admin", config = { base_path = "/admin",
 gcc = { version = "^1.0.0" }
 
 [authz]
-actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "user.manage"]
+actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage"]
 sensitive = ["invoice.issue", "invoice.pay", "settings.write", "user.manage"]
 
 [authz.default_roles]
-owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "user.manage"]
+owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage"]
 branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view"]
 dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write"]
 technician = ["job.read", "visit.perform"]

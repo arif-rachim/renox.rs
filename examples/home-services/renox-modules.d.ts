@@ -42,6 +42,8 @@ declare module "renox:modules" {
     uploadUrl(owner: string, name: string, options: { contentType: string; maxBytes: number; public?: boolean }): Promise<{ url: string; expires_at: number; max_bytes: number; key: string }>;
     list(owner: string, options?: { limit?: number; cursor?: string | null }): Promise<{ items: { key: string; bytes: number; content_type: string; sha256: string; width: number | null; height: number | null; public: boolean; created_at: number }[]; next_cursor: string | null }>;
     link(owner: string, name: string, ttlSeconds: number): Promise<{ url: string; expires_at: number }>;
+    /** The SVG with scripts, event handlers, foreign objects and external references removed, or null when it is no SVG or something dangerous is left. */
+    sanitizeSvg(text: string): Promise<string | null>;
   };
   /** The reports module: the app's own reports are exported through `csv` (amounts stay in the rows' units). */
   export const reports: {
