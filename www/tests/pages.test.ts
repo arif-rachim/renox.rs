@@ -230,8 +230,9 @@ describe("pricing and legal", () => {
   test("the privacy notice has one h1 and its nine sections in order; both footers link Privacy and the DPA apart", () => {
     const html = readFileSync(join(import.meta.dir, "../pages/legal/privacy.html"), "utf8");
     checkPrivacy(html);
-    // The operator's three facts are the owner's to fill in (#741): they stay placeholders until then.
-    for (const p of ["[legal name]", "[issuing authority, licence number]", "[address]"]) expect(html).toContain(p);
+    // The operator as its trade licence names it (#741): legal name, issuing authority and number, address; no placeholder left.
+    for (const fact of ["Renoxium (FZC)", "Sharjah Research Technology and Innovation Park Free Zone (SRTIP)", "licence no. 20400", "Block C-C01-220"]) expect(html).toContain(fact);
+    expect(html).not.toMatch(/\[(legal name|issuing authority|address)/u);
     for (const name of ["home", "main"]) {
       const layout = readFileSync(join(import.meta.dir, `../pages/_layouts/${name}.html`), "utf8");
       const footer = layout.slice(layout.indexOf("<footer"), layout.indexOf("</footer>"));
