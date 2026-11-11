@@ -57,9 +57,10 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `confirmPasswordReset({ token, password })` | `{ cookie }` or `{ error }` |
 | `principal(sessionId)` | `{ id, attrs }` of the signed-in user, or `null` (below, "The principal") |
 | `resumeLogin(ticket)` | `{ cookie, session_id, user_id, next }` for a `resume` ticket of `auth.after_login`, or `null` (unknown, used, or past 10 minutes). Starts the session; the hook does not run again |
-| `verifyAgentToken(token)` | `{ principal, scopes, client: { name } }` for a live agent token, or `null`. The cell calls it for `/mcp` |
+| `verifyAgentToken(token)` | `{ principal, scopes, client: { name, grant_id? }, expires_at }` for a live agent token, or `null`. The cell calls it for `/mcp` and caches the answer no longer than `expires_at` (Unix ms) |
 | `oauthMetadata(issuer)` | The RFC 8414 document the cell serves at `/.well-known/oauth-authorization-server<mount>/oauth` |
 | `listAgentTokens()`, `revokeAgentToken(id)` | The signed-in user's connected agents; revoke one of them |
+| `mintAgentToken({ email, scopes, ttl_seconds, client_name, grant_id })` | **Platform only** (#698, below): `{ token, expires_at }` for the app user with that verified email, or `null`. Any other caller gets `AUTH_PLATFORM_ONLY` |
 
 A page that needs a user:
 
@@ -204,6 +205,18 @@ Proof: `tests/oauth.test.ts` and `tests/agents.test.ts`:
 - a consent page that cannot be framed and sets no cookie.
 
 These keep the `docs/24-threat-model.md` row "Account takeover of a tenant developer" whole: agent tokens are hashed, last one hour, are listed, and can be revoked.
+
+### The owner connector's bridge (#698)
+
+The Renoxium connector reaches the app's `/mcp` as the owner's app user (`docs/20-ai-agents-mcp.md` section 1b, "The bridge"). The control plane asks the app's node (`nodeMintAgentToken`, `deploy-api.md` 0.9 section 15), and the node runs `mintAgentToken` in the app's cell as `Renox::System::"renox"`. No module can be named `renox` (MF1), so a call from tenant code, a route, a job or another module is refused (`AUTH_PLATFORM_ONLY`).
+
+- The user is the one whose **verified** email is `email`. An unknown or unverified email answers `null`, and the node answers 404 `not_an_app_user`. auth has no disabled state of its own: a user who must not be reached is one without a verified email, or a deleted one.
+- `scopes` are 1 to 10 `tools:<name>`. `tools:*` is refused. `ttl_seconds` is 30 to 300. Anything else throws `RENOX_VALIDATION` with `details: [{ field, reason }]`.
+- The row in `auth__agent_tokens` has the client id `renoxium-platform`, the given `client_name`, the scopes, `expires_at` at most 5 minutes ahead, and `grant_id` (migration `007_agent_grant.sql`: the connector's access-token id on the control plane, for the audit trail). The organisation is the user's only one, as on the consent page without a choice; none when there are none or several.
+- `auth.agent_audit` runs with `action: "connect"` and the `grant_id`. The token is in no hook argument and no log line. It is listed among the user's connected agents and can be revoked like any other.
+- `verifyAgentToken` answers its `client.grant_id` and `expires_at`. The cell keeps a verified token in its cache no longer than that, so a minted token stops at `expires_at`.
+
+Proof: `tests/agents.test.ts`, "mintAgentToken". The node side is `crates/renox-cell/tests/agent_tokens.rs`.
 
 ## Policies
 

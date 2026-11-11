@@ -53,6 +53,7 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `verifyOtp(phone, code)` | `{ ok }`. A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. A wrong, expired, used or exhausted code, an unknown phone and a malformed code all give `{ ok: false }` |
 | `linkPhone(userId, phone)` | `{ ok }`. Makes the phone the user's WhatsApp contact, but only within 10 minutes after `verifyOtp` succeeded for it |
 | `inbox({ phone?, direction?, limit? })` | Messages newest first. An OTP's body shows as `[otp]` |
+| `message(id)` | One stored message by id, shaped like an `inbox()` row, or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
 | `outbox(limit?)` | Outgoing messages newest first, read-only, with status and body. An OTP's body shows as `[otp]` |
 | `chatLink(phone, text)` | `{ url }`, a `wa.me` link with a prefilled message |
 

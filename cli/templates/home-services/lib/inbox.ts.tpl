@@ -23,13 +23,11 @@ export type InboundResult = { task: true; kind: ReplyKind; job: string | null } 
 
 /**
  * Handles one inbound message. The event carries the id and the phone, not the
- * text: the module's inbox for that phone is read to find it (newest first, so
- * a message just received is on the first page).
+ * text: the module's `message(id)` reads the stored message by its id.
  */
 export async function handleInbound(ctx: { readonly db: Scopable }, message: { message_id: string; from: string }): Promise<InboundResult> {
-  const inbox = await whatsapp.inbox({ phone: message.from, direction: "in", limit: 200 });
-  const m = inbox.find((r) => r.id === message.message_id);
-  if (m === undefined) return { task: false };
+  const m = await whatsapp.message(message.message_id);
+  if (m === null) return { task: false };
   const kind = replyKind(m.body);
   if (kind === null) return { task: false };
   // The phone is E.164 in the inbox and in the customer file. The same number in two branches: the oldest customer.

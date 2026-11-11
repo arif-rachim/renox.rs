@@ -154,6 +154,14 @@ export async function inbox(ctx: WaCtx, filter: { phone?: string; direction?: "i
   return rows.map((r) => (r.kind === "otp" ? { ...r, body: "[otp]" } : r));
 }
 
+/** One stored message by id, shaped like an `inbox()` row (an OTP's body shows as `[otp]`), or null. One lookup by primary key. */
+export async function message(ctx: WaCtx, id: unknown): Promise<InboxRow | null> {
+  if (typeof id !== "string" || id === "" || id.length > 128) throw new TypeError("whatsapp.message: id must be a non-empty string of at most 128 characters");
+  const r = await ctx.db.queryOne<InboxRow>("select id, direction, kind, phone, body, status, at from whatsapp__messages where id = ?", [id]);
+  if (r === null || r === undefined) return null;
+  return r.kind === "otp" ? { ...r, body: "[otp]" } : r;
+}
+
 /** Outgoing rows newest first, with status and body (an OTP's body shows as `[otp]`): what a sandbox app would have sent. */
 export function outbox(ctx: WaCtx, limit?: number): Promise<InboxRow[]> {
   return inbox(ctx, { direction: "out", limit });

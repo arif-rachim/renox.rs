@@ -141,7 +141,7 @@ export function setupKey(master: Buffer, tenantId: string, app: string): string 
 /**
  * The one-time token `v1.<app>.<hash>.<exp_ms>.<base64url HMAC-SHA256>`: the
  * HMAC covers the text before the last dot, its key is the UTF-8 bytes of the
- * `SETUP_KEY` secret. Sent in the header `x-renox-setup`.
+ * `SETUP_KEY` secret. Sent in the header `renox-setup` (the gateway removes client `x-renox-*` headers, ops.md section 2).
  */
 export function mintSetupToken(key: string, app: string, hash: string, now: number): string {
   const body = `v1.${app}.${hash}.${now + SETUP_TOKEN_TTL_MS}`;
@@ -298,7 +298,7 @@ export function registerTemplates(app: Hono<Env>, deps: Deps): void {
     try {
       const token = mintSetupToken(secret.key, name, hash, deps.now());
       const r = await (deps.callApp ?? defaultCallApp)(`${url}/api/setup`, {
-        headers: { "content-type": "application/json", "x-renox-setup": token },
+        headers: { "content-type": "application/json", "renox-setup": token },
         body: JSON.stringify({ ...setup, owner: { email: secret.ownerEmail } }),
       });
       if (r.status >= 200 && r.status < 300) answer = r.body;

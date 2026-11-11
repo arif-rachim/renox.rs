@@ -306,7 +306,7 @@ describe("a form that cannot be saved (422)", () => {
     const res = await dispatcher.action("/jobs/jb_seed_05", "schedule", { technician: "u_dxb_ali", note: "x" });
     expect(res.status).toBe(422);
     expect(res.html).toContain('href="#f-schedule-slot"');
-    // The day has no free slot, so the control is the sentence that says so; the link still lands somewhere.
+    // With free slots the control is the slot list; with none it is the sentence that says so. Either way the link lands on it, whatever the day.
     expect(res.html).toMatch(/id="f-schedule-slot"/u);
     expect(audit(res.html, "en")).toEqual([]);
   });

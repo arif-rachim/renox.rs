@@ -1,3 +1,4 @@
 TWOFA_KEY=669c17e0aad5f0d5217506c52a2ed052dacc21e7f3e6f8c6d19337f7c488cd64
 WHATSAPP_VERIFY_TOKEN=home-services-test-verify
 WHATSAPP_APP_SECRET=home-services-test-app-secret
+SETUP_KEY=home-services-test-setup-key

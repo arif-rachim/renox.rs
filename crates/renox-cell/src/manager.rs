@@ -118,6 +118,13 @@ pub struct DeploymentMeta {
 /// Looks up [`DeploymentMeta`] of `(tenant_id, deployment_hash)`.
 pub trait DeploymentLookup: Send + Sync + 'static {
     fn lookup(&self, tenant_id: &str, deployment_hash: &str) -> DeploymentMeta;
+
+    /// The deployment hash of `app`'s active route entry on this node, when
+    /// `app` is an app of `tenant_id` that this process serves
+    /// (`nodeMintAgentToken`, #698). Local mode has no apps: `None`.
+    fn active_deployment(&self, _tenant_id: &str, _app: &str) -> Option<String> {
+        None
+    }
 }
 
 /// Local mode: the tier per tenant from `worker.toml`, no app, secret
@@ -511,6 +518,58 @@ impl CellManager {
             .expect("dbs lock")
             .get(tenant_id)
             .is_some_and(|s| s.try_lock().map_or(true, |g| g.handle.is_some()))
+    }
+
+    /// The deployment hash of `app`'s active entry on this node, when it is
+    /// an app of `tenant_id` this process serves (#698; see
+    /// [`DeploymentLookup::active_deployment`]).
+    pub fn active_deployment(&self, tenant_id: &str, app: &str) -> Option<String> {
+        self.inner
+            .config
+            .deployments
+            .active_deployment(tenant_id, app)
+    }
+
+    /// `<module>.<name>(...args)` as the platform (`Renox::System::"renox"`)
+    /// in the cell of `(tenant_id, deployment_hash)`, created if needed
+    /// (#698: the node listener's `nodeMintAgentToken` runs
+    /// `auth.mintAgentToken` this way). `args_json` is a JSON array. The
+    /// answer is the caller's to keep out of logs.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn invoke_service(
+        &self,
+        tenant_id: &str,
+        deployment_hash: &str,
+        module: &str,
+        name: &str,
+        args_json: String,
+        request_id: &str,
+        deadline: Instant,
+    ) -> Result<renox_runtime::isolate::InvokeOutcome, CellError> {
+        let key = CellKey {
+            tenant_id: tenant_id.to_string(),
+            deployment_hash: deployment_hash.to_string(),
+        };
+        let cell = self.admit(&key).await?;
+        let _guard = InFlightGuard(&cell);
+        if !cell.isolate.has_service(module, name) {
+            return Ok(renox_runtime::isolate::InvokeOutcome::NoHandler);
+        }
+        let out = cell
+            .isolate
+            .invoke(
+                renox_runtime::RequestCtx {
+                    request_id: request_id.to_string(),
+                    deadline,
+                },
+                renox_runtime::isolate::Invoke::Service {
+                    module: module.into(),
+                    name: name.into(),
+                    args_json,
+                },
+            )
+            .await;
+        Ok(out.outcome)
     }
 
     /// Drain every cell that opens the database `db_key` (#258: an import

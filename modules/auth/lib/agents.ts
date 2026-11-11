@@ -243,7 +243,10 @@ export interface AgentRole {
 export interface VerifiedAgent {
   principal: { id: string; attrs: Record<string, unknown>; roles: AgentRole[] };
   scopes: string[];
-  client: { name: string };
+  /** `grant_id`: a token minted for the owner connector (#698) carries the connector's grant. */
+  client: { name: string; grant_id?: string };
+  /** When the token stops working (unix ms): the cell keeps it in its cache no longer (#698). */
+  expires_at: number;
 }
 
 type RolesCtx = AuthCtx & { authz?: { roles?: { list(userId: string): Promise<{ role: string; scope_type: string; scope_id: string | null }[]> } } };
@@ -266,11 +269,13 @@ export async function verify(ctx: AuthCtx, token: string): Promise<VerifiedAgent
     client_name: string;
     scopes: string;
     org_id: string | null;
+    expires_at: number;
+    grant_id: string | null;
     email_verified_at: number | null;
     phone_verified_at: number | null;
     created_at: number;
   }>(
-    `select a.id, a.user_id, a.client_name, a.scopes, a.org_id, u.email_verified_at, u.phone_verified_at, u.created_at
+    `select a.id, a.user_id, a.client_name, a.scopes, a.org_id, a.expires_at, a.grant_id, u.email_verified_at, u.phone_verified_at, u.created_at
        from auth__agent_tokens a join auth__users u on u.id = a.user_id
       where a.token_hash = ? and a.revoked_at is null and a.expires_at > ?`,
     [hash, t],
@@ -288,7 +293,8 @@ export async function verify(ctx: AuthCtx, token: string): Promise<VerifiedAgent
   return {
     principal: { id: row.user_id, attrs, roles },
     scopes: JSON.parse(row.scopes) as string[],
-    client: { name: row.client_name },
+    client: row.grant_id === null ? { name: row.client_name } : { name: row.client_name, grant_id: row.grant_id },
+    expires_at: row.expires_at * 1000,
   };
 }
 
@@ -322,4 +328,77 @@ export async function revoke(ctx: AuthCtx, userId: string, id: string): Promise<
   await ctx.events.emit("auth.agent_token_revoked", { token_hash: row.token_hash, user_id: userId, at: t });
   await ctx.hooks.run("auth.agent_audit", { action: "revoke", user_id: userId, client_name: row.client_name, scopes: JSON.parse(row.scopes) as string[], at: t });
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// The owner connector's bridge (#698; docs/20-ai-agents-mcp.md section 1b,
+// "The bridge"; deploy-api.md 0.9 section 15, `nodeMintAgentToken`): the
+// node runs `mintAgentToken` in the app's cell as the platform, and the
+// control plane calls the app's own `/mcp` with the token, so the app's
+// scopes, rate limit, confirmation and Cedar policies apply as the owner's
+// app user. Nothing new reaches the app: the token is an ordinary row of
+// `auth__agent_tokens`, listed, revocable and verified like any other.
+
+/** The client id of every minted token (deploy-api.md 0.9 section 15). */
+export const PLATFORM_CLIENT_ID = "renoxium-platform";
+/** A minted token lives at most this long (seconds). */
+export const MINT_MAX_TTL_SECONDS = 300;
+/** And at least this long, as `agent_token_request` allows. */
+export const MINT_MIN_TTL_SECONDS = 30;
+const MINT_SCOPE = /^tools:[a-z][a-z0-9_]{0,63}$/u;
+const MINT_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/u;
+const MINT_GRANT = /^[0-9A-Za-z_-]{1,64}$/u;
+
+export interface MintInput {
+  email: string;
+  scopes: string[];
+  ttl_seconds: number;
+  client_name: string;
+  grant_id: string;
+}
+
+/** `{ token, expires_at }` (unix ms, as `agent_token_minted`), or null when no app user has that verified email. */
+export type Minted = { token: string; expires_at: number } | null;
+
+/** The first problem of a mint request as `{ field, reason }` (the shape of `agent_token_request`), or null. */
+export function mintProblem(input: unknown): { field: string; reason: string } | null {
+  const i = (input ?? {}) as Partial<Record<keyof MintInput, unknown>>;
+  if (typeof i.email !== "string" || i.email.length > 254 || !MINT_EMAIL.test(i.email)) return { field: "email", reason: "an email address" };
+  if (!Array.isArray(i.scopes) || i.scopes.length < 1 || i.scopes.length > 10) return { field: "scopes", reason: "1 to 10 scopes" };
+  for (const s of i.scopes) {
+    // `tools:*` is never minted: the bridge names the tools it needs.
+    if (typeof s !== "string" || !MINT_SCOPE.test(s)) return { field: "scopes", reason: "each scope is tools:<name>" };
+  }
+  if (new Set(i.scopes).size !== i.scopes.length) return { field: "scopes", reason: "scopes are unique" };
+  if (typeof i.ttl_seconds !== "number" || !Number.isInteger(i.ttl_seconds) || i.ttl_seconds < MINT_MIN_TTL_SECONDS || i.ttl_seconds > MINT_MAX_TTL_SECONDS) {
+    return { field: "ttl_seconds", reason: `an integer from ${MINT_MIN_TTL_SECONDS} to ${MINT_MAX_TTL_SECONDS}` };
+  }
+  if (typeof i.client_name !== "string" || i.client_name.length < 1 || i.client_name.length > 80) return { field: "client_name", reason: "1 to 80 characters" };
+  if (typeof i.grant_id !== "string" || !MINT_GRANT.test(i.grant_id)) return { field: "grant_id", reason: "1 to 64 of [0-9A-Za-z_-]" };
+  return null;
+}
+
+/**
+ * Mints a token for the app user whose **verified** email is `email` (a
+ * user without a verified email is no such user), with exactly `scopes`,
+ * `expires_at` at most `ttl_seconds` (≤ 300) ahead, the client
+ * `renoxium-platform` named `client_name`, and `grant_id` (the connector's
+ * access-token id on the control plane) kept on the row for the audit
+ * trail. The organisation is the user's only one, as on the consent page
+ * without a choice (#590); none when they have none or several. The caller
+ * checked the input (`mintProblem`) and that it is the platform.
+ */
+export async function mint(ctx: AuthCtx, input: MintInput): Promise<Minted> {
+  const user = await ctx.db.queryOne<{ id: string }>("select id from auth__users where email = ? and email_verified_at is not null", [input.email]);
+  if (user === null) return null;
+  const org = pickOrg(await agentOrgs(ctx, user.id), null)?.org_id ?? null;
+  const token = `${TOKEN_PREFIX}${randomHex(32)}`;
+  const t = now();
+  const expires = t + Math.min(input.ttl_seconds, MINT_MAX_TTL_SECONDS);
+  await ctx.db.execute(
+    "insert into auth__agent_tokens (id, token_hash, user_id, client_id, client_name, scopes, created_at, expires_at, org_id, grant_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [`agt_${randomHex(12)}`, await sha256Hex(token), user.id, PLATFORM_CLIENT_ID, input.client_name, JSON.stringify(input.scopes), t, expires, org, input.grant_id],
+  );
+  await ctx.hooks.run("auth.agent_audit", { action: "connect", user_id: user.id, client_name: input.client_name, scopes: input.scopes, at: t, grant_id: input.grant_id });
+  return { token, expires_at: expires * 1000 };
 }
