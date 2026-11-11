@@ -4,8 +4,13 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.14 (unreleased)
 
+**Modules**
+
+- `audit` 1.0.1: the row of an App MCP `mcp.tool_called` event keeps the event's optional `grant_id` (the owner connector grant the agent token was minted under) in `details`. (#748)
+
 **Worker**
 
+- The cell puts the verified token's `client.grant_id` into the `mcp.tool_called` event when `verifyAgentToken` answered one (`ops.md` 1.16.0). `ops.md` section 19 now documents the answer's optional `expires_at` and `client.grant_id`, and that the 60 s verified-token cache never outlives `expires_at`, with a test that a token expiring in 5 s is refused at second 6. (#748)
 - The `tx` of `ctx.db.transaction(async (tx) => ...)` has `tx.scoped(scope)`, the transaction's statements behind the ownership fence of `db.scoped()`; the app's `ctx.db.scoped()` used inside a transaction now fails at once with `RENOX_DB_TX_STATE` ("use tx.scoped(...) inside a transaction") instead of waiting and answering "database is busy"; in TypeScript, write `(tx as TxDb).scoped(...)` for now (ops 1.15.0) (#749).
 
 ## 0.1.13 (2026-11-11)

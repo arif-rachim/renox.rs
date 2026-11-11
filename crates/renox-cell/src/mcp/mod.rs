@@ -635,8 +635,8 @@ pub(crate) async fn serve(
     }
 }
 
-/// `{ principal: { id, attrs?, roles?: [{ role, scope_type, scope_id }] }, scopes, client: { name, model? }, expires_at? }`
-/// (`expires_at`: Unix ms, #698).
+/// `{ principal: { id, attrs?, roles?: [{ role, scope_type, scope_id }] }, scopes, client: { name, model?, grant_id? }, expires_at? }`
+/// (`expires_at`: Unix ms, #698; `client.grant_id`, #748).
 fn agent_of(v: &serde_json::Value) -> Option<Agent> {
     let p = v.get("principal")?;
     let id = p.get("id")?.as_str()?;
@@ -748,7 +748,7 @@ async fn audit_call(
     f.insert("request_id".into(), ctx.request_id.clone().into());
     cell.isolate
         .log("info", Some(&ctx.request_id), "mcp tool call", f);
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "tool": tool,
         "agent_user_id": agent.principal.id,
         "client": client,
@@ -756,6 +756,16 @@ async fn audit_call(
         "request_id": ctx.request_id,
         "at": at,
     });
+    // #748: the owner connector grant the token was minted under, when
+    // `verifyAgentToken` said (`client.grant_id`); absent otherwise.
+    if let Some(grant) = agent
+        .client
+        .get("grant_id")
+        .and_then(|g| g.as_str())
+        .filter(|g| !g.is_empty())
+    {
+        payload["grant_id"] = grant.chars().take(200).collect::<String>().into();
+    }
     if let Err(e) = manager
         .emit_platform_event(&cell.key.tenant_id, TOOL_CALLED_EVENT, payload.to_string())
         .await

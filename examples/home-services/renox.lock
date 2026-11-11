@@ -3,9 +3,9 @@ version = 1
 
 [[module]]
 name = "audit"
-version = "1.0.0"
+version = "1.0.1"
 source = "official"
-hash = "589ad20a024c02d5541e44ca21e85011e3b4647badff2584f58b2a440747e320"
+hash = "9d2949b2e0653d44845367a3db1ca2c27ab918a5c0f1cadd68f2cfce12ef18b3"
 isolation = "shared"
 mount = "/audit"
 dependencies = []
