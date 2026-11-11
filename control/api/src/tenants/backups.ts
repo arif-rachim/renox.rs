@@ -6,7 +6,7 @@
 
 import type { Context, Hono } from "hono";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { operation } from "../audit.ts";
+import { operation, writeAudit } from "../audit.ts";
 import { appViews } from "../apps/repo.ts";
 import { actorOf } from "../context.ts";
 import { artifactKey, deploymentView, findDeployment, type Actor } from "../deployments/repo.ts";
@@ -20,7 +20,7 @@ import { crossTenant } from "../tenancy/scope.ts";
 import { masterKeys } from "../secrets/master.ts";
 import { tenantAuth } from "../auth/middleware.ts";
 import type { Deps, Env } from "../context.ts";
-import type { Db } from "../db/db.ts";
+import { num, type Db } from "../db/db.ts";
 import { pathParam } from "../http.ts";
 import { requireApp } from "../apps/repo.ts";
 import { holdingApps } from "../apps/busy.ts";
@@ -227,6 +227,44 @@ export async function storeExport(deps: Deps, db: Db, input: StoreExportInput): 
   return { url, expires_at: expires, created_at: now, size_bytes: body.length, sha256, kind, ...(hash === null ? {} : { hash }) };
 }
 
+/** The content type and file name suffix of the API download, by the row's `kind` (0.11.2, #703). */
+const EXPORT_DOWNLOAD: Record<string, { type: string; suffix: string }> = {
+  database: { type: "application/vnd.sqlite3", suffix: "db" },
+  files: { type: "application/x-tar+gzip", suffix: "files.tar.gz" },
+  artifact: { type: "application/gzip", suffix: "artifact.tar.gz" },
+};
+
+/** Rows an expiry run handles at most. */
+export const EXPORT_SWEEP_LIMIT = 500;
+
+/**
+ * The export expiry sweep (0.11.2, #703), hourly: for each `exports` row past
+ * its `expires_at` (at most 500 per run, oldest first) the object is deleted
+ * from the store, then the row; a missing object is not an error, a store that
+ * fails keeps the row for the next run. One `exportsExpired` audit row names
+ * the count per kind, never a key. Answers the number of rows deleted.
+ */
+export async function sweepExports(deps: Deps): Promise<number> {
+  const now = deps.now();
+  const due = await deps.db.query<{ id: string; object_key: string; kind: string }>("select id, object_key, kind from exports where expires_at < $1 order by expires_at, id limit $2", [now, EXPORT_SWEEP_LIMIT]);
+  const counts: Record<string, number> = {};
+  let deleted = 0;
+  for (const row of due) {
+    try {
+      await deps.store.delete(row.object_key);
+      await deps.db.query("delete from exports where id = $1", [row.id]);
+    } catch (e) {
+      deps.log.warn("export expiry failed", { export_id: row.id, error: e instanceof Error ? e.name : "error" });
+      continue;
+    }
+    counts[row.kind] = (counts[row.kind] ?? 0) + 1;
+    deleted++;
+  }
+  if (deleted > 0)
+    await writeAudit(deps.db, { at: now, tenantId: null, actor: "platform", action: "exportsExpired", target: Object.fromEntries(Object.entries(counts).map(([k, n]) => [k, String(n)])), status: 200, requestId: `req_${ulid(now)}` });
+  return deleted;
+}
+
 export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps/:app/backups/export", operation(deps, "exportBackup"), tenantAuth(deps, "apps:write"), async (c) => {
     const db = tenantDb(deps, c);
@@ -320,11 +358,13 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const sig = c.req.query("sig") ?? "";
     if (!/^exp_[0-9A-Za-z]{26}$/u.test(id) || !Number.isFinite(expires) || !/^[0-9a-f]{64}$/u.test(sig)) throw notFound();
     if (!exportSignatureValid(deps, id, expires, sig) || deps.now() > expires) throw new ApiError("RENOX_TOKEN_SCOPE");
-    const rows = await crossTenant(deps.db, "a signed export URL names its export, not a tenant").query<{ object_key: string }>("select object_key from exports where id = $1", [id]);
-    const key = rows[0]?.object_key;
-    const bytes = key === undefined ? null : await deps.store.get(key);
-    if (bytes === null) throw notFound();
-    return new Response(bytes as unknown as BodyInit, { headers: { "content-type": "application/vnd.sqlite3", "cache-control": "no-store", "content-disposition": `attachment; filename="${id}.db"` } });
+    // An expired row is 404 even before the sweep has deleted it (0.11.2, #703).
+    const rows = await crossTenant(deps.db, "a signed export URL names its export, not a tenant").query<{ object_key: string; app: string; kind: string; created_at: unknown }>("select object_key, app, kind, created_at from exports where id = $1 and expires_at >= $2", [id, deps.now()]);
+    const row = rows[0];
+    const bytes = row === undefined ? null : await deps.store.get(row.object_key);
+    if (row === undefined || bytes === null) throw notFound();
+    const { type, suffix } = EXPORT_DOWNLOAD[row.kind] ?? (EXPORT_DOWNLOAD.database as { type: string; suffix: string });
+    return new Response(bytes as unknown as BodyInit, { headers: { "content-type": type, "cache-control": "no-store", "content-disposition": `attachment; filename="${row.app}-${num(row.created_at)}.${suffix}"` } });
   });
 
   app.post("/v1/apps/:app/backups/restore", operation(deps, "restoreBackup"), tenantAuth(deps, "apps:write"), async (c) => {

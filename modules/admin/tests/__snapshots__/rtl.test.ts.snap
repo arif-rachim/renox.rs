@@ -8,16 +8,16 @@ exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshott
 </head>
 <body class="renox-admin">
   <nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">Dashboard</a>
-    <a href="users">Users</a>
-    <a href="audit">Audit trail</a>
+    <a href="/admin/">Dashboard</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/audit">Audit trail</a>
     <a href="/jobs" class="renox-admin-link">Jobs</a>
   </nav>
   <main>
   
   <h1 dir="auto">Admin</h1>
   <section class="renox-admin-cards">
-    <article id="admin-card-users"><h2>Users</h2><p dir="auto">1</p><a href="users">Open</a></article>
+    <article id="admin-card-users"><h2>Users</h2><p dir="auto">1</p><a href="/admin/users">Open</a></article>
     
   </section>
   
@@ -35,16 +35,16 @@ exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshott
 </head>
 <body class="renox-admin">
   <nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">لوحة التحكم</a>
-    <a href="users">المستخدمون</a>
-    <a href="audit">سجل التدقيق</a>
+    <a href="/admin/">لوحة التحكم</a>
+    <a href="/admin/users">المستخدمون</a>
+    <a href="/admin/audit">سجل التدقيق</a>
     <a href="/jobs" class="renox-admin-link">المهام</a>
   </nav>
   <main>
   
   <h1 dir="auto">Admin</h1>
   <section class="renox-admin-cards">
-    <article id="admin-card-users"><h2>المستخدمون</h2><p dir="auto">1</p><a href="users">فتح</a></article>
+    <article id="admin-card-users"><h2>المستخدمون</h2><p dir="auto">1</p><a href="/admin/users">فتح</a></article>
     
   </section>
   
@@ -62,9 +62,9 @@ exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshott
 </head>
 <body class="renox-admin">
   <nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">Dashboard</a>
-    <a href="users">Users</a>
-    <a href="audit">Audit trail</a>
+    <a href="/admin/">Dashboard</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/audit">Audit trail</a>
     <a href="/jobs" class="renox-admin-link">Jobs</a>
   </nav>
   <main>
@@ -98,9 +98,9 @@ exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshott
 </head>
 <body class="renox-admin">
   <nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">لوحة التحكم</a>
-    <a href="users">المستخدمون</a>
-    <a href="audit">سجل التدقيق</a>
+    <a href="/admin/">لوحة التحكم</a>
+    <a href="/admin/users">المستخدمون</a>
+    <a href="/admin/audit">سجل التدقيق</a>
     <a href="/jobs" class="renox-admin-link">المهام</a>
   </nav>
   <main>
@@ -134,9 +134,9 @@ exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshott
 </head>
 <body class="renox-admin">
   <nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">Dashboard</a>
-    <a href="users">Users</a>
-    <a href="audit">Audit trail</a>
+    <a href="/admin/">Dashboard</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/audit">Audit trail</a>
     <a href="/jobs" class="renox-admin-link">Jobs</a>
   </nav>
   <main>
@@ -158,9 +158,9 @@ exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshott
 </head>
 <body class="renox-admin">
   <nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">لوحة التحكم</a>
-    <a href="users">المستخدمون</a>
-    <a href="audit">سجل التدقيق</a>
+    <a href="/admin/">لوحة التحكم</a>
+    <a href="/admin/users">المستخدمون</a>
+    <a href="/admin/audit">سجل التدقيق</a>
     <a href="/jobs" class="renox-admin-link">المهام</a>
   </nav>
   <main>

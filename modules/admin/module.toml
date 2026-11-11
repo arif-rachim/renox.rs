@@ -1,6 +1,6 @@
 [module]
 name = "admin"
-version = "1.0.0"
+version = "1.0.1"
 description = "The app's back office: a layout with the admin.sidebar slot, a dashboard with the admin.dashboard slot that other modules fill, users and the admin role, the audit viewer"
 
 [dependencies]

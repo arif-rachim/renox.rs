@@ -298,10 +298,11 @@ describe("the audit trail of an agent's tool call (#683)", () => {
     const owner = await signIn("owner-audit", "owner@fixit.example");
     const page = await owner.page("/admin/audit?action=mcp.tool_called");
     expect(page.status).toBe(200);
-    // The module's page shows the action and the actor id; it does not yet show the resource, the actor kind
-    // or the client (#709), which the row above holds. Once #709 is fixed, expect create_job, agent and the client here.
-    const line = page.html.split("<tr").find((tr) => tr.includes(">mcp.tool_called<") && tr.includes(">u_dxb_dispatcher<"));
+    // The module's page (admin 1.0.1, #709) shows the action, the actor id with its kind and client, and the
+    // resource as type:id or the id alone.
+    const line = page.html.split("<tr").find((tr) => tr.includes(">mcp.tool_called<") && tr.includes("u_dxb_dispatcher") && /:create_job<|>create_job</u.test(tr));
     expect(line, page.html).toBeDefined();
+    expect(line).toContain(">u_dxb_dispatcher agent (renox test agent)<");
   });
 });
 

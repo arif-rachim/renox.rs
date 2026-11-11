@@ -3,7 +3,7 @@
 // here are the module's own reads (users, the latest audit events).
 import { audit } from "renox:modules";
 
-import { admin, iso, type Page } from "../lib/page.ts";
+import { admin, iso, view, type Page } from "../lib/page.ts";
 
 export const guard = { action: "admin.access" };
 
@@ -16,5 +16,5 @@ export const load = admin(async (ctx: Page) => {
   } catch {
     // Without the audit read action the card is left out.
   }
-  return { title: ctx.config.title ?? "Admin", users, recent };
+  return view(ctx, { title: ctx.config.title ?? "Admin", users, recent });
 });
