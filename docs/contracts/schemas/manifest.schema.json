@@ -537,6 +537,12 @@
       "description": "https origin with an optional *. host wildcard and path (no ';' or ',', which separate directives and policies in the header), data:, blob:, or (with allow_unsafe, V16) 'unsafe-inline' / 'unsafe-eval'.",
       "pattern": "^(https://(\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(:[0-9]{1,5})?(/[A-Za-z0-9._~%!$&()*+=:@/-]*)?|data:|blob:|'unsafe-inline'|'unsafe-eval')$"
     },
+    "formActionSource": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "security.csp.form_action: an https origin (lowercase host with at least one dot and no wildcard, optional port), no path, no data:, no blob:, no ';' or ',' (artifact.md 1.10).",
+      "pattern": "^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(:[0-9]{1,5})?$"
+    },
     "origin": {
       "type": "string",
       "maxLength": 270,
@@ -597,6 +603,14 @@
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/cspSource"
+              }
+            },
+            "form_action": {
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/formActionSource"
               }
             },
             "allow_unsafe": {

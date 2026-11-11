@@ -52,7 +52,7 @@ pub fn csp_value(cfg: &SecurityConfig, nonce: &str, https: bool) -> String {
     }
     d.push("object-src 'none'".into());
     d.push("base-uri 'self'".into());
-    d.push("form-action 'self'".into());
+    directive(&mut d, "form-action", &["'self'"], &csp.form_action);
     d.push("frame-ancestors 'none'".into());
     if https {
         d.push("upgrade-insecure-requests".into());
@@ -162,5 +162,37 @@ mod tests {
         let a = new_nonce();
         assert_eq!(a.len(), 24);
         assert_ne!(a, new_nonce());
+    }
+
+    #[test]
+    fn form_action_origins_follow_self() {
+        let json = |extra: &str, ro: &str| {
+            DeploymentInfo::parse(&format!(
+                r#"{{"artifact":{{"version":1}},"security":{{"csp":{{"form_action":[{extra}]{ro}}}}}}}"#
+            ))
+            .unwrap()
+        };
+        let info = json(r#""https://api.example.com""#, "");
+        let v = csp_value(&info.security, "n", false);
+        assert!(v.contains(
+            "base-uri 'self'; form-action 'self' https://api.example.com; frame-ancestors 'none'"
+        ));
+        // A source with ';' and the non-origin forms are dropped.
+        let bad = json(
+            r#""https://a.example/;script-src *","https://*.example.com","http://api.example.com","data:""#,
+            "",
+        );
+        assert!(
+            csp_value(&bad.security, "n", false).contains("form-action 'self'; frame-ancestors")
+        );
+        // Report-only carries it too.
+        let ro = json(r#""https://api.example.com""#, r#","report_only":true"#);
+        let set = header_set(&ro.security, "n", false);
+        assert_eq!(set[0].0, "content-security-policy-report-only");
+        assert!(
+            set[0]
+                .1
+                .contains("form-action 'self' https://api.example.com;")
+        );
     }
 }

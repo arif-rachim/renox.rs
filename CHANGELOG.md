@@ -6,6 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **CLI**
 
+- `[security.csp] form_action` in `renox.toml`: a list of at most 8 `https://` origins a form may post to; the page's `form-action` becomes `'self'` plus them. A wildcard host, `http://`, `data:` or a source with `;` is refused by `renox check` and dropped by the gateway; modules cannot add form targets (`artifact.md` 1.10, #740).
 - `renox export` no longer writes `localhost` into `routes.json`: the worker's route table refuses a one-label name (V13), so an exported app did not start. The control plane now gzips the artifact it exports (`deploy-api.md` 0.10.1), which `renox export` refused before ("not a gzip file"). `docs/self-host.md` takes an export to a VPS behind Caddy and systemd, and `cli/tests/export-selfhost.e2e.test.ts` runs the exported app on `renox-worker` (#674).
 
 **Modules**

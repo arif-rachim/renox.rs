@@ -20,6 +20,7 @@ export interface SecurityConfig {
     connect_src?: string[];
     frame_src?: string[];
     font_src?: string[];
+    form_action?: string[];
     allow_unsafe?: boolean;
     report_only?: boolean;
   };
@@ -67,6 +68,8 @@ export function mergeModuleCsp(
     provenance[key] = new Map([...from].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
     csp[key] = [...provenance[key].keys()];
   }
+  // form_action is the app's own (#740): modules never add to it; sorted and deduplicated like the others.
+  if (csp.form_action) csp.form_action = [...new Set(csp.form_action)].sort();
   return { security: { ...(security ?? {}), csp }, provenance, problems };
 }
 
@@ -85,6 +88,8 @@ export function securityProblems(security: SecurityConfig, routes: Route[]): str
     for (const src of security.csp?.[key] ?? [])
       if (typeof src === "string" && /[;,]/u.test(src))
         structural.push(`MF17: security.csp.${key} "${src}" is not an https:// origin (optional *. wildcard and path), data: or blob:`);
+  for (const src of security.csp?.form_action ?? [])
+    if (typeof src === "string" && /[;,]/u.test(src)) structural.push(`MF17: security.csp.form_action "${src}" is not an https:// origin (no wildcard host, no path)`);
   if (structural.length) return structural;
   const root = schemas.manifest as { $defs: Record<string, Json> };
   const errs = validate({ $ref: "#/$defs/security" }, security as Json, { $defs: root.$defs } as Json, "security");
@@ -128,7 +133,7 @@ export function cspValue(security: SecurityConfig, nonce: string, tls: boolean):
     ["font-src", csp.font_src],
   ] as const)
     if (extra?.length) d.push([name, "'self'", ...extra].join(" "));
-  d.push("object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'");
+  d.push("object-src 'none'", "base-uri 'self'", ["form-action", "'self'", ...(csp.form_action ?? [])].join(" "), "frame-ancestors 'none'");
   if (tls) d.push("upgrade-insecure-requests");
   d.push(`report-uri ${CSP_REPORT_PATH}`, `report-to ${CSP_REPORT_GROUP}`);
   return d.join("; ");
