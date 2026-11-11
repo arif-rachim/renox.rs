@@ -404,6 +404,28 @@ impl DeploymentLookup for RouteState {
             },
         }
     }
+
+    /// #698: the newest active entry of `(tenant_id, app)` on this node.
+    /// A tenant placed in its own process (`process = "own"` with
+    /// `[process]` on) is served by its child, not by this process's
+    /// cells, so it has none here.
+    fn active_deployment(&self, tenant_id: &str, app: &str) -> Option<String> {
+        let t = self.table.lock().expect("routes lock");
+        let e = t
+            .entries
+            .values()
+            .filter(|e| {
+                e.tenant_id == tenant_id
+                    && e.app == app
+                    && e.node_id == self.node_id
+                    && e.status == RouteStatus::Active
+            })
+            .max_by_key(|e| e.version)?;
+        if e.process == ProcessKind::Own && self.process_enabled.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(e.deployment_hash.clone())
+    }
 }
 
 #[cfg(test)]
@@ -453,6 +475,48 @@ pub(crate) mod tests {
         assert_eq!(meta.app.as_deref(), Some("hello"));
         assert_eq!(meta.secrets_version, 3);
         assert_eq!(s.lookup("t_other", &"a".repeat(64)).tier, TierName::Free);
+    }
+
+    /// #698: `nodeMintAgentToken` finds the app's newest active entry of
+    /// this node, only for its own tenant; not another node's, not a
+    /// draining one, not one served by its own child process.
+    #[test]
+    fn the_active_deployment_of_an_app_is_this_nodes_newest_active_entry() {
+        let gw = Arc::new(RouteTable::new());
+        let s = RouteState::new("node-1", gw);
+        let mut other_tenant = entry("x.renox.app", 'x', RouteStatus::Active, "node-1", 1);
+        other_tenant.tenant_id = "t_other".into();
+        other_tenant.app = "other".into();
+        let mut remote = entry("r.renox.app", 'r', RouteStatus::Active, "node-2", 1);
+        remote.app = "remote".into();
+        s.apply_snapshot(Snapshot {
+            version: 3,
+            entries: vec![
+                entry("a.renox.app", 'a', RouteStatus::Draining, "node-1", 1),
+                entry("a.renox.app", 'b', RouteStatus::Active, "node-1", 2),
+                other_tenant,
+                remote,
+            ],
+        });
+        assert_eq!(
+            s.active_deployment("t_hello", "hello"),
+            Some("b".repeat(64))
+        );
+        assert_eq!(s.active_deployment("t_hello", "other"), None);
+        assert_eq!(s.active_deployment("t_other", "hello"), None);
+        assert_eq!(s.active_deployment("t_hello", "remote"), None);
+        let mut own = entry("a.renox.app", 'c', RouteStatus::Active, "node-1", 4);
+        own.process = ProcessKind::Own;
+        s.apply_snapshot(Snapshot {
+            version: 4,
+            entries: vec![own],
+        });
+        assert_eq!(
+            s.active_deployment("t_hello", "hello"),
+            Some("c".repeat(64))
+        );
+        s.set_process_enabled(true);
+        assert_eq!(s.active_deployment("t_hello", "hello"), None);
     }
 
     /// #325 (deploy-api.md 0.5.1 section 5): a suspended entry from the

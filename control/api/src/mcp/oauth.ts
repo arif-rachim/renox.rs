@@ -41,8 +41,33 @@ import { open, seal } from "./seal.ts";
 
 export { originOf };
 
-/** Scopes an MCP client may ask for. Never `secrets:write` or `tokens:write`: an agent does not set secrets or mint tokens. `domains:write` is offered but never in the default grant. */
-export const MCP_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "domains:write"] as const;
+/** Scopes an MCP client may ask for. Never `secrets:write` or `tokens:write`: an agent does not set secrets or mint tokens. `domains:write`, `app:settings` and `app:people` are offered but never in the default grant. */
+export const MCP_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "domains:write", "app:settings", "app:people"] as const;
+/**
+ * The owner connector's profile (docs/20-ai-agents-mcp.md section 1b, "Grant
+ * profile and consent texts", #700): `scope=owner` asks for these. Never
+ * `secrets:*`, `tokens:write`, `deploy` or `apps:delete`: a request naming the
+ * profile drops any other scope it lists.
+ */
+export const OWNER_PROFILE = ["apps:read", "apps:write", "domains:write", "app:settings", "app:people"] as const;
+/** What the consent page says for each scope, in plain words (section 1b). */
+export const CONSENT_TEXTS: Record<(typeof MCP_SCOPES)[number], string> = {
+  "apps:read": "See your apps and what they contain",
+  "apps:write": "Create and change your apps",
+  "domains:write": "Add your domains",
+  "app:settings": "Change your app's settings",
+  "app:people": "Invite people",
+  deploy: "Put new versions of your apps live and roll them back",
+  "logs:read": "Read your apps' logs",
+  "secrets:read": "See the names of your apps' secrets, never their values",
+};
+
+/** The plain-words line of one granted scope (`<action>` or `<action>:<app>`). */
+export function consentText(scope: string): string {
+  const p = parseScope(scope);
+  const text = p === null ? scope : (CONSENT_TEXTS[p.action as (typeof MCP_SCOPES)[number]] ?? scope);
+  return p?.app === undefined ? text : `${text} (only the app ${p.app})`;
+}
 /** Granted when the client asks for no scope: read scopes plus deploy (docs/20-ai-agents-mcp.md section 1). */
 export const DEFAULT_SCOPES = ["apps:read", "logs:read", "secrets:read", "deploy"];
 export const TOKEN_PREFIX_NAME = "mcp: ";
@@ -110,11 +135,19 @@ export function redirectUriOk(uri: unknown): uri is string {
 /** The scopes of a `scope` parameter: known MCP scopes, `<action>:<app>` included; null when one is unknown. */
 export function parseScopes(scope: string | undefined): string[] | null {
   if (scope === undefined || scope.trim() === "") return [...DEFAULT_SCOPES];
-  const out: string[] = [];
-  for (const s of scope.trim().split(/\s+/u)) {
+  const asked = scope.trim().split(/\s+/u);
+  // `owner` (section 1b): the profile, and of the other scopes listed only those inside it.
+  const owner = asked.includes("owner");
+  const out: string[] = owner ? [...OWNER_PROFILE] : [];
+  for (const s of asked) {
+    if (s === "owner") continue;
     const p = parseScope(s);
-    if (p === null || !(MCP_SCOPES as readonly string[]).includes(p.action)) return null;
+    if (p === null) return null;
     if (p.app !== undefined && !/^[a-z][a-z0-9-]{0,49}$/u.test(p.app)) return null;
+    if (owner) {
+      // Never `secrets:*`, `deploy`, `tokens:write` or `apps:delete` with the profile: dropped, not an error.
+      if (!(OWNER_PROFILE as readonly string[]).includes(p.action)) continue;
+    } else if (!(MCP_SCOPES as readonly string[]).includes(p.action)) return null;
     if (!out.includes(s)) out.push(s);
   }
   return out.slice(0, 32);
@@ -302,8 +335,8 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       200,
       `Allow ${client.n} to use Renoxium?`,
       `<p><strong>${escapeHtml(client.n)}</strong> (returns to <code>${escapeHtml(target.host)}</code>) asks to act in team <code>${escapeHtml(session.tenantId)}</code> as an agent, with at most your role (<code>${escapeHtml(session.role)}</code>):</p>
-<ul>${granted.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join("")}</ul>
-<p>Tools that change something (create an app, activate, roll back) still ask for a confirmation on each call. Secret values are never readable. The access token lasts one hour and is renewed without asking you for up to 30 days; you can revoke it under Tokens.</p>
+<ul>${granted.map((s) => `<li>${escapeHtml(consentText(s))} <small>(<code>${escapeHtml(s)}</code>)</small></li>`).join("")}</ul>
+<p>Tools that change something (create an app, change a setting, invite someone) still ask for a confirmation on each call. Secret values are never readable. The access token lasts one hour and is renewed without asking you for up to 30 days; you can revoke it under Tokens.</p>
 <form method="post" action="/oauth/authorize"><input type="hidden" name="request" value="${escapeHtml(request)}"><button name="decision" value="approve">Allow</button> <button name="decision" value="deny">Deny</button></form>`,
     );
   });

@@ -40,6 +40,10 @@ export const ACTIONS = [
   "registry:publish",
   // deploy-api.md 0.7 section 3 (#536): deleteApp and restoreApp.
   "apps:delete",
+  // deploy-api.md 0.11 section 2 (#700): the owner connector's bridged app tools
+  // (docs/20-ai-agents-mcp.md section 1b); no deploy-API operation needs them.
+  "app:settings",
+  "app:people",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 

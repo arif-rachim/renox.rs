@@ -1,6 +1,6 @@
 [module]
 name = "whatsapp"
-version = "1.1.0"
+version = "1.2.0"
 description = "WhatsApp Cloud API: notifications, OTP, approved templates, a signed inbound webhook into a light inbox, a chat-to-order link"
 
 [config]
@@ -24,6 +24,7 @@ sendOtp = "Send a 6-digit code to a phone: (phone) -> { sent: true, expires_in }
 verifyOtp = "Check a code: (phone, code) -> { ok } (5 minutes, 5 attempts, single use)"
 linkPhone = "Make a phone the user's WhatsApp contact after verifyOtp succeeded for it: (user_id, phone) -> { ok }"
 inbox = "Messages newest first: ({ phone?, direction?, limit? }) -> rows (OTP bodies never shown)"
+message = "One stored message by id: (id) -> message | null"
 outbox = "Outgoing messages newest first, read-only: (limit?) -> rows with status and body (OTP bodies never shown); in sandbox, what would have been sent"
 chatLink = "A wa.me link with a prefilled message: (phone, text) -> { url }"
 

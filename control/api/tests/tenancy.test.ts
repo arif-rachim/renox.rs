@@ -135,6 +135,17 @@ describe("the role table", () => {
     expect(MATRIX["team:write"]).toEqual(["owner", "admin"]);
   });
 
+  test("deploy-api.md 0.11 (#700): app:settings and app:people are token scopes held by owner and admin only, in the Scope pattern, needed by no deploy-API operation", () => {
+    for (const p of ["app:settings", "app:people"] as const) {
+      expect(ACTIONS as readonly string[]).toContain(p);
+      expect(MATRIX[p]).toEqual(["owner", "admin"]);
+      expect(Object.values(ROUTE_PERMISSIONS)).not.toContain(p);
+    }
+    const pattern = new RegExp((spec as { components: { schemas: { Scope: { pattern: string } } } }).components.schemas.Scope.pattern, "u");
+    for (const ok of ["app:settings", "app:people", "app:settings:coolair", "app:people:coolair"]) expect(pattern.test(ok)).toBe(true);
+    for (const bad of ["app:", "app:secrets", "app:settings:Bad"]) expect(pattern.test(bad)).toBe(false);
+  });
+
   /** The `| `permission` | yes | … |` rows of a markdown table, as permission → roles. */
   const matrixRows = (lines: string[]): Record<string, string[]> => {
     const rows = new Map<string, string[]>();
