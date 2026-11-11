@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.14 (unreleased)
+
+**Worker**
+
+- The `tx` of `ctx.db.transaction(async (tx) => ...)` has `tx.scoped(scope)`, the transaction's statements behind the ownership fence of `db.scoped()`; the app's `ctx.db.scoped()` used inside a transaction now fails at once with `RENOX_DB_TX_STATE` ("use tx.scoped(...) inside a transaction") instead of waiting and answering "database is busy"; in TypeScript, write `(tx as TxDb).scoped(...)` for now (ops 1.15.0) (#749).
+
 ## 0.1.13 (2026-11-11)
 
 **Install**

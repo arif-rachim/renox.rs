@@ -497,10 +497,22 @@ async function dbCall(op, sql, params, tx, module, scope = null) {
  * Statements under `module`'s authorizer. `tx` is a transaction handle, 0
  * for none, or "current": the request's current transaction at call time
  * (ops.md 1.3.0 section 1), which is how a service called from an action
- * writes in the action's transaction.
+ * writes in the action's transaction; or "outside": none, and refused at
+ * once while a transaction is current (the app's `ctx.db.scoped(s)`, #749:
+ * it would otherwise wait for the writer the request itself holds).
  */
 function statements(tx, module = "app", scope = null) {
-  const handle = () => (tx === "current" ? (txVar.get() ?? 0) : tx);
+  const handle = () => {
+    if (tx === "current") return txVar.get() ?? 0;
+    if (tx === "outside") {
+      const current = txVar.get();
+      if (current !== undefined && current !== 0) {
+        throw new RenoxError("RENOX_DB_TX_STATE", "use tx.scoped(...) inside a transaction");
+      }
+      return 0;
+    }
+    return tx;
+  };
   return ObjectFreeze({
     async query(sql, params) {
       return toRows(await dbCall(op_db_query, sql, params, handle(), module, scope));
@@ -533,14 +545,30 @@ function checkScope(scope) {
 }
 
 /**
+ * The `tx` that `transaction(fn)` hands to `fn`: the transaction's
+ * statements plus `scoped(scope)`, the same statements with the scope in the
+ * same transaction, as `actionDb`'s (ops.md 1.15.0 section 17, #749).
+ */
+function txStatements(tx, module, scope) {
+  return ObjectFreeze({
+    ...statements(tx, module, scope),
+    scoped(s) {
+      return statements(tx, module, checkScope(s));
+    },
+  });
+}
+
+/**
  * `ctx.db` of `module`. The app's statements keep the 1.2 rule (no
- * transaction unless through `tx`); a module's run in the current one.
- * `transaction(fn)` is IMMEDIATE, or a savepoint when a transaction is
- * current (ops.md 1.3.0 section 1, "Savepoints").
+ * transaction unless through `tx`); a module's run in the current one. The
+ * app's scoped statements are refused while a transaction is current
+ * ("outside", #749). `transaction(fn)` is IMMEDIATE, or a savepoint when a
+ * transaction is current (ops.md 1.3.0 section 1, "Savepoints").
  */
 function makeDb(module, scope = null, fixedTx = null) {
+  const own = module !== "app" ? "current" : scope === null ? 0 : "outside";
   return ObjectFreeze({
-    ...statements(fixedTx ?? (module === "app" ? 0 : "current"), module, scope),
+    ...statements(fixedTx ?? own, module, scope),
     scoped(s) {
       return makeDb(module, checkScope(s), fixedTx);
     },
@@ -557,7 +585,7 @@ function makeDb(module, scope = null, fixedTx = null) {
         }
         let result;
         try {
-          result = await within([[txVar, outer]], () => fn(statements(outer, module, scope)));
+          result = await within([[txVar, outer]], () => fn(txStatements(outer, module, scope)));
         } catch (e) {
           try {
             await op_db_savepoint_rollback(token, outer, sp);
@@ -581,7 +609,7 @@ function makeDb(module, scope = null, fixedTx = null) {
       }
       let result;
       try {
-        result = await within([[txVar, tx]], () => fn(statements(tx, module, scope)));
+        result = await within([[txVar, tx]], () => fn(txStatements(tx, module, scope)));
       } catch (e) {
         try {
           await op_db_tx_rollback(token, tx);
