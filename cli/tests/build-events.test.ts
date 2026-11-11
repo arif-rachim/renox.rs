@@ -108,7 +108,8 @@ describe.skipIf(!worker)("renox build with hooks.ts, [[slots]] and [events]", ()
       expect(m.code.entry.hooks).toBe("hooks.js");
       expect(r.files.has("code/hooks.js")).toBe(true);
       expect(m.entries?.hooks?.exports).toEqual(["on"]);
-      expect(m.entries?.hooks?.eager).toBeUndefined();
+      // The app's hooks entry is lazy with its recorded names once the pinned worker evaluates lazy entries (ADR D32, #640).
+      expect(m.entries?.hooks?.eager).toBe(false);
       // Used by no route (V7).
       expect(m.routes.some((x) => (x as { module?: string }).module === "hooks")).toBe(false);
       // The module's filler first, the app's two after it (equal priority: the app last; then 100 < 100 tie by order of declaration).
