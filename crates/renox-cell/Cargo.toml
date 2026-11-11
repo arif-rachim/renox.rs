@@ -3,7 +3,7 @@ name = "renox-cell"
 # The worker's version: `renox-worker --version` and `worker_version` at
 # registration (#401). A `worker-v<version>` tag must match it, or
 # .github/workflows/release-worker.yml fails before building.
-version = "0.7.1"
+version = "0.7.2"
 description = "Renox cell: wires gateway, runtime, data, and meter into the renox-worker binary (P5)"
 edition.workspace = true
 rust-version.workspace = true
