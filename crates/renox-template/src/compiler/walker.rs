@@ -965,7 +965,8 @@ impl<'c, 'p> Emitter<'c, 'p> {
     /// `<x-image :src="file" width="400" alt="...">` (ops.md 1.7.0 section
     /// 21, #321): an `<img>` whose `src`, `srcset` (1x and 2x), `width` and
     /// `height` come from the stored file object at render time (the
-    /// `__image` filter), with `loading="lazy"` and `decoding="async"`.
+    /// `__image` filter), with `loading="lazy"` (or an author-given literal
+    /// `eager`), `decoding="async"` and an optional literal `fetchpriority`.
     /// `fit`, `focus`, `placeholder="blur"` and `sizes` as `docs/08` lists.
     fn emit_x_image(&mut self, ctx: &Ctx, node: &Handle, children: &[Handle]) {
         self.check_directives(ctx, node, &["r-html"]);
@@ -1028,12 +1029,54 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 "false"
             }
         };
+        for bound in [":loading", ":fetchpriority"] {
+            if attr(node, bound).is_some() {
+                self.error(
+                    ctx,
+                    node,
+                    Some(bound),
+                    format!(
+                        "`<x-image>` {} is a literal, not a bound value",
+                        &bound[1..]
+                    ),
+                );
+            }
+        }
+        let loading = match attr(node, "loading").as_deref().map(str::trim) {
+            None => "lazy".to_string(),
+            Some(v @ ("eager" | "lazy")) => v.to_string(),
+            Some(v) => {
+                self.error(
+                    ctx,
+                    node,
+                    Some("loading"),
+                    format!("`<x-image>` loading is one of eager, lazy, got `{v}`"),
+                );
+                "lazy".to_string()
+            }
+        };
+        let fetchpriority = match attr(node, "fetchpriority").as_deref().map(str::trim) {
+            None => String::new(),
+            Some(v @ ("high" | "low" | "auto")) => format!(" fetchpriority=\"{v}\""),
+            Some(v) => {
+                self.error(
+                    ctx,
+                    node,
+                    Some("fetchpriority"),
+                    format!("`<x-image>` fetchpriority is one of high, low, auto, got `{v}`"),
+                );
+                String::new()
+            }
+        };
         let list: Vec<(String, String)> = attr_list(node)
             .into_iter()
             .filter(|(n, _)| {
                 !matches!(
                     n.as_str(),
-                    ":src"
+                    ":loading"
+                        | ":fetchpriority"
+                        | "fetchpriority"
+                        | ":src"
                         | "src"
                         | "srcset"
                         | ":srcset"
@@ -1053,7 +1096,9 @@ impl<'c, 'p> Emitter<'c, 'p> {
             "<img{{{{ ({file}) | __image({width}, {fit}, {focus}, {placeholder}) }}}}"
         ));
         self.emit_attrs(ctx, node, "img", &list);
-        self.out.push_str(" loading=\"lazy\" decoding=\"async\">");
+        self.out.push_str(&format!(
+            " loading=\"{loading}\" decoding=\"async\"{fetchpriority}>"
+        ));
     }
 
     /// `<x-script src="...">`: a `<script>` with the per-request CSP nonce.

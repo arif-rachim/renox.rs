@@ -6,6 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **CLI**
 
+- `[security.csp] form_action` in `renox.toml`: a list of at most 8 `https://` origins a form may post to; the page's `form-action` becomes `'self'` plus them. A wildcard host, `http://`, `data:` or a source with `;` is refused by `renox check` and dropped by the gateway; modules cannot add form targets (`artifact.md` 1.10, #740).
 - `renox export` no longer writes `localhost` into `routes.json`: the worker's route table refuses a one-label name (V13), so an exported app did not start. The control plane now gzips the artifact it exports (`deploy-api.md` 0.10.1), which `renox export` refused before ("not a gzip file"). `docs/self-host.md` takes an export to a VPS behind Caddy and systemd, and `cli/tests/export-selfhost.e2e.test.ts` runs the exported app on `renox-worker` (#674).
 
 **Modules**
@@ -14,6 +15,12 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 - auth 1.2.0: the platform-only service `auth.mintAgentToken({ email, scopes, ttl_seconds, client_name, grant_id })` mints a short-lived (at most 300 s) agent token for the app user with that verified email, scoped to named `tools:<name>`, for the owner connector's bridge; callable only by the platform, never from tenant code, a route or another module; `verifyAgentToken` also answers `expires_at` and `client.grant_id` (#698).
 - whatsapp 1.2.0: the service `whatsapp.message(id)` returns one stored message (the shape of an `inbox()` row) or `null`, by primary key, so a handler of `whatsapp.message_received` reads the text of the message the event names without scanning the inbox; the event payload stays `{ message_id, from }` (#705).
 - `reports` 1.2.0: the service `reports.readXlsx(bytes)` returns the first sheet of an `.xlsx` (written by Excel, LibreOffice or `reports.xlsx`; shared and inline strings, a formula's cached value) as rows of `string | number | null`; a `Uint8Array` of at most 10 MiB and 100,000 cells, else `TypeError`, `RangeError` or "not an .xlsx file" (#724).
+
+**Worker**
+
+- `<x-image>` writes an author-given `loading="eager"` or `loading="lazy"` instead of always `lazy`, and passes a literal `fetchpriority="high|low|auto"` through; a bound or other value is a compile error naming the template and line, and the default stays `loading="lazy"` (#738).
+- An app's `pages/_404` and `pages/_error` receive `locale`, `dir` and `app_name`: the cell resolves the locale from `?lang=`, `Accept-Language` and the `i18n` module's default, without an isolate or the database, so `<html lang dir>` and `<r-t>` follow it; without `i18n`, `en` and `ltr` (artifact 1.9.3, errors 0.11.1) (#739).
+- The gateway writes `form-action 'self' <origins>` from the artifact's `security.csp.form_action` and drops any source that is not an `https://` origin, with a platform warning; without the key the header is unchanged (artifact 1.10) (#740).
 
 ## 0.1.12 (2026-11-10)
 

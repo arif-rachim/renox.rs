@@ -1,8 +1,8 @@
 # The owner connector in the Claude and ChatGPT directories (research, 2026-11-10; issue #690)
 
 - **Date:** 2026-11-10
-- **Status:** research for the owner (no decision recorded)
-- **Issues:** #690; parent #686 (the owner connector); related #688 (refresh tokens), #675 (landing page), #516 (entity, D31)
+- **Status:** decided (owner, 2026-11-10): **option B**, apply to both directories after epic #686's Definition of Done, with the gaps below closed first; not waiting for anything else. Renoxium holds a UAE trade licence, so the identity step of each application is done as a company (option C is moot); the trade licence exists; the bank account and PSP onboarding are deferred (D31, #516). #690 stays open as the owner's checklist.
+- **Issues:** #690; parent #686 (the owner connector); related #688 (refresh tokens), #675 (landing page), #516 (deferred scope, D31)
 - **Method:** the current public documentation of both directories, read on 2026-11-10 (Sources at the end). Where a fact is not public or only the directory team can answer it, the note says **verify**.
 - **Not verified by hand:** step 3 of #690 needs #688 deployed on mcp.renoxium.com; verify then and record who and when. Every statement about our server below comes from the code and docs on `main` (`3833a5a`), not from a run against the deployed host.
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | A. Apply now | Submit to both directories this week, from a personal account, with the gaps below still open. |
 | B. Apply after epic #686's Definition of Done | Close the technical and legal gaps first (about a day of work each, below), then submit when the connector works end to end for an owner. |
-| C. Apply after the entity (#516) | Wait for a legal entity and submit under the company name. |
+| C. Apply after the entity (#516) | Wait for a legal entity and submit under the company name. Moot (owner, 2026-11-10): the trade licence exists; the bank account and PSP onboarding are deferred (D31, #516). |
 
 **Recommendation: B.** Both directories let an individual submit (Claude: any paid plan; ChatGPT: "individual or business verification", so no entity is required by the public docs, verify the identity step). So C is not needed. A is too early: a reviewer needs a working, populated test account, a privacy policy URL (we have none) and per-tool `title` annotations (we do not send them), and Claude's review looks at every tool's behaviour. A failed first submission costs more than a week of preparation. Until then the custom-connector fallback (below) already works on both sides, subject to the plan limits listed there.
 
@@ -68,16 +68,16 @@ Source: `control/api/src/mcp/oauth.ts`, `server.ts`, `README.md`; `docs/20-ai-ag
 
 **Legal and organisation**
 
-- [ ] Privacy policy page at `renoxium.com/legal/privacy`: `www/pages/legal/` holds only `terms.html` and `dpa.html`, and the DPA is not a privacy policy. Both directories ask for a privacy policy URL; OpenAI wants data categories, purposes, recipients, retention and user controls. (no issue yet)
+- [ ] Privacy policy page at `renoxium.com/legal/privacy`: `www/pages/legal/` holds only `terms.html` and `dpa.html`, and the DPA is not a privacy policy. Both directories ask for a privacy policy URL; OpenAI wants data categories, purposes, recipients, retention and user controls. (#741)
 - [ ] Confirm the public URLs of the terms page (`renoxium.com/legal/terms`) and DPA once served; OpenAI asks for a `termsOfServiceURL`, Claude does not. (verify; no issue yet)
-- [ ] Support address `support@renoxium.com` is listed in `docs/contracts/README.md`, "Domains". Whether a mailbox actually receives and is read is **verify**. (no issue yet)
-- [ ] Applicant identity: an individual account on each side seems allowed by the docs (Claude: paid plan; OpenAI: individual verification); the Claude "Company" step and OpenAI's identity checks may ask for more. Entity is #516 / D31 (deferred); not a hard blocker per the public docs, **verify** with the portals. (#516)
+- [ ] Support address `support@renoxium.com` is listed in `docs/contracts/README.md`, "Domains". Whether a mailbox actually receives and is read is **verify**. (owner step, #690)
+- [ ] Applicant identity: the application is made as a company: the trade licence exists; the bank account and PSP onboarding are deferred (D31, #516). The Claude "Company" step and OpenAI's business verification use the licence; what each portal asks for is **verify**. (#690)
 - [ ] Public documentation URL for the connector (a help page for owners; Claude requires public docs by the publish date). The landing page #675 describes the connector as "coming soon". (#675; no issue for the docs page)
 
 **Technical**
 
-- [ ] Per-tool `title`: `tools/list` sends `name`, `description`, `inputSchema` and `annotations` but no `title`; Claude requires a title on every tool. Add `title` (and `annotations.title`). (no issue yet; belongs with #700)
-- [ ] Reviewer account: a pre-verified, fully populated demo team and user with sample data and no MFA, because sign-up needs an email verification and ChatGPT rejects flows that need new sign-ups or codes. (no issue yet)
+- [ ] Per-tool `title`: `tools/list` sends `name`, `description`, `inputSchema` and `annotations` but no `title`; Claude requires a title on every tool. Add `title` (and `annotations.title`). (#700)
+- [ ] Reviewer account: a pre-verified, fully populated demo team and user with sample data and no MFA, because sign-up needs an email verification and ChatGPT rejects flows that need new sign-ups or codes. (owner step after #686; how the second factor is waived for that one account is decided then)
 - [ ] `resource` check: our `/oauth/authorize` and `/oauth/token` accept only `<origin>/mcp` and answer `invalid_target` otherwise. OpenAI's doc example shows `resource` as the bare origin; Claude says it must match the URL the user enters (trailing slash included). Verify with a real ChatGPT and Claude connection after #688 deploys; relax to accept the origin and `/mcp/` if either sends them. (no issue yet)
 - [ ] CIMD is not supported (`client_id_metadata_document_supported` is absent). DCR works on both sides, so this is optional; OpenAI prefers CIMD. (no issue yet)
 - [ ] Scope names: the connector will ask for the `owner` profile (docs 1b); `tools/list` filters by scope, so a review account must hold all of it. The scopes of #700 are not served yet. (#700)
@@ -123,4 +123,4 @@ None of the pages contained instructions aimed at us. The Anthropic pages carry 
 - OpenAI, connect from ChatGPT: https://developers.openai.com/apps-sdk/deploy/connect-chatgpt (read 2026-11-10)
 - Not readable (HTTP 403 or 404, so only search snippets were seen): `help.openai.com/en/articles/12584461` (developer mode plans) and `help.openai.com/en/articles/10128477` (verification); OpenAI developer community review-time threads (search snippets only, not opened).
 
-Decision: pending (owner)
+Decision (owner, 2026-11-10, on #690): **option B**. Apply to both directories after epic #686's Definition of Done, with the gaps closed first: the privacy policy page (#741), a `title` on every tool (#700), a pre-verified populated reviewer account with no MFA or email code (owner step after #686), the OAuth `resource` check accepting the bare origin as well as `<origin>/mcp` (tested against the deployed #688; an issue is filed if it fails), step 3 of #690 (the custom-connector fallback verified by hand in Claude, after #688 is deployed) and `support@renoxium.com` read by someone (owner). Correction of the same day: Renoxium holds a UAE trade licence, so business verification in both directories is done as a company and option C is moot; the trade licence exists; the bank account and PSP onboarding are deferred (D31, #516). #690 stays open as the owner's checklist.
