@@ -24,6 +24,8 @@ declare module "renox:modules" {
     /** Messages newest first; an inbound one has direction "in". */
     /** Outgoing messages newest first (a sandbox app's would-have-sent list); a template's body is `{ name, language, components }` as JSON. */
     outbox(limit?: number): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
+    /** One stored message by id (the shape of an `inbox()` row; an OTP's body shows as `[otp]`), or null. */
+    message(id: string): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number } | null>;
     inbox(filter?: { phone?: string; direction?: "in" | "out"; limit?: number }): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
   };
   export const email: {

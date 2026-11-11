@@ -169,9 +169,9 @@ approved = { tables = "twofa__*", network = [], secrets = ["TWOFA_KEY"], slots =
 
 [[module]]
 name = "whatsapp"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "8000bf02afdb68398997885bf1350a584d0a6b2fefb262d3bedea627eb2d7da4"
+hash = "292195dd9041ce9d70f17d73401b04b7ecbd7c4193808ee0e9dfb4369681a062"
 isolation = "shared"
 mount = "/whatsapp"
 dependencies = []
