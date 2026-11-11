@@ -42,6 +42,13 @@ ignore = [
   # Fixed only in 0.26 (semver-incompatible; renox-runtime's Cargo.toml).
   { id = "RUSTSEC-2026-0118", reason = "DNSSEC validation only; the dnssec feature is not enabled by renox-runtime or deno_net" },
   { id = "RUSTSEC-2026-0119", reason = "hickory-proto 0.25 used by deno_net and renox-runtime; fix is 0.26, a renox-runtime dependency change (follow-up)" },
+  # DNS message decode reserves memory from the header counts (about 18 MB
+  # for one small spoofed packet, freed when the decode fails). The worker
+  # only decodes answers of the host's configured resolvers (the fetch
+  # resolver and deno_net as clients; it runs no DNS server), so the sender
+  # is the resolver or an on-path attacker. Fixed in 0.26.2 only
+  # (semver-incompatible, as RUSTSEC-2026-0119). Follow-up #731.
+  { id = "RUSTSEC-2026-0491", reason = "hickory-proto 0.25.2 via deno_net and renox-runtime's fetch resolver: client-side decode of resolver answers only; fix is 0.26.2, which needs the next deno_runtime release (#731)" },
   # zstd =0.13.2 is an exact pin of deno_node 0.198 (node:zlib); fixed in
   # zstd 0.14.3 / zstd-safe 8.2. NOT judged harmless: tenant code may import
   # node:zlib (renox-runtime loader::NODE_ALLOWED), so whether its zstd
