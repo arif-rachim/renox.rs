@@ -24,7 +24,7 @@ export const ROLE_SCOPES: Readonly<Record<"owner" | "admin" | "developer" | "vie
 };
 
 /** Every scope a person can grant a token or a device on the Tokens and device pages (deploy-api.yaml `Scope` actions). */
-export const GRANTABLE_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "secrets:write", "domains:write", "tokens:write", "registry:read", "registry:publish", "apps:delete"] as const;
+export const GRANTABLE_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "secrets:write", "domains:write", "tokens:write", "registry:read", "registry:publish", "apps:delete", "app:settings", "app:people"] as const;
 
 /** The lifetime of the dashboard's own token, in days: the API's smallest unit. */
 export const DASHBOARD_TOKEN_DAYS = 1;
