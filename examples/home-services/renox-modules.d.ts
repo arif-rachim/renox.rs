@@ -7,6 +7,8 @@
 declare module "renox:modules" {
   export const auth: {
     currentUser(): Promise<{ id: string; email: string; display_name: string } | null>;
+    /** The account and a confirmation (sign-in) link by mail; the same `message` whether or not the email was taken (#711: the setup's owner). */
+    register(input: { email: string; password: string; display_name?: string }): Promise<{ message: string } | { error: string }>;
   };
   export const i18n: {
     detectLocale(who?: { user_id?: string | null; org_locale?: string | null }): Promise<{ locale: string; dir: "ltr" | "rtl"; alternates: { locale: string; href: string; current: boolean }[] }>;

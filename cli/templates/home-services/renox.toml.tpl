@@ -3,10 +3,13 @@ name = "{{APP}}"
 timezone = "Asia/Dubai"
 
 # No outbound host of the app's own: the whatsapp module declares
-# graph.facebook.com for itself. The four secrets are the whatsapp module's.
+# graph.facebook.com for itself. The four WHATSAPP_* secrets are the whatsapp
+# module's; SETUP_KEY is the app's: the platform stores it when it creates the
+# app with a `setup` and signs the one-time token of POST /api/setup with it
+# (functions/api/setup.ts, deploy-api.md section 21).
 [permissions]
 network = []
-secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET"]
+secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET", "SETUP_KEY"]
 
 # The platform's default types plus .xlsx: /admin/import stores the owner's
 # spreadsheets under app/imports/ (a list here replaces the defaults).
