@@ -32,7 +32,12 @@ export interface Scope {
 export interface Db extends DbStatements {
   /**
    * Runs `fn` in an IMMEDIATE transaction: commit when it resolves, rollback
-   * when it throws. Rust also rolls back if the request ends first.
+   * when it throws. Rust also rolls back if the request ends first. Inside
+   * `fn`, use `tx.scoped(scope)` for scoped statements (ops.md 1.15.0): the
+   * app's `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. At run
+   * time `tx` is a `TxDb`; the parameter is still typed `DbStatements` so
+   * that existing `Db` fakes keep compiling (#749), so write
+   * `(tx as TxDb).scoped(...)`.
    */
   transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T>;
   /**
@@ -46,8 +51,9 @@ export interface Db extends DbStatements {
 
 /**
  * The transaction of a job attempt or an event delivery (ops.md sections 15
- * and 20): its statements plus `scoped`, no nested `transaction`
- * (neither on `ctx.db` nor on what `scoped` returns).
+ * and 20), of an action (section 14), and the `tx` of `Db.transaction`
+ * (section 17, 1.15.0): its statements plus `scoped`, no nested
+ * `transaction` (neither on it nor on what `scoped` returns).
  */
 export interface TxDb extends DbStatements {
   /** The run's statements carrying `scope`, fenced as `Db.scoped` is; no `transaction`. */

@@ -18,6 +18,7 @@ import { sweepBilling } from "../src/billing/sweep.ts";
 import { funnel } from "../src/signup/funnel.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { mintSetupToken, setupKey, SETUP_TOKEN_TTL_MS, verifySetupToken } from "../src/signup/templates.ts";
+import { verifySetupToken as appVerifySetupToken } from "../../../examples/home-services/lib/setup-token.ts";
 import { assertScoped, auditRows, harness, mailToken, registeredNode, setCookie, signup, tenant, TEST_MASTER_KEY } from "./helpers.ts";
 
 afterEach(assertScoped);
@@ -204,7 +205,7 @@ describe("createAppFromTemplate with setup (#689)", () => {
     expect(call.body).toEqual({ ...SETUP, owner: { email: "owner@coolair.ae" } });
     // The token: recomputed from the key derived from the master key.
     const key = setupKey(master, "t_cool", "coolair");
-    const token = call.headers["x-renox-setup"] as string;
+    const token = call.headers["renox-setup"] as string;
     const [v, app, hash, exp, mac] = token.split(".") as [string, string, string, string, string];
     expect([v, app, hash]).toEqual(["v1", "coolair", body.hash]);
     expect(Number(exp)).toBe(h.clock.now + SETUP_TOKEN_TTL_MS);
@@ -310,5 +311,35 @@ describe("createAppFromTemplate with setup (#689)", () => {
     // A token minted for another app (same key) names that app, so it fails here.
     expect(verifySetupToken(key, mintSetupToken(key, "other", hash, now), "coolair", hash, now)).toBe(false);
     expect(verifySetupToken(key, "garbage", "coolair", hash, now)).toBe(false);
+  });
+
+  // #711: the app side of the token is the real one (examples/home-services/lib/setup-token.ts),
+  // which functions/api/setup.ts runs on the token of the request.
+  test("the home-services app accepts the token the API sends and refuses another app's, an expired or a forged one", async () => {
+    const key = setupKey(master, "t_cool", "coolair");
+    const u = await setUp(() => ({ status: 500, body: null }));
+    const seen: unknown[] = [];
+    u.h.deps.callApp = async (_url, init) => {
+      const r = await appVerifySetupToken(key, init.headers["renox-setup"] ?? "", "coolair", u.h.clock.now);
+      seen.push(r);
+      return r.ok ? { status: 200, body: { invited: [], skipped: [] } } : { status: 401, body: null };
+    };
+    const r = await create(u, { name: "coolair", template: "home-services", setup: SETUP });
+    expect(r.status).toBe(201);
+    const body = (await r.json()) as { hash: string };
+    expect(seen).toEqual([{ ok: true, app: "coolair", hash: body.hash, exp: u.h.clock.now + SETUP_TOKEN_TTL_MS }]);
+
+    const now = 1_000_000;
+    const hash = "a".repeat(64);
+    const token = mintSetupToken(key, "coolair", hash, now);
+    expect(await appVerifySetupToken(key, token, "coolair", now + 1)).toEqual({ ok: true, app: "coolair", hash, exp: now + SETUP_TOKEN_TTL_MS });
+    expect((await appVerifySetupToken(key, token, "other", now)).ok).toBe(false);
+    expect((await appVerifySetupToken(key, token, "coolair", now + SETUP_TOKEN_TTL_MS)).ok).toBe(false);
+    expect((await appVerifySetupToken(setupKey(master, "t_cool", "other"), token, "coolair", now)).ok).toBe(false);
+    const parts = token.split(".");
+    parts[3] = String(now + 3_600_000);
+    expect((await appVerifySetupToken(key, parts.join("."), "coolair", now)).ok).toBe(false);
+    expect((await appVerifySetupToken(key, mintSetupToken(key, "other", hash, now), "coolair", now)).ok).toBe(false);
+    expect((await appVerifySetupToken("", token, "coolair", now)).ok).toBe(false);
   });
 });

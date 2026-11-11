@@ -4182,8 +4182,8 @@ components:
     Tier: { enum: [free, paid] }
     Scope:
       type: string
-      pattern: "^(\\*|(apps:read|apps:write|apps:delete|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write|registry:read|registry:publish)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read|ops:impersonate)$"
-      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those (`apps:delete` from 0.7). `ops:write` (0.3) and `ops:read` (0.3.1, granted by `ops:write`; section 17) only on tokens an operator account creates; `*` never includes them. `ops:impersonate` (0.4) is the break-glass scope of section 17, granted by nothing else."
+      pattern: "^(\\*|(apps:read|apps:write|apps:delete|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write|registry:read|registry:publish|app:settings|app:people)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read|ops:impersonate)$"
+      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those (`apps:delete` from 0.7; `app:settings` and `app:people` from 0.11, the platform MCP's owner tools, no operation of this API). `ops:write` (0.3) and `ops:read` (0.3.1, granted by `ops:write`; section 17) only on tokens an operator account creates; `*` never includes them. `ops:impersonate` (0.4) is the break-glass scope of section 17, granted by nothing else."
 
     Health:
       type: object

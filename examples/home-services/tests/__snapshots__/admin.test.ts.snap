@@ -2,9 +2,9 @@
 
 exports[`/admin per role normal case: the owner sees the module's dashboard with the app's sidebar links and its tile: role: admin sidebar and tile, owner, en 1`] = `
 "<nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">Dashboard</a>
-    <a href="users">Users</a>
-    <a href="audit">Audit trail</a>
+    <a href="/admin/">Dashboard</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/audit">Audit trail</a>
     <a href="/billing/invoices" class="renox-admin-link">All invoices</a><a href="/jobs" class="renox-admin-link">Jobs</a><a href="/notifications/prefs" class="renox-admin-link">Notifications</a><a class="renox-org-admin" href="/org/members">Members and invitations</a><a href="/files" class="renox-admin-link">Files</a><a href="/admin/branches" id="nav-branches">Branches</a>
 <a href="/admin/import" id="nav-import">Import</a>
 <a href="/admin/people" id="nav-people">People</a>
@@ -28,9 +28,9 @@ exports[`/admin per role the tile's fragment holds the branch's three numbers: r
 
 exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin sidebar and tile, owner, ar 1`] = `
 "<nav class="renox-admin-sidebar" aria-label="Admin">
-    <a href="./">لوحة التحكم</a>
-    <a href="users">المستخدمون</a>
-    <a href="audit">سجل التدقيق</a>
+    <a href="/admin/">لوحة التحكم</a>
+    <a href="/admin/users">المستخدمون</a>
+    <a href="/admin/audit">سجل التدقيق</a>
     <a href="/billing/invoices" class="renox-admin-link">كل الفواتير</a><a href="/jobs" class="renox-admin-link">المهام</a><a href="/notifications/prefs" class="renox-admin-link">الإشعارات</a><a class="renox-org-admin" href="/org/members">الأعضاء والدعوات</a><a href="/files" class="renox-admin-link">الملفات</a><a href="/admin/branches" id="nav-branches">الفروع</a>
 <a href="/admin/import" id="nav-import">الاستيراد</a>
 <a href="/admin/people" id="nav-people">الأشخاص</a>

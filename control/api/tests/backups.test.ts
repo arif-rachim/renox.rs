@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { contentHash } from "@renox/artifact-validate";
 import { checkMessage } from "../src/contract.ts";
-import { setRawNodeCall } from "../src/tenants/backups.ts";
+import { setRawNodeCall, sweepExports } from "../src/tenants/backups.ts";
 import { setNodeCall } from "../src/workers/failover.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { assertScoped, auditRows, createApp_, harness, nodeToken, scopedToken, tenant, type Harness } from "./helpers.ts";
@@ -274,6 +274,92 @@ describe("backups (deploy-api.md section 14)", () => {
       expect((await h.request("POST", "/v1/apps/shop/files/export", { token: read, json: {} })).status).toBe(403);
       expect((await h.request("POST", `/v1/apps/shop/deployments/${active?.hash}/export`, { token: read, json: {} })).status).toBe(403);
       expect(await exportRows(h)).toEqual([]);
+    });
+  });
+
+  describe("export expiry and download types (0.11.2, #703)", () => {
+    const TAR = new TextEncoder().encode("pretend gzip tar of three files");
+    const HOUR = 3_600_000;
+    const exportAll = async (h: Harness, token: string) => {
+      setRawNodeCall(h.deps, async (_node, method, path) => {
+        if (method === "POST" && path.includes("/snapshot")) return new Response(FILE, { headers: { "x-renox-sha256": sha(FILE) } });
+        if (method === "GET" && path.includes("/files?database=t_bk")) return new Response(TAR, { headers: { "x-renox-sha256": sha(TAR), "x-renox-files": "3" } });
+        return new Response(null, { status: 404 });
+      });
+      const [active] = await h.db.query<{ hash: string }>("select hash from deployments where tenant_id = 't_bk' and app = 'shop' and state = 'active'");
+      const paths = { database: "/v1/apps/shop/backups/export", files: "/v1/apps/shop/files/export", artifact: `/v1/apps/shop/deployments/${active?.hash}/export` } as const;
+      const urls: Record<string, string> = {};
+      for (const kind of ["database", "files", "artifact"] as const) {
+        const res = await h.request("POST", paths[kind], { token, json: {} });
+        expect(res.status).toBe(201);
+        const u = new URL(((await res.json()) as { url: string }).url);
+        urls[kind] = `${u.pathname}${u.search}`;
+      }
+      return urls;
+    };
+    const rowCount = async (h: Harness) => (await h.db.query("select id from exports")).length;
+    const exportKeys = (h: Harness) => [...h.store.objects.keys()].filter((k) => k.startsWith("exports/"));
+
+    test("the API download answers the content type and file name of the row's kind", async () => {
+      const { h, token } = await setup();
+      const created = h.clock.now;
+      const urls = await exportAll(h, token);
+      const expected = {
+        database: ["application/vnd.sqlite3", `shop-${created}.db`],
+        files: ["application/x-tar+gzip", `shop-${created}.files.tar.gz`],
+        artifact: ["application/gzip", `shop-${created}.artifact.tar.gz`],
+      } as const;
+      for (const kind of ["database", "files", "artifact"] as const) {
+        const res = await h.request("GET", urls[kind] as string);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toBe(expected[kind][0]);
+        expect(res.headers.get("content-disposition")).toBe(`attachment; filename="${expected[kind][1]}"`);
+      }
+    });
+
+    test("an expired row is 404 on the download before the sweep has run", async () => {
+      const { h, token } = await setup();
+      const urls = await exportAll(h, token);
+      await h.db.query("update exports set expires_at = $1", [h.clock.now - 1]);
+      for (const kind of ["database", "files", "artifact"]) expect((await h.request("GET", urls[kind] as string)).status).toBe(404);
+      expect(await rowCount(h)).toBe(3);
+    });
+
+    test("the sweep deletes the objects and rows of the exports past 24 hours, keeps an unexpired one, audits the count per kind without keys", async () => {
+      const { h, token } = await setup();
+      await exportAll(h, token);
+      expect(await rowCount(h)).toBe(3);
+      h.clock.now += 23 * HOUR;
+      const fresh = await h.request("POST", "/v1/apps/shop/backups/export", { token, json: {} });
+      expect(fresh.status).toBe(201);
+      h.clock.now += HOUR + 1;
+      expect(exportKeys(h)).toHaveLength(4);
+      expect(await sweepExports(h.deps)).toBe(3);
+      expect(await rowCount(h)).toBe(1);
+      expect(exportKeys(h)).toHaveLength(1);
+      expect((await h.db.query<{ kind: string }>("select kind from exports"))[0]?.kind).toBe("database");
+      const audit = (await auditRows(h)).filter((r) => r.action === "exportsExpired");
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ tenant_id: null, actor: "platform", status: 200, target: { database: "1", files: "1", artifact: "1" } });
+      expect(JSON.stringify(audit[0]?.target)).not.toContain("exports/");
+      // The artifact object itself stays; a second run finds nothing and writes no audit row.
+      expect([...h.store.objects.keys()].some((k) => k.startsWith("artifacts/"))).toBe(true);
+      expect(await sweepExports(h.deps)).toBe(0);
+      expect((await auditRows(h)).filter((r) => r.action === "exportsExpired")).toHaveLength(1);
+    });
+
+    test("a missing object is not an error; at most 500 rows per run", async () => {
+      const { h, token } = await setup();
+      await exportAll(h, token);
+      for (const k of exportKeys(h)) h.store.objects.delete(k);
+      h.clock.now += 25 * HOUR;
+      expect(await sweepExports(h.deps)).toBe(3);
+      expect(await rowCount(h)).toBe(0);
+      for (let i = 0; i < 502; i++)
+        await h.db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at, kind, hash) values ($1, 't_bk', 'shop', $2, $3, 1, 1, 2, 'database', null)", [`exp_bulk${i}`, `exports/t_bk/bulk/${i}.db`, "0".repeat(64)]);
+      expect(await sweepExports(h.deps)).toBe(500);
+      expect(await rowCount(h)).toBe(2);
+      expect(await sweepExports(h.deps)).toBe(2);
     });
   });
 

@@ -1,0 +1,72 @@
+<r-layout use="main">
+  <r-group slot="title">Privacy notice · Renoxium</r-group>
+  <section class="narrow legal">
+    <p class="pill quiet">Legal</p>
+    <h1>Privacy notice</h1>
+    <p class="muted">Version 2026-11-10. Draft for legal review: the reviewed wording replaces it.</p>
+
+    <h2 id="operator">1. Who we are and how to reach us</h2>
+    <p>Renoxium is operated by Renoxium (FZC), a free zone company licensed by the Sharjah Research Technology and Innovation Park Free Zone (SRTIP), Government of Sharjah, under licence no. 20400. Our address is Block C-C01-220, Sharjah Research Technology and Innovation Park, Sharjah, United Arab Emirates. Write to <a href="mailto:support@renoxium.com">support@renoxium.com</a> about anything in this notice.</p>
+
+    <h2 id="scope">2. What this notice covers</h2>
+    <p>This notice covers the site renoxium.com, the dashboard at dashboard.renoxium.com, the API at api.renoxium.com and the Renoxium connector at mcp.renoxium.com. It does not cover the apps our customers run on Renoxium: the customer who runs an app decides what it collects and is the controller of that data, and we process it on their behalf under the <a href="/legal/dpa">data processing agreement</a>.</p>
+
+    <h2 id="data">3. What we collect and why</h2>
+    <table>
+      <thead>
+        <tr><th scope="col">What</th><th scope="col">The data</th><th scope="col">Why</th></tr>
+      </thead>
+      <tbody>
+        <tr id="data-account">
+          <th scope="row">Account</th>
+          <td>Your email address, a hash of your password (never the password), the time you verified the address, and your second factors if you set any up (an authenticator app's secret, stored sealed; a passkey's public key; recovery codes as hashes only). For each signed-in session: when it started and was last used, the address it came from and the browser's user agent.</td>
+          <td>To sign you in, keep your account secure, and tell you when a new browser signs in.</td>
+        </tr>
+        <tr id="data-waitlist">
+          <th scope="row">Waitlist</th>
+          <td>Your email address, the list you joined, your language, a hash of your network address (never the address), and the time you confirmed. The link we email you is stored as a hash only.</td>
+          <td>To confirm that the address is yours before anything else is sent to it, and to tell you when what you signed up for is ready.</td>
+        </tr>
+        <tr id="data-usage">
+          <th scope="row">Usage and logs</th>
+          <td>For every change made through the API: the time, the workspace, who acted, the action, its target, the outcome and the request id. Never a request body, a secret value or a token. For each app, hourly counts of requests and of the resources they used.</td>
+          <td>To keep a record of who changed what, to investigate abuse and incidents, and to apply the free tier's quotas.</td>
+        </tr>
+        <tr id="data-billing">
+          <th scope="row">Billing</th>
+          <td>None. The platform takes no payments for now, so we hold no card or bank details.</td>
+          <td>—</td>
+        </tr>
+        <tr id="data-connector">
+          <th scope="row">Connector</th>
+          <td>When you connect an AI assistant: the grant you approved, as a token in your account named after the assistant's client, with its scopes (stored as a hash). For every tool call: who called it, the tool, the client's name, the app and the outcome. Never a token, a code or a secret value.</td>
+          <td>To let the assistant act for you within what you approved, and to keep a record of what it did.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="assistants">4. What an AI assistant connected through the connector receives</h2>
+    <p>You choose what an assistant may do on the consent page, and it can never do more than your own role in the workspace allows. It sees only the tools your approval allows and receives only what those tools return. A tool that changes something first returns a plan in words and runs only when it is called again with that plan's confirmation. An assistant never receives a secret value: it can list your secrets' names, and it is never allowed to write secrets or create tokens.</p>
+
+    <h2 id="storage">5. Where data is stored and who processes it</h2>
+    <p>The service runs on one server. Every request reaches it through Cloudflare, which terminates the encrypted connection. Backups are kept on the same server's disk. The providers that process data for us are listed as the <a href="/legal/dpa">data processing agreement</a> states in its section 4.</p>
+
+    <h2 id="retention">6. How long we keep it</h2>
+    <ul>
+      <li><strong>Account:</strong> no fixed period yet. A session expires 30 days after sign-in, or after 24 hours without use.</li>
+      <li><strong>Waitlist:</strong> no fixed period yet. The emailed confirmation link works once and for 7 days.</li>
+      <li><strong>Usage and logs:</strong> the record of changes is append-only and is kept when a workspace is erased; it holds ids, never your data. The hourly counts are kept for billing, also after an app is deleted.</li>
+      <li><strong>Billing:</strong> nothing is held.</li>
+      <li><strong>Connector:</strong> an access token lasts one hour; the refresh token lasts 30 days from its last use, and you can revoke the grant at any time from the dashboard's token list. The record of tool calls is kept like the record of changes.</li>
+    </ul>
+
+    <h2 id="rights">7. Your rights</h2>
+    <p>You can ask to see, correct or delete the personal data we hold about you by writing to <a href="mailto:support@renoxium.com">support@renoxium.com</a>. You can also act yourself: a workspace's databases can be exported at any time, and the workspace owner can erase the workspace, which deletes its databases, files, replicas and backups within 24 hours while the servers are reachable. Members of an erased workspace keep their own accounts.</p>
+
+    <h2 id="cookies">8. Cookies</h2>
+    <p>Every page of the site and the dashboard sets two cookies the platform needs to work, both ending when you close the browser: <code>__Host-renox_sid</code>, a random id that holds nothing about you, and <code>__Host-renox_csrf</code>, the token that protects forms against requests from other sites. The dashboard sets three more: <code>__Host-renox_session</code> keeps you signed in, <code>__Host-renox_device</code> recognises a browser you signed in from before (for the new sign-in email), and <code>renox_lang</code> keeps the language you chose. There are no analytics or advertising cookies.</p>
+
+    <h2 id="changes">9. Changes to this notice</h2>
+    <p>This notice is dated at the top. A new version replaces it at this address, with its new date.</p>
+  </section>
+</r-layout>

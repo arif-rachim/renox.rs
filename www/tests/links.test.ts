@@ -28,7 +28,7 @@ export function brokenLink(href: string): string | null {
   const site = href.startsWith(SITE) ? href.slice(SITE.length) : href.startsWith("/") ? href : null;
   if (site !== null) {
     const [path, anchor] = site.split("#", 2) as [string, string | undefined];
-    if (!path.startsWith("/docs/")) return ["/", "/pricing", "/docs", "/llms.txt", "/llms-full.txt", "/legal/dpa", "/legal/terms"].includes(path.replace(/\/$/u, "") || "/") ? null : `${href}: not a page of the site`;
+    if (!path.startsWith("/docs/")) return ["/", "/pricing", "/docs", "/llms.txt", "/llms-full.txt", "/legal/dpa", "/legal/privacy", "/legal/terms"].includes(path.replace(/\/$/u, "") || "/") ? null : `${href}: not a page of the site`;
     const slug = path.slice("/docs/".length);
     if (doc(slug) === null) return `${href}: no published page ${slug}`;
     if (anchor !== undefined && !anchorsOf(slug).has(anchor)) return `${href}: /docs/${slug} has no #${anchor}`;

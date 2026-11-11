@@ -41,20 +41,20 @@ export const PINNED_WORKER: {
   sha256: Readonly<Record<string, string>>;
   pdf: Readonly<Record<string, string>>;
 } = {
-  version: "0.7.1",
+  version: "0.8.0",
   sha256: {
-    "x86_64-unknown-linux-gnu": "1453a8d19c2d48125e60c6d5d488deb7670d1f4d8c66272c03846eba11d7774c",
-    "aarch64-unknown-linux-gnu": "a9f91cfc11684bfcc277f8b7d10af2ecad27e57aa5fe7183bf85e3f53abd732a",
-    "x86_64-apple-darwin": "eb86aa3e7e2ebe4e5a4d07377b89689081ba0fe5d03c27e298f88b8af9e7b47e",
-    "aarch64-apple-darwin": "aeb975b1790a66660c12feda3fa889651ea937a9472acab769f60927b0b96e07",
+    "x86_64-unknown-linux-gnu": "3cab8f58107da53769cc5d11a085f40187819d49e3026c1a8f409e37632eb653",
+    "aarch64-unknown-linux-gnu": "1ccf8d851ca4dfe0bba45edaae83d57ab200af6f576360e9f315b94b9720eb92",
+    "x86_64-apple-darwin": "5f4a3eb508b42ac24ddd7b5812d8a68ebe8c4ac1f82856ee686e1f2f808e7f02",
+    "aarch64-apple-darwin": "911f20521dfbedd49682d1cd51b7db5e6897abcef3453fc7e41bae2d54d30a1a",
     // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
-    "x86_64-pc-windows-msvc": "b3b93471fc7049f46a982f0f13c15ce7386522e4df4af987699c1e1fad0a4276",
+    "x86_64-pc-windows-msvc": "719b3d562f539c2bea2c554368882670707122cafd96477e3f1be5c9b4ffada0",
   },
   pdf: {
-    "x86_64-unknown-linux-gnu": "d5cc6f3daa835456144b777bbce079539aa82360081ee2741737b272eb6f4630",
-    "aarch64-unknown-linux-gnu": "b4dc1ea08dc0fb68c7070efdd39f732ebf2803afdad548a3fefc55e6d5ae446e",
-    "x86_64-apple-darwin": "564eaabc25c1be9ec50652568b1c8c03000542d76dfd37f2207713f2c50bc1ac",
-    "aarch64-apple-darwin": "ff87c515fa77d1d81cd95bbd687ec44e73962c657c99dfe21256a9a9efd83129",
+    "x86_64-unknown-linux-gnu": "30650ea0e67d348439c8e9e7c0c4b3991a4ef2442a01fd3455dcaff36815060b",
+    "aarch64-unknown-linux-gnu": "9fcd2851c75cc1fc6a5d2267764b2b10b93307722813036f345ad1cc8a928d0c",
+    "x86_64-apple-darwin": "4cbd1a6f37c58fd75d4b7fa6ea8fec8b479190767101933bd7e8f49086398410",
+    "aarch64-apple-darwin": "e163e88c62ad03b727802af11c1b64604087c5df3e37c81626b3e2769f5a3c80",
   },
 };
 

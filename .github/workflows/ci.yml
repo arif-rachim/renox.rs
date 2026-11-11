@@ -137,6 +137,14 @@ jobs:
         if: success() || failure()
         with:
           bun-version: 1.4.4
+      # No workflow prints a secret (issue #701): no `set -x` where a secret is in
+      # env, no echo of one, no ${{ secrets.* }} inside run: text. It sits after
+      # actions-pinned and the setup-bun step it needs (bun runs the check).
+      - name: workflow-secrets
+        if: success() || failure()
+        run: |
+          bun test ./.github/scripts/workflow-secrets.test.ts
+          bun .github/scripts/workflow-secrets.ts
       # Known-vulnerable npm packages in bun.lock (sdk, cli, control, modules, bench).
       - name: bun-audit
         if: success() || failure()

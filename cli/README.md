@@ -7,8 +7,8 @@ One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, 
 Linux and macOS, x64 and arm64 (Windows: a PowerShell installer, and WSL 2 for `dev`, `test` and `migrate`; see `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.12/install.sh | sh
-renox --version        # renox 0.1.12 (renox-worker 0.7.1)
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.13/install.sh | sh
+renox --version        # renox 0.1.13 (renox-worker 0.8.0)
 ```
 
 With Bun 1.4 or later instead: `bun add -g @renoxium/cli` (or `bunx @renoxium/cli new myapp`, `bun create renox myapp`); the worker is downloaded into `~/.renox/bin` on first use (`docs/12-developer-experience.md`, "Installing the CLI").

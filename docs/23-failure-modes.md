@@ -108,7 +108,7 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 
 | Failure | Detected by | Tenant sees | Platform does | Proof | Phase |
 | --- | --- | --- | --- | --- | --- |
-| Module service throws | Broker | `RenoxError` in caller with module and service name | Transaction rolled back if inside one | broker tests | F4 |
+| Module service throws | Broker | `RenoxError` in caller with module and service name | Inside a transaction only the call's writes are rolled back (a savepoint, ops 1.17.0, #734); the caller's transaction goes on | broker tests | F4 |
 | Event handler fails repeatedly | Outbox retries; `renox_worker_dead_letters_total`, alert `RenoxDeadLetters` (#295) | Dead-letter visible in `jobs` module | N retries with backoff, then dead-letter | outbox tests; jobs: `modules/jobs/tests/jobs.test.ts` "the page lists the scheduled jobs and the dead run, never its payload", "an admin retries a dead run and cancels it once queued" (#297) | F4 |
 | Job overlaps or is missed | `renox_worker_job_runs_total`, `renox_worker_job_failures_total`, `renox_worker_job_lag_seconds` (#297) | The job runs late, once | One durable row per tick; a lease per job, so a tick during a run waits for it; missed ticks coalesce into one run for the latest; the manager wakes an evicted tenant at its next tick; a row left running by a dead process is queued again at start | `crates/renox-cell/tests/jobs.rs` (`missed_ticks_after_downtime_coalesce_into_one_run_as_the_system_principal`, `a_second_tick_during_a_run_waits_for_it`, `a_row_left_running_is_requeued_at_start`) | F6 |
 | Module contract broken on upgrade (missing service, view version) | `renox check` | Upgrade refused with the broken reference | No migration run | check tests | F4 |

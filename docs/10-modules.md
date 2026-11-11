@@ -158,6 +158,8 @@ return ctx.db.transaction(async () => {
 
 The broker uses the tenant's single writer connection for the whole transaction and passes it to every service call. This is the main advantage of the in-process architecture over microservices.
 
+For module authors: throwing on bad input (a corrupt file, a missing record) is fine, because each service call made inside a transaction runs in a savepoint of its own, so your writes of that call are undone and the caller's transaction goes on (`docs/contracts/ops.md` 1.17.0, section 15.2, #734). A caller that does not catch your error fails as a whole, as in the example above; a hook filler or an event handler that throws still rolls the whole transaction back.
+
 ## Overrides and migrations
 
 - Module templates can be overridden under `overrides/<module>/...`; logic cannot. The original file's hash is stored, and a diff is shown on upgrade.

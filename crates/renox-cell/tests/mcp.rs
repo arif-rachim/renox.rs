@@ -52,7 +52,7 @@ export async function verifyAgentToken(ctx, token) {
   const row = await ctx.db.queryOne("select user_id, scopes, revoked, org from auth__agent_tokens where token = ?", [token]);
   if (!row || row.revoked) return null;
   const roles = (await ctx.authz.roles.list(row.user_id)).map((r) => ({ role: r.role, scope_type: r.scope_type, scope_id: r.scope_id }));
-  return { principal: { id: row.user_id, attrs: { org: row.org }, roles }, scopes: JSON.parse(row.scopes), client: { name: "test-agent", model: "m1" } };
+  return { principal: { id: row.user_id, attrs: { org: row.org }, roles }, scopes: JSON.parse(row.scopes), client: { name: "test-agent", model: "m1", grant_id: "grant_1" } };
 }
 export async function oauthMetadata(ctx, issuer) {
   return { issuer, token_endpoint: `${issuer}/token`, code_challenge_methods_supported: ["S256"] };
@@ -95,7 +95,7 @@ const HOOKS: &str = r#"
 export const on = {
   "mcp.tool_called": async (ctx, e) => {
     const p = e.payload;
-    await ctx.db.execute("insert into app__calls (tool, user_id, client, outcome, request_id, at) values (?, ?, ?, ?, ?, ?)", [p.tool, p.agent_user_id, p.client, p.outcome, p.request_id, p.at]);
+    await ctx.db.execute("insert into app__calls (tool, user_id, client, outcome, request_id, at, grant_id) values (?, ?, ?, ?, ?, ?, ?)", [p.tool, p.agent_user_id, p.client, p.outcome, p.request_id, p.at, p.grant_id ?? null]);
   },
 };
 "#;
@@ -158,7 +158,7 @@ fn artifact(store: &Path, with_auth: bool, dispatch: bool) -> String {
         std::fs::write(p, src).unwrap();
     }
     let mut app_sql =
-        "create table app__notes (text text);\ncreate table app__calls (tool text, user_id text, client text, outcome text, request_id text, at integer);\ninsert into app__notes values ('a'), ('b');\n"
+        "create table app__notes (text text);\ncreate table app__calls (tool text, user_id text, client text, outcome text, request_id text, at integer, grant_id text);\ninsert into app__notes values ('a'), ('b');\n"
             .to_string();
     if dispatch {
         app_sql.push_str("create table app__jobs (id text primary key, org text);\ninsert into app__jobs values ('j1', 'o_1'), ('j2', 'o_2');\n");
@@ -754,6 +754,35 @@ async fn every_tool_call_is_audited() {
     assert_eq!(first.fields["client"], "test-agent");
     assert_eq!(first.fields["outcome"], "preview");
     assert_eq!(first.fields["request_id"], rid(&preview).as_str());
+}
+
+/// #748: the verified token's `client.grant_id` (the owner connector grant)
+/// is in the `mcp.tool_called` payload, for a call that ran and for one that
+/// was refused after the token check.
+#[tokio::test]
+async fn the_tool_call_event_carries_the_grant_id() {
+    use renox_data::{DbOptions, TenantDb, Value};
+    let n = node(true);
+    let ok = n
+        .call("tok_full", "list_notes", serde_json::json!({}))
+        .await;
+    assert_eq!(ok.status, 200);
+    let bad = n
+        .call("tok_full", "list_notes", serde_json::json!({ "limit": 0 }))
+        .await;
+    assert_eq!(error_code(&bad), "RENOX_TOOL_INPUT");
+    tool_calls(&n, 2).await;
+    let db = TenantDb::open(n.data.join("t_mcp").join("app.db"), DbOptions::default()).unwrap();
+    let grants: Vec<String> = db
+        .query("select grant_id from app__calls order by rowid", &[])
+        .unwrap()
+        .iter()
+        .map(|r| match r.get("grant_id") {
+            Some(Value::Text(s)) => s.clone(),
+            _ => String::new(),
+        })
+        .collect();
+    assert_eq!(grants, ["grant_1", "grant_1"]);
 }
 
 /// A `confirm` tool whose preview returns an error object gets a tool error

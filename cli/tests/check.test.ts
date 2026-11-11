@@ -39,7 +39,7 @@ test("exportKind tells functions, plain values, and missing exports apart withou
   expect(exportKind(src, "load")).toBe("missing");
 });
 
-test("entriesOf: the exports of each bundled entry, route modules lazy, services, hooks and _error eager", () => {
+test("entriesOf: the exports of each bundled entry; route modules and a module's services lazy (#640, pinned worker >= 0.8.0), a hooks entry without recorded names and _error eager", () => {
   const entry = { "functions/api/pay": "functions/api/pay.js", "pages/_error": "pages/_error.js", "modules/auth/services": "modules/auth/services.js", "modules/auth/hooks": "modules/auth/hooks.js" };
   const code = new Map([
     ["functions/api/pay.js", "async function p(){}\nexport { p as POST };\n"],
@@ -50,7 +50,8 @@ test("entriesOf: the exports of each bundled entry, route modules lazy, services
   expect(entriesOf(entry, code)).toEqual({
     "functions/api/pay": { exports: ["POST"], eager: false },
     "modules/auth/hooks": { exports: ["hooks", "on"] },
-    "modules/auth/services": { exports: ["currentUser", "login"] },
+    // Lazy since the pinned worker evaluates lazy module entries (ADR D32, LAZY_MODULES_WORKER).
+    "modules/auth/services": { exports: ["currentUser", "login"], eager: false },
     "pages/_error": { exports: ["load"] },
   });
 });
@@ -82,7 +83,8 @@ test.skipIf(!worker)("examples/shop passes; its artifact records entries with la
   expect(Object.keys(entries).sort()).toEqual(Object.keys(r.manifest.code.entry).sort());
   expect(entries["functions/api/checkout"]).toEqual({ exports: ["POST"], eager: false });
   expect(entries["pages/products/index"]?.eager).toBe(false);
-  expect(entries["modules/auth/services"]?.eager).toBeUndefined();
+  // A module's services entry is lazy once the pinned worker evaluates lazy module entries (ADR D32, #640).
+  expect(entries["modules/auth/services"]?.eager).toBe(false);
   expect(entries["modules/auth/services"]?.exports).toContain("currentUser");
 }, 120_000);
 

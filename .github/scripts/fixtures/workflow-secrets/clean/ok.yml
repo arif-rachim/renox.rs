@@ -1,0 +1,16 @@
+name: clean
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        env:
+          TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TOKEN" ]]; then
+            echo "token present"
+            echo "$TOKEN" | npm login --stdin
+          fi
+          echo "done" >> "$GITHUB_OUTPUT"

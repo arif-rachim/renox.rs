@@ -86,6 +86,8 @@ const {
   ArrayPrototypeMap,
   ArrayPrototypeSome,
   ArrayPrototypePush,
+  ArrayPrototypePop,
+  ArrayPrototypeSplice,
   BigInt,
   Error,
   ErrorPrototype,
@@ -150,11 +152,13 @@ function currentToken() {
 // ops.md 1.3.0 section 15.1: the async context also carries the module
 // whose code runs (attribution of console, fetch, and renox:modules calls),
 // the request's module state (its ctx objects), the current transaction
-// (section 1, "Module argument"), and the service call depth.
+// (section 1, "Module argument"), and the service call depth. ops.md
+// 1.17.0 (#734): also the innermost savepoint the running code is inside.
 const moduleVar = new core.AsyncVariable();
 const stateVar = new core.AsyncVariable();
 const txVar = new core.AsyncVariable();
 const depthVar = new core.AsyncVariable();
+const spVar = new core.AsyncVariable();
 
 /** The module whose code runs now: "app" unless the broker entered one. */
 function currentModule() {
@@ -497,10 +501,22 @@ async function dbCall(op, sql, params, tx, module, scope = null) {
  * Statements under `module`'s authorizer. `tx` is a transaction handle, 0
  * for none, or "current": the request's current transaction at call time
  * (ops.md 1.3.0 section 1), which is how a service called from an action
- * writes in the action's transaction.
+ * writes in the action's transaction; or "outside": none, and refused at
+ * once while a transaction is current (the app's `ctx.db.scoped(s)`, #749:
+ * it would otherwise wait for the writer the request itself holds).
  */
 function statements(tx, module = "app", scope = null) {
-  const handle = () => (tx === "current" ? (txVar.get() ?? 0) : tx);
+  const handle = () => {
+    if (tx === "current") return txVar.get() ?? 0;
+    if (tx === "outside") {
+      const current = txVar.get();
+      if (current !== undefined && current !== 0) {
+        throw new RenoxError("RENOX_DB_TX_STATE", "use tx.scoped(...) inside a transaction");
+      }
+      return 0;
+    }
+    return tx;
+  };
   return ObjectFreeze({
     async query(sql, params) {
       return toRows(await dbCall(op_db_query, sql, params, handle(), module, scope));
@@ -533,14 +549,147 @@ function checkScope(scope) {
 }
 
 /**
+ * The `tx` that `transaction(fn)` hands to `fn`: the transaction's
+ * statements plus `scoped(scope)`, the same statements with the scope in the
+ * same transaction, as `actionDb`'s (ops.md 1.15.0 section 17, #749).
+ */
+function txStatements(tx, module, scope) {
+  return ObjectFreeze({
+    ...statements(tx, module, scope),
+    scoped(s) {
+      return statements(tx, module, checkScope(s));
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Savepoints of a transaction (ops.md section 1, "Savepoints"): a nested
+// `db.transaction` and, since 1.17.0 (#734), each module service call made
+// inside a transaction. Rust names them `renox_sp_<n>` and allows only the
+// innermost to end; this mirror of the open ones, per request and
+// transaction, keeps calls that run concurrently (`Promise.all`) from
+// breaking that order.
+//
+// A record is `{ tx, sp, shared, done }`. A savepoint is opened only when
+// the innermost open one is the caller's own (`spVar`); a service call that
+// starts while a sibling's savepoint is innermost runs without one, and
+// the sibling's is marked `shared`: rolling back to it would also undo the
+// concurrent call's writes, so a failure there rolls the whole transaction
+// back, as before 1.17.0. A savepoint whose code has finished while
+// another is open above it is released once it is innermost again.
+
+/** The open savepoint records of `tx` in this request, innermost last, or null outside a request. */
+function savepointStack(tx, create) {
+  const st = stateVar.get();
+  if (st === undefined) return null;
+  let stack = st.savepoints.get(tx);
+  if (stack === undefined && create) {
+    stack = [];
+    st.savepoints.set(tx, stack);
+  }
+  return stack ?? null;
+}
+
+/**
+ * Records a savepoint about to be opened on `tx`, before the open is
+ * awaited (so a call started next sees it). `optional`: a service call's
+ * savepoint, skipped (null) when the innermost open savepoint is not the
+ * caller's own; a nested `db.transaction` always gets its record.
+ */
+function pushSavepoint(tx, optional) {
+  const rec = { tx, sp: 0, shared: false, done: false };
+  const stack = savepointStack(tx, true);
+  if (stack === null) return optional ? null : rec;
+  const parent = spVar.get();
+  const own = parent !== undefined && parent.tx === tx ? parent : undefined;
+  if (stack.length > 0 && stack[stack.length - 1] !== own) {
+    // Concurrent code holds the innermost savepoint: its range now holds
+    // this code's writes too.
+    for (let i = stack.length - 1; i >= 0 && stack[i] !== own; i--) stack[i].shared = true;
+    if (optional) return null;
+  }
+  ArrayPrototypePush(stack, rec);
+  return rec;
+}
+
+/** Forgets `rec` (its savepoint did not open, or its transaction is gone). */
+function dropSavepoint(rec) {
+  const stack = savepointStack(rec.tx, false);
+  if (stack === null) return;
+  const i = ArrayPrototypeIndexOf(stack, rec);
+  if (i >= 0) ArrayPrototypeSplice(stack, i, 1);
+}
+
+/** Releases the finished savepoints that are innermost, innermost first. */
+async function flushSavepoints(token, tx) {
+  const stack = savepointStack(tx, false);
+  while (stack !== null && stack.length > 0 && stack[stack.length - 1].done) {
+    const top = ArrayPrototypePop(stack);
+    try {
+      await op_db_savepoint_release(token, tx, top.sp);
+    } catch (e) {
+      throw toRenoxError(e);
+    }
+  }
+}
+
+/**
+ * `rec`'s code returned: its statements join the transaction (released
+ * now, or once it is innermost). When the transaction was rolled back
+ * meanwhile, a `quiet` (service call) savepoint is only forgotten; a
+ * nested `db.transaction` reports it, as before 1.17.0.
+ */
+async function releaseSavepoint(token, rec, quiet) {
+  const st = stateVar.get();
+  const gone = st !== undefined && st.rolledBack.has(rec.tx);
+  if (gone) dropSavepoint(rec);
+  if (gone && quiet) return;
+  if (gone || savepointStack(rec.tx, false) === null) {
+    try {
+      await op_db_savepoint_release(token, rec.tx, rec.sp);
+    } catch (e) {
+      throw toRenoxError(e);
+    }
+    return;
+  }
+  rec.done = true;
+  await flushSavepoints(token, rec.tx);
+}
+
+/**
+ * `rec`'s code threw: undo its statements and release it. Resolves false
+ * when that cannot be done on its own (the savepoint is shared, not the
+ * innermost, or the rollback failed); the caller then decides.
+ */
+async function rollbackSavepoint(token, rec) {
+  const stack = savepointStack(rec.tx, false);
+  if (stack !== null && (rec.shared || stack[stack.length - 1] !== rec)) return false;
+  try {
+    await op_db_savepoint_rollback(token, rec.tx, rec.sp);
+  } catch {
+    return false;
+  } finally {
+    dropSavepoint(rec);
+  }
+  try {
+    await flushSavepoints(token, rec.tx);
+  } catch {
+    // The released savepoints above are the transaction's; its end reports it.
+  }
+  return true;
+}
+
+/**
  * `ctx.db` of `module`. The app's statements keep the 1.2 rule (no
- * transaction unless through `tx`); a module's run in the current one.
- * `transaction(fn)` is IMMEDIATE, or a savepoint when a transaction is
- * current (ops.md 1.3.0 section 1, "Savepoints").
+ * transaction unless through `tx`); a module's run in the current one. The
+ * app's scoped statements are refused while a transaction is current
+ * ("outside", #749). `transaction(fn)` is IMMEDIATE, or a savepoint when a
+ * transaction is current (ops.md 1.3.0 section 1, "Savepoints").
  */
 function makeDb(module, scope = null, fixedTx = null) {
+  const own = module !== "app" ? "current" : scope === null ? 0 : "outside";
   return ObjectFreeze({
-    ...statements(fixedTx ?? (module === "app" ? 0 : "current"), module, scope),
+    ...statements(fixedTx ?? own, module, scope),
     scoped(s) {
       return makeDb(module, checkScope(s), fixedTx);
     },
@@ -549,28 +698,36 @@ function makeDb(module, scope = null, fixedTx = null) {
       // A tool preview's Db (#285): everything nests inside its transaction.
       const outer = fixedTx ?? txVar.get();
       if (outer !== undefined && outer !== 0) {
-        let sp;
+        const rec = pushSavepoint(outer, false);
         try {
-          sp = await op_db_savepoint_begin(token, outer);
+          rec.sp = await op_db_savepoint_begin(token, outer);
         } catch (e) {
+          dropSavepoint(rec);
           throw toRenoxError(e);
         }
         let result;
         try {
-          result = await within([[txVar, outer]], () => fn(statements(outer, module, scope)));
+          result = await within(
+            [
+              [txVar, outer],
+              [spVar, rec],
+            ],
+            () => fn(txStatements(outer, module, scope)),
+          );
         } catch (e) {
-          try {
-            await op_db_savepoint_rollback(token, outer, sp);
-          } catch {
-            // The transaction itself may be gone (rolled back by the broker).
+          // Shared or not innermost: Rust refuses as before 1.17.0. The
+          // transaction itself may be gone (rolled back by the broker).
+          if (!(await rollbackSavepoint(token, rec))) {
+            dropSavepoint(rec);
+            try {
+              await op_db_savepoint_rollback(token, outer, rec.sp);
+            } catch {
+              // As above.
+            }
           }
           throw e;
         }
-        try {
-          await op_db_savepoint_release(token, outer, sp);
-        } catch (e) {
-          throw toRenoxError(e);
-        }
+        await releaseSavepoint(token, rec, false);
         return result;
       }
       let tx;
@@ -581,7 +738,7 @@ function makeDb(module, scope = null, fixedTx = null) {
       }
       let result;
       try {
-        result = await within([[txVar, tx]], () => fn(statements(tx, module, scope)));
+        result = await within([[txVar, tx]], () => fn(txStatements(tx, module, scope)));
       } catch (e) {
         try {
           await op_db_tx_rollback(token, tx);
@@ -775,29 +932,34 @@ async function crossCall(kind, target, name, args) {
   if (json.length > MAX_CROSS) {
     throw new ModuleServiceError(`${target}.${name} failed: the arguments are over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
   }
+  // ops.md 1.17.0 (#734): a service call gets its savepoint here, in the
+  // caller's isolate, around the callee's run on the lent transaction.
+  const call = kind === "service" ? await openCall() : null;
+  let out;
   try {
-    const out = await op_modules_call(currentToken(), kind, caller, target, name, json, txVar.get() ?? 0);
-    return JSONParse(out);
+    out = await op_modules_call(currentToken(), kind, caller, target, name, json, txVar.get() ?? 0);
   } catch (e) {
     const err = toRenoxError(e);
     const details = err?.details ?? {};
     if (details.reason === "too_large") {
+      // The callee returned, but the call failed: its writes are undone.
+      if (call !== null) await undoCall(call, false);
       throw new ModuleServiceError(`${target}.${name} failed: the result is over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
     }
-    // The callee threw or its isolate failed: as in shared mode, the
-    // current transaction is rolled back (the callee logged its throw).
-    const st = stateVar.get();
-    const tx = txVar.get();
-    if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx)) {
-      st.rolledBack.add(tx);
-      try {
-        await op_db_tx_rollback(currentToken(), tx);
-      } catch {
-        // Already gone.
-      }
+    if (call !== null && details.reason !== "isolate") {
+      // The callee threw: only its call is undone (the callee logged its throw).
+      await undoCall(call, false);
+    } else {
+      // A hook filler threw, or the callee's isolate failed (killed for
+      // CPU, memory or time): as in shared mode, the current transaction
+      // is rolled back.
+      dropCall(call);
+      await rollbackTx(false);
     }
     throw new ModuleServiceError(`${target}.${name} failed`, { module: target, service: name, cause_code: details.cause_code ?? null });
   }
+  await closeCall(call);
+  return JSONParse(out);
 }
 
 function requestState() {
@@ -812,19 +974,81 @@ function infoOf(module) {
   return modules.get(module);
 }
 
-/** Rolls the current transaction back once (a callee failed; ops.md 1.3.0 section 15.2, "Errors"). */
-async function rollbackCurrent() {
+/**
+ * Rolls the current transaction back once (a hook filler or an event
+ * handler failed; ops.md 1.3.0 section 15.2, "Errors"). `lent`: leave a
+ * transaction lent by another isolate's caller to that caller.
+ */
+async function rollbackTx(lent) {
   const st = stateVar.get();
   const tx = txVar.get();
-  // A transaction lent by another isolate's caller is the caller's to roll back.
-  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx) && st.borrowedTx !== tx) {
+  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx) && !(lent && st.borrowedTx === tx)) {
     st.rolledBack.add(tx);
+    st.savepoints.delete(tx);
     try {
       await op_db_tx_rollback(currentToken(), tx);
     } catch {
       // Already gone.
     }
   }
+}
+
+/** rollbackTx for code of this isolate: a lent transaction is the caller's to roll back. */
+function rollbackCurrent() {
+  return rollbackTx(true);
+}
+
+/**
+ * ops.md 1.17.0 section 15.2 (#734): the savepoint of a service call made
+ * while the caller holds an open transaction, opened before the callee
+ * runs. Resolves `{ tx, rec }`, `rec` null when the call runs without one
+ * (a concurrent sibling's savepoint is innermost, or more than 32 are
+ * open); null outside a transaction or once it was rolled back.
+ */
+async function openCall() {
+  const st = stateVar.get();
+  const tx = txVar.get();
+  if (tx === undefined || tx === 0 || st === undefined || st.rolledBack.has(tx)) return null;
+  const rec = pushSavepoint(tx, true);
+  if (rec === null) return { tx, rec: null };
+  try {
+    rec.sp = await op_db_savepoint_begin(currentToken(), tx);
+  } catch {
+    dropSavepoint(rec);
+    return { tx, rec: null };
+  }
+  return { tx, rec };
+}
+
+/** `vars` plus the savepoint of `call`, the async-context entries its callee runs with. */
+function callVars(call, vars) {
+  if (call?.rec) ArrayPrototypePush(vars, [spVar, call.rec]);
+  return vars;
+}
+
+/**
+ * The callee of `call` threw: roll back to its savepoint, so its writes are
+ * undone and the caller's stay; the caller's transaction goes on. Without
+ * a savepoint of its own (or when it cannot be rolled back alone) the
+ * whole transaction is rolled back, as before 1.17.0; `lent` as rollbackTx.
+ */
+async function undoCall(call, lent) {
+  const st = stateVar.get();
+  if (call.rec !== null && st !== undefined && !st.rolledBack.has(call.tx)) {
+    if (await rollbackSavepoint(currentToken(), call.rec)) return;
+  }
+  dropCall(call);
+  await within([[txVar, call.tx]], () => rollbackTx(lent));
+}
+
+/** The callee of `call` returned: its savepoint is released. */
+async function closeCall(call) {
+  if (call?.rec) await releaseSavepoint(currentToken(), call.rec, true);
+}
+
+/** Forgets the savepoint of `call` (the whole transaction is rolled back). */
+function dropCall(call) {
+  if (call?.rec) dropSavepoint(call.rec);
 }
 
 /** Fails if the sorted keys of `obj` differ from the recorded `names`. */
@@ -891,15 +1115,16 @@ function loadEntry(module, part) {
 /**
  * The namespace of `module`'s `part` entry, evaluating a lazy one first.
  * A failed evaluation fails the invocation as if the module had thrown
- * there: the current transaction rolls back and the caller gets a
+ * there: `undo` runs (the current transaction rolls back; for a service
+ * call, only the call, ops.md 1.17.0) and the caller gets a
  * ModuleServiceError with `cause_code: "RENOX_MODULE_EVAL"` (ops.md 1.14.0).
  */
-async function entryOf(module, part, details) {
+async function entryOf(module, part, details, undo = rollbackCurrent) {
   if (!lazyEntries.get(module)?.[part]) return undefined;
   try {
     return await loadEntry(module, part);
   } catch (e) {
-    await rollbackCurrent();
+    await undo();
     throw new ModuleServiceError(`${module} failed to evaluate`, { ...details, cause_code: "RENOX_MODULE_EVAL" });
   }
 }
@@ -951,22 +1176,13 @@ function sortFillers(list) {
 }
 
 /**
- * A callee threw: roll the current transaction back at once (ops.md 1.3.0
- * section 15.2, "Errors"), log the callee's error with its module, and
- * hand the caller a ModuleServiceError.
+ * A callee threw: run `undo` (ops.md 1.3.0 section 15.2, "Errors": for a
+ * hook filler or an event handler the current transaction rolls back at
+ * once; for a service call, since 1.17.0, only the call), log the callee's
+ * error with its module, and hand the caller a ModuleServiceError.
  */
-async function calleeFailed(e, details, label) {
-  const st = stateVar.get();
-  const tx = txVar.get();
-  // A transaction lent by another isolate's caller is the caller's to roll back.
-  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx) && st.borrowedTx !== tx) {
-    st.rolledBack.add(tx);
-    try {
-      await op_db_tx_rollback(currentToken(), tx);
-    } catch {
-      // Already gone.
-    }
-  }
+async function calleeFailed(e, details, label, undo = rollbackCurrent) {
+  await undo();
   const cause = typeof e?.code === "string" && StringPrototypeStartsWith(e.code, "RENOX_") ? e.code : null;
   within([[moduleVar, details.module]], () =>
     writeLog("error", `${label} threw`, { error: describeThrow(e), code: "RENOX_MODULE_SERVICE" }),
@@ -987,10 +1203,14 @@ async function callService(target, service, args) {
     throw new ModuleServiceError(`${target}.${service} failed: call depth`, { module: target, service, cause_code: null });
   }
   if (!isLocal(target)) return await crossCall("service", target, service, args);
+  // ops.md 1.17.0 (#734): inside a transaction the call runs in a savepoint
+  // of its own; a throw undoes only the call, nested calls the same way.
+  const call = await openCall();
+  const undo = () => (call === null ? rollbackCurrent() : undoCall(call, true));
   let fn = serviceModules.get(target)?.[service];
   // ops.md 1.14.0: a lazy services entry is evaluated on its first call, as the callee.
   if (fn === undefined && !serviceModules.has(target)) {
-    fn = (await within([[depthVar, depth]], () => entryOf(target, "services", { module: target, service })))?.[service];
+    fn = (await within(callVars(call, [[depthVar, depth]]), () => entryOf(target, "services", { module: target, service }, undo)))?.[service];
   }
   const calleeCtx = st.ctxOf(target);
   // #295: one module.service span per call (caller, callee, name; never the arguments).
@@ -1000,19 +1220,22 @@ async function callService(target, service, args) {
   } catch {
     // Outside a request (module evaluation): no span.
   }
+  let result;
   try {
-    return await within(
-      [
+    result = await within(
+      callVars(call, [
         [moduleVar, target],
         [depthVar, depth],
-      ],
+      ]),
       () => fn(calleeCtx, ...args),
     );
   } catch (e) {
-    throw await calleeFailed(e, { module: target, service }, `${target}.${service}`);
+    throw await calleeFailed(e, { module: target, service }, `${target}.${service}`, undo);
   } finally {
     if (span !== 0) op_span_service_end(span);
   }
+  await closeCall(call);
+  return result;
 }
 
 /** `ctx.hooks` of `module` (ops.md 1.3.0 section 15.3). */
@@ -1788,6 +2011,8 @@ function newRequestState(base) {
     locale: undefined,
     dir: undefined,
     rolledBack: new SafeSet(),
+    /** tx -> its open savepoint records, innermost last (#734). */
+    savepoints: new SafeMap(),
     ctxOf(m) {
       let c = cache.get(m);
       if (c === undefined) {

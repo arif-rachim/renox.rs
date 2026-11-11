@@ -1,0 +1,10 @@
+name: script-set-x
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        env:
+          TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bash .github/scripts/fixtures/workflow-secrets/script-set-x/publish.sh

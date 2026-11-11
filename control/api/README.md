@@ -88,7 +88,7 @@ The permission each operation needs is `ROUTE_PERMISSIONS` in `src/tenancy/roles
 
 ### Roles
 
-The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table against it). `team:read`, `team:write`, `billing` and `tenant:delete` are held by signed-in users only, never by a token (`billing` with the owner-token exception below); `apps:delete` is a token scope from deploy-api.md 0.7 (#536). Ownership moves only by an owner transfer, which the owner proposes and the new owner accepts.
+The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table against it). `team:read`, `team:write`, `billing` and `tenant:delete` are held by signed-in users only, never by a token (`billing` with the owner-token exception below); `apps:delete` is a token scope from deploy-api.md 0.7 (#536); `app:settings` and `app:people` are token scopes from 0.11 (#700) that no deploy-API operation needs: only the platform MCP's owner tools, which check this matrix themselves (`src/mcp/server.ts`). Ownership moves only by an owner transfer, which the owner proposes and the new owner accepts.
 
 | Permission | owner | admin | developer | viewer |
 | --- | --- | --- | --- | --- |
@@ -106,6 +106,8 @@ The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table
 | `registry:publish` | yes | yes | — | — |
 | `billing` | yes | — | — | — |
 | `apps:delete` | yes | yes | — | — |
+| `app:settings` | yes | yes | — | — |
+| `app:people` | yes | yes | — | — |
 | `tenant:delete` | yes | — | — | — |
 
 `deploy` covers upload, sourcemaps, activate and rollback; `secrets:read` lists names only. `billing` (deploy-api.md 0.5.1, "Owner token rule") is the owner's session or a token the owner created; a member's, bootstrap, impersonation or app-scoped token is 403, and with a token the payment-method operations and a change to a paid plan need a second factor in the last 15 minutes. A developer's `tokens:write` lists and revokes their own tokens; owners and admins see all of the tenant's. Deploying needs a verified email address.

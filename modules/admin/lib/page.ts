@@ -36,3 +36,8 @@ export function admin<T>(fn: (ctx: Page) => Promise<T>): (ctx: Page) => Promise<
 
 export const base = (ctx: Page): string => (ctx.config.base_path ?? "/admin").replace(/\/+$/u, "");
 export const iso = (t: number): string => new Date(t).toISOString().replace(/\.\d{3}Z$/u, "Z");
+
+// The data every page hands its layout: the mount without a trailing slash, so
+// the sidebar links (and the dashboard's cards) are absolute whether the page
+// is requested at <mount> or <mount>/.
+export const view = <T extends object>(ctx: Page, data: T): T & { base: string } => ({ ...data, base: base(ctx) });

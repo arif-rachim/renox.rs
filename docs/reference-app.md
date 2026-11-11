@@ -65,17 +65,17 @@ The back office at `/admin` holds the branding settings, the branches, the users
 | `auth` | Staff sign-in by email or phone, sessions, the CSRF token. |
 | `org` | One organisation per branch; the active branch of a user; members. |
 | `twofa` | The second factor that sensitive actions (invoice, payment, settings, users) require. |
-| `audit` | One row per sensitive or important action; the audit page of the back office. |
+| `audit` | One row per sensitive or important action; its audit page in the back office at `/admin`. |
 | `notifications` | The in-app badge and the WhatsApp or email fallback of every customer message. |
-| `email` | Email messages and the nightly report summary. |
-| `whatsapp` | WhatsApp Cloud API templates, the webhook, the inbox the app sweeps for "cancel" and "reschedule" replies. |
+| `email` | Email messages and the nightly report summary, sent to the address the app's `hooks.ts` gives through the `reports.nightly_to` filler (the accounts email of the settings). |
+| `whatsapp` | WhatsApp Cloud API templates and the webhook; a customer's "cancel" or "reschedule" reply reaches the app's `hooks.ts` on `whatsapp.message_received` and becomes the dispatcher's task. |
 | `billing` | Installed because `booking` needs it; no payment provider is configured. |
 | `booking` | Technicians as resources, their slots and holds per branch. |
-| `jobs` | The scheduled jobs: AMC visits, renewal reminders, the inbox sweep. |
+| `jobs` | The scheduled jobs: AMC visits and renewal reminders. |
 | `storage` | Photos of a visit in the visit's folder, uploaded through signed URLs (`uploadUrl`), and signed links to show them. |
 | `tax_gcc` | FTA tax invoices and credit notes, 5 % VAT, the seller's TRN. |
 | `reports` | Sales per day, CSV export, the nightly summary by email. |
-| `admin` | The operator's back office (`/system/admin`); the app's own back office is `/admin`. |
+| `admin` | The back office, mounted at `/admin`; the app fills its `admin.sidebar` and `admin.dashboard` slots through `[[slots]]` in `renox.toml`, and its users page is `/admin/people`. An invited person's pending role is applied by `hooks.ts` on `org.member_added`, which emits the app's own `app.member_ready`. |
 | `gcc` | Emirates, +971 numbers, TRN and trade licence checks. |
 
 The PDFs (quotation, visit report, invoice, statement, contract) are `ctx.pdf` templates under `partials/pdf/`; the PDF engine renders text only, so photos are listed by caption and the signature by the signer's name.

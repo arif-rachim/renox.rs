@@ -122,6 +122,13 @@ describe("tools", () => {
     expect(searchDocs("x")).toEqual([]);
   });
 
+  test("search_docs ranks the lines that hold the query as one phrase first", () => {
+    const hits = searchDocs("global scope", 20);
+    const firstApart = hits.findIndex((h) => !h.snippet.toLowerCase().includes("global scope"));
+    expect(firstApart).toBeGreaterThan(0);
+    expect(hits.slice(firstApart).every((h) => !h.snippet.toLowerCase().includes("global scope"))).toBe(true);
+  });
+
   test("dev_status and dev_errors read .renox/dev.json of a live renox dev only; secrets are redacted", async () => {
     const off = await client.callTool({ name: "dev_status", arguments: {} });
     expect(structured(off)).toMatchObject({ running: false });

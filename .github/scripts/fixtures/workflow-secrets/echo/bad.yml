@@ -1,0 +1,12 @@
+name: echo
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        env:
+          TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "token is $TOKEN"

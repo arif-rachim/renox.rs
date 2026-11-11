@@ -106,6 +106,18 @@ describe.skipIf(!worker)("renox build with modules", () => {
     expect(report).toContain("script-src 'self' 'nonce-<per-request>' https://analytics.example https://js.psp.example");
   });
 
+  test("form_action is the app's own: copied sorted and deduplicated, never merged from a module (#740)", async () => {
+    const dir = await shopWithAuth();
+    await installPay(dir);
+    const toml = join(dir, "renox.toml");
+    writeFileSync(toml, `${readFileSync(toml, "utf8")}\n[security.csp]\nform_action = ["https://b.example.com", "https://a.example.com", "https://b.example.com"]\n`);
+    const built = await buildFiles(dir);
+    expect(built.manifest.security?.csp?.form_action).toEqual(["https://a.example.com", "https://b.example.com"]);
+    expect(checkArtifactFiles(built.files).violations).toEqual([]);
+    const pay = join(dir, "modules/pay/module.toml");
+    expect(readFileSync(pay, "utf8")).not.toContain("form_action");
+  });
+
   test("a module that brings a directive past 32 sources fails the build naming the module (#660)", async () => {
     const dir = await shopWithAuth();
     const hosts = (prefix: string) => Array.from({ length: 20 }, (_, i) => `"https://${prefix}${i}.example"`).join(", ");

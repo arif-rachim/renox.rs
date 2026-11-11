@@ -32,7 +32,7 @@
     </form>
     <x-form action="schedule" class="stack narrow">
       <p r-if="slots"><label><r-t key="jobs.schedule.pick" />
-        <select name="slot" id="slots" size="8">
+        <select name="slot" id="f-schedule-slot" size="8" :aria-invalid="'true' if values.form == 'schedule' and errors.slot else 'false'" :aria-describedby="'err-slot' if values.form == 'schedule' and errors.slot else ''">
           <option r-for="s in slots" :value="s.value" :selected="values.form == 'schedule' and values.slot == s.value">{{ s.label }}</option>
         </select></label></p>
       <p r-else id="no-slots"><span id="f-schedule-slot" tabindex="-1"><r-t key="jobs.schedule.none" /></span></p>

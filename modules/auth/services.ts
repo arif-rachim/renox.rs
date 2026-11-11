@@ -146,3 +146,47 @@ export async function refreshPrincipal(ctx: AuthCtx, userId?: unknown): Promise<
   await ctx.events.emit("auth.principal_changed", { user_id: id, at: core.now() });
   return true;
 }
+
+/** Thrown by `mintAgentToken` for any caller but the platform (code `AUTH_PLATFORM_ONLY`). */
+export class PlatformOnlyError extends Error {
+  readonly code = "AUTH_PLATFORM_ONLY";
+  readonly status = 403;
+  constructor() {
+    super("Only the platform may mint an agent token.");
+    this.name = "PlatformOnlyError";
+  }
+}
+
+/** Thrown by `mintAgentToken` for a malformed request (code `RENOX_VALIDATION`, `details: [{ field, reason }]`). */
+export class MintValidationError extends Error {
+  readonly code = "RENOX_VALIDATION";
+  readonly status = 400;
+  constructor(readonly details: { field: string; reason: string }[]) {
+    super("The request is not valid.");
+    this.name = "MintValidationError";
+  }
+}
+
+/** The platform: the cell invoking a service as `Renox::System::"renox"` (no module may be named `renox`, manifest.md MF1). */
+function isPlatform(ctx: AuthCtx): boolean {
+  const p = (ctx as AuthCtx & { principal?: { kind?: unknown; id?: unknown } | null }).principal;
+  return p !== null && p !== undefined && p.kind === "system" && p.id === "renox";
+}
+
+/**
+ * The owner connector's bridge (#698; docs/20-ai-agents-mcp.md section 1b;
+ * deploy-api.md 0.9 section 15): the node runs it in the app's cell for
+ * `nodeMintAgentToken`. `{ email, scopes: ["tools:<name>", ...], ttl_seconds
+ * (30 to 300), client_name, grant_id }` -> `{ token, expires_at }` (unix ms)
+ * for the app user with that verified email, or null when there is none.
+ * Platform only: a call from tenant code, a route, a job or another module
+ * (any principal but `Renox::System::"renox"`) throws `AUTH_PLATFORM_ONLY`.
+ * Never logs the token.
+ */
+export async function mintAgentToken(ctx: AuthCtx, input: unknown): Promise<agents.Minted> {
+  if (!isPlatform(ctx)) throw new PlatformOnlyError();
+  const problem = agents.mintProblem(input);
+  if (problem !== null) throw new MintValidationError([problem]);
+  const i = input as agents.MintInput;
+  return agents.mint(ctx, { email: i.email, scopes: [...i.scopes], ttl_seconds: i.ttl_seconds, client_name: i.client_name, grant_id: i.grant_id });
+}

@@ -3,9 +3,9 @@ version = 1
 
 [[module]]
 name = "audit"
-version = "1.0.0"
+version = "1.0.1"
 source = "official"
-hash = "589ad20a024c02d5541e44ca21e85011e3b4647badff2584f58b2a440747e320"
+hash = "9d2949b2e0653d44845367a3db1ca2c27ab918a5c0f1cadd68f2cfce12ef18b3"
 isolation = "shared"
 mount = "/audit"
 dependencies = []
@@ -36,9 +36,9 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 
 [[module]]
 name = "auth"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "0cfbcde39e870cefa80d29abffb9ce59018d4110ca1395cb906ca100c2af87db"
+hash = "228b5d63193f50371a3732cab4c4a83a41efdc2d390f5d7dc0720aa598830b2a"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -47,9 +47,9 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 
 [[module]]
 name = "admin"
-version = "1.0.0"
+version = "1.0.1"
 source = "official"
-hash = "9efa4220677750186c5f2e70846746ce477f9da045046f37aaa28df77bf8c5db"
+hash = "6ea462c2602b9d8c81750865a4b8f2a3bb50469282f68250a7ccaa9963dac87e"
 isolation = "shared"
 mount = "/admin"
 dependencies = ["audit", "auth", "i18n"]
@@ -169,9 +169,9 @@ approved = { tables = "twofa__*", network = [], secrets = ["TWOFA_KEY"], slots =
 
 [[module]]
 name = "whatsapp"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "8000bf02afdb68398997885bf1350a584d0a6b2fefb262d3bedea627eb2d7da4"
+hash = "292195dd9041ce9d70f17d73401b04b7ecbd7c4193808ee0e9dfb4369681a062"
 isolation = "shared"
 mount = "/whatsapp"
 dependencies = []

@@ -6,7 +6,9 @@
 //! in an isolate of its own inside the tenant's process. It cannot reach
 //! the app's globals, a secret it did not declare, a table outside its
 //! prefix, or a host outside its list; arguments and results cross as JSON
-//! of at most 1 MiB; it joins the caller's transaction; its heap limit is
+//! of at most 1 MiB; it joins the caller's transaction, and a call that
+//! throws there is rolled back alone (#734, a savepoint the caller's
+//! isolate opens around the call); its heap limit is
 //! its own (B12-style: the bomb ends the module's isolate, the app's keeps
 //! answering); and the caller's meter record carries the callee's CPU.
 //! `docs/24-threat-model.md` D, "Malicious or compromised marketplace module".
@@ -76,6 +78,19 @@ export async function GET(ctx) {
       });
       return Response.json({ line: out });
     }
+    if (op === "txcatch") {
+      // #734: the failed call's line is undone, the caller's orders stay.
+      const id = q.get("id");
+      const out = await ctx.db.transaction(async (tx) => {
+        await tx.execute("insert into app__orders (id) values (?)", [id]);
+        let caught = null;
+        try { await tax.addLineThenFail(id + "-bad"); } catch (e) { caught = e.code; }
+        await tx.execute("insert into app__orders (id) values (?)", [id + "-after"]);
+        const line = await tax.addLine(id);
+        return { caught, line };
+      });
+      return Response.json(out);
+    }
     if (op === "ping") return Response.json({ ok: true, counter: ++appCounter, marker: globalThis.__appMarker });
   } catch (e) {
     return Response.json({ error: e.code ?? e.message, details: e.details ?? null });
@@ -106,6 +121,10 @@ export async function addLine(ctx, id) {
   await ctx.db.execute("insert into tax__lines (order_id, vat) values (?, ?)", [id, 5]);
   return "line-" + id;
 }
+export async function addLineThenFail(ctx, id) {
+  await ctx.db.execute("insert into tax__lines (order_id, vat) values (?, ?)", [id, 5]);
+  throw new Error("corrupt file");
+}
 "#;
 
 fn artifact(store: &Path) -> String {
@@ -126,7 +145,7 @@ fn artifact(store: &Path) -> String {
             "name": "tax", "version": "2.1.0", "hash": "0".repeat(64), "source": "registry:gulfsoft/tax",
             "mount": "/tax", "isolation": "isolate", "dependencies": [], "config": {},
             "permissions": perms, "approved": perms,
-            "exports": { "services": ["probe", "echo", "big", "spin", "bomb", "addLine"] },
+            "exports": { "services": ["probe", "echo", "big", "spin", "bomb", "addLine", "addLineThenFail"] },
         }],
     });
     let files: Vec<(&str, String)> = vec![
@@ -372,6 +391,38 @@ async fn the_callee_joins_the_callers_transaction() {
         count(
             &data,
             "select count(*) as n from tax__lines where order_id = 'o2'"
+        ),
+        0
+    );
+}
+
+/// #734 (ops.md 1.17.0 section 15.2): a call into the module's isolate that
+/// throws inside the caller's transaction undoes only its own line; the
+/// caller's orders before and after it, and a later call, commit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_call_is_rolled_back_alone_and_the_transaction_goes_on() {
+    let (data, n) = setup("txcatch");
+    let (_, v) = n.get("op=txcatch&id=o3").await;
+    assert_eq!(v["line"], "line-o3", "{v}");
+    assert_eq!(v["caught"], "RENOX_MODULE_SERVICE", "{v}");
+    assert_eq!(
+        count(
+            &data,
+            "select count(*) as n from app__orders where id in ('o3', 'o3-after')"
+        ),
+        2
+    );
+    assert_eq!(
+        count(
+            &data,
+            "select count(*) as n from tax__lines where order_id = 'o3'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            &data,
+            "select count(*) as n from tax__lines where order_id = 'o3-bad'"
         ),
         0
     );
