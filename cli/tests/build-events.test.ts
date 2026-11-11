@@ -93,7 +93,7 @@ describe("renox.toml [[slots]] and [events]", () => {
 });
 
 describe.skipIf(!worker)("renox build with hooks.ts, [[slots]] and [events]", () => {
-  test("artifact 1.8: the hooks entry, the app fillers after the module's, the events map", async () => {
+  test("artifact 1.9: the lazy hooks entry, the app fillers after the module's, the events map", async () => {
     const dir = await shopWithAuth({
       "renox.toml": TOML.replace('name = "app.footer"', 'name = "app.header"').replace("priority = 200", "priority = 100"),
       "hooks.ts": HOOKS,
@@ -107,8 +107,8 @@ describe.skipIf(!worker)("renox build with hooks.ts, [[slots]] and [events]", ()
       expect(m.artifact).toEqual({ version: 1 });
       expect(m.code.entry.hooks).toBe("hooks.js");
       expect(r.files.has("code/hooks.js")).toBe(true);
-      expect(m.entries?.hooks?.exports).toEqual(["on"]);
-      expect(m.entries?.hooks?.eager).toBeUndefined();
+      // The pinned worker (>= 0.8.0) evaluates the app's hooks lazily (artifact 1.9, #640): the keys are recorded.
+      expect(m.entries?.hooks).toEqual({ exports: ["on"], eager: false, hooks: [], on: ["auth.user_registered"] });
       // Used by no route (V7).
       expect(m.routes.some((x) => (x as { module?: string }).module === "hooks")).toBe(false);
       // The module's filler first, the app's two after it (equal priority: the app last; then 100 < 100 tie by order of declaration).
