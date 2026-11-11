@@ -16,6 +16,8 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **Worker**
 
 - `<x-image>` writes an author-given `loading="eager"` or `loading="lazy"` instead of always `lazy`, and passes a literal `fetchpriority="high|low|auto"` through; a bound or other value is a compile error naming the template and line, and the default stays `loading="lazy"` (#738).
+- An app's `pages/_404` and `pages/_error` receive `locale`, `dir` and `app_name`: the cell resolves the locale from `?lang=`, `Accept-Language` and the `i18n` module's default, without an isolate or the database, so `<html lang dir>` and `<r-t>` follow it; without `i18n`, `en` and `ltr` (artifact 1.9.3, errors 0.11.1) (#739).
+- The gateway writes `form-action 'self' <origins>` from the artifact's `security.csp.form_action` and drops any source that is not an `https://` origin, with a platform warning; without the key the header is unchanged (artifact 1.10) (#740).
 
 ## 0.1.12 (2026-11-10)
 
