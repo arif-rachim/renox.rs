@@ -237,6 +237,16 @@ Tenants never touch Rust. The pain of Rust compile times is confined to the data
 7. **Most of the platform is not Rust.** Control plane, CLI, SDK, and all official modules are TypeScript on Bun. Expected split of code we write: roughly 30–40% Rust (data plane glue over Supabase Edge Runtime), 60–70% TypeScript.
 8. **`unsafe` and FFI stay in two places.** V8 and SQLite wrappers only, documented and reviewed. This keeps compile-heavy, hard-to-test code isolated.
 
+### Browser tests
+
+The tests that drive a real Chromium (`control/dashboard/tests/account.browser.test.ts`, `cli/tests/browser/client-events.test.ts`) skip in `make test` and in the PR checks when Playwright or the worker is missing. `journey.yml` runs them with `make journey` on every push to `main`, nightly at 02:23 UTC and by `workflow_dispatch`, on the worker built from `main` (the newest `renox-worker-ci-packaged` of `ci.yml`, else the pinned release) and Playwright 1.63.0, the version `lighthouse.yml` pins too (`.github/scripts/playwright-version.test.ts` keeps them equal). `make journey` sets `RENOX_JOURNEY=1`, under which a browser test fails with "Playwright is required (PLAYWRIGHT_PATH)" instead of skipping; a failed run on `main` opens or comments on an issue labelled `journey`. To run it locally, install Playwright outside the repository (the repository has no Playwright dependency) and point `PLAYWRIGHT_PATH` at it:
+
+```sh
+npm install --prefix ~/.cache/renox-pw --no-save playwright@1.63.0
+~/.cache/renox-pw/node_modules/.bin/playwright install --with-deps chromium
+RENOX_WORKER_PATH=$PWD/target/debug/renox-worker PLAYWRIGHT_PATH=~/.cache/renox-pw/node_modules/playwright make journey
+```
+
 ### Expected numbers (targets, measured under B20)
 
 | Build | Cold | Warm (one leaf crate changed) |

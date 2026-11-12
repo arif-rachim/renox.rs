@@ -53,3 +53,18 @@ export function loadPlaywright(): Pw | null {
     }
   }
 }
+
+/**
+ * Under RENOX_JOURNEY=1 (journey.yml, `make journey`, #586) a browser test may
+ * not skip: it fails with this message when Playwright cannot be loaded or no
+ * worker is set. Under the variable Playwright must come from PLAYWRIGHT_PATH,
+ * the one pinned version the workflows install, not whatever the machine has
+ * globally. Without the variable the tests skip as before. Returns the error
+ * to throw, or null.
+ */
+export function journeyMissing(pw: unknown, worker: string | undefined): string | null {
+  if (process.env.RENOX_JOURNEY !== "1") return null;
+  if (!process.env.PLAYWRIGHT_PATH || pw === null || pw === undefined) return "Playwright is required (PLAYWRIGHT_PATH)";
+  if (!worker) return "renox-worker is required (RENOX_WORKER_PATH)";
+  return null;
+}
