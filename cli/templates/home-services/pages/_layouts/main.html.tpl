@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
-  <title><slot name="title">{{ brand.name }}</slot></title>
+  <title><slot name="title">{{ brand.name ?? app_name }}</slot></title>
   <link rel="stylesheet" href="/renox-ui.css">
   <link r-if="locale == 'ar'" rel="preload" as="font" type="font/woff2" crossorigin :href="'/fonts/noto-sans-arabic-arabic-400-normal.woff2'">
   <link rel="stylesheet" href="/app.css">
@@ -18,7 +18,7 @@
 <body>
   <a class="skip" href="#main"><r-t key="app.skip" /></a>
   <header class="site-header">
-    <a href="/" class="brand-link"><img r-if="brand.logo" :src="brand.logo" alt="" class="brand-logo" width="32" height="32"><strong>{{ brand.name }}</strong></a>
+    <a href="/" class="brand-link"><img r-if="brand.logo" :src="brand.logo" alt="" class="brand-logo" width="32" height="32"><strong>{{ brand.name ?? app_name }}</strong></a>
     <span class="spacer"></span>
     <r-slot name="app.header" />
     <nav class="i18n-language" :aria-label="'app.lang.label' | t" r-if="i18n_links">

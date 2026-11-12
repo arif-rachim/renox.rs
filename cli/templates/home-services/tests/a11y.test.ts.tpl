@@ -198,10 +198,10 @@ describe("the audit itself", () => {
 // -- the pages --------------------------------------------------------------------------------------------------------
 
 /** Every page under pages/, with the user who uses it (a page's ?lang is added by the test). */
-const PAGES: { path: string; as: () => Who; note?: string; /** The page is in English only (the platform's error page). */ en?: true }[] = [
+const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/", as: () => anonymous },
   { path: "/", as: () => dispatcher, note: "signed in" },
-  { path: "/nothing-here", as: () => anonymous, note: "404", en: true },
+  { path: "/nothing-here", as: () => anonymous, note: "404" },
   { path: "/l/approve/demo-q000002-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", as: () => anonymous, note: "open quotation" },
   { path: "/l/approve/demo-q000004-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", as: () => anonymous, note: "approved quotation" },
   { path: `/l/invoice/${INVOICE_TOKEN}`, as: () => anonymous },
@@ -244,7 +244,7 @@ const withLang = (path: string, lang: string) => `${path}${path.includes("?") ? 
 
 for (const lang of ["en", "ar"] as const) {
   describe(`every page, ${lang === "en" ? "English" : "Arabic"}`, () => {
-    for (const p of PAGES.filter((x) => lang === "en" || x.en === undefined)) {
+    for (const p of PAGES) {
       test(`${p.path}${p.note ? ` (${p.note})` : ""}`, async () => {
         const res = await p.as().page(withLang(p.path, lang));
         expect(res.status).toBe(p.note === "404" ? 404 : 200);
@@ -253,6 +253,50 @@ for (const lang of ["en", "ar"] as const) {
     }
   });
 }
+
+// -- the error pages ----------------------------------------------------------------------------------------------------
+
+describe("the error pages, translated", () => {
+  const TITLES = { en: { 404: "Page not found", 500: "Something went wrong (500)" }, ar: { 404: "الصفحة غير موجودة", 500: "حدث خطأ ما" } } as const;
+  /** A 500 from a loader: the customers table is renamed away for the one request (the tenant file is shared, so it is put back). */
+  async function failing(lang: string) {
+    rw((db) => db.exec("alter table app__customers rename to app__customers_gone"));
+    try {
+      return await dispatcher.page(withLang("/customers", lang));
+    } finally {
+      rw((db) => db.exec("alter table app__customers_gone rename to app__customers"));
+    }
+  }
+  for (const lang of ["en", "ar"] as const) {
+    const dir = lang === "ar" ? "rtl" : "ltr";
+    test(`404, ${lang}: html lang and dir, the title, the way home and the request id`, async () => {
+      const res = await anonymous.page(withLang("/nothing-here", lang));
+      expect(res.status).toBe(404);
+      expect(res.html).toContain(`<html lang="${lang}" dir="${dir}"`);
+      expect(res.html).toContain(`<h1>${TITLES[lang][404]}</h1>`);
+      expect(res.html).toMatch(/<a href="\/">[^<]+<\/a>/u);
+      expect(res.html).toMatch(/<span dir="ltr">[^<]+<\/span><\/small>/u);
+      expect(audit(res.html, lang)).toEqual([]);
+    });
+    test(`500, ${lang}: html lang and dir, the title with the status, the code and the request id`, async () => {
+      const res = await failing(lang);
+      expect(res.status).toBe(500);
+      expect(res.html).toContain(`<html lang="${lang}" dir="${dir}"`);
+      expect(res.html).toContain(lang === "en" ? `<h1>${TITLES.en[500]}</h1>` : TITLES.ar[500]);
+      expect(res.html).toMatch(/<small><span dir="ltr">[^<]+<\/span> · /u);
+      expect(audit(res.html, lang)).toEqual([]);
+    });
+  }
+  test("Accept-Language picks the language of a page that has no ?lang", async () => {
+    const res = await t.request("GET", "/nothing-here", { headers: { "accept-language": "ar" } });
+    expect(res.html).toContain('<html lang="ar" dir="rtl"');
+    expect(res.html).toContain(TITLES.ar[404]);
+  });
+  test("the brand falls back to the app's name when there is no loader data", async () => {
+    const res = await anonymous.page("/nothing-here?lang=en");
+    expect(res.html).toContain(">home-services</strong></a>");
+  });
+});
 
 // -- the board ------------------------------------------------------------------------------------------------------------
 
