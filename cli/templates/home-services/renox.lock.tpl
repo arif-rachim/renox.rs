@@ -91,9 +91,9 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 
 [[module]]
 name = "org"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "c03739685cf87f6d6a88a06d1ef50f9b65c79f854ee79d54b6c2a2c6287a111c"
+hash = "484ac64c40d09eee34089eef50b6ac00fa9bd50c2479deab73763e3e2b01b8c0"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]

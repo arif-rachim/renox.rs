@@ -3,9 +3,9 @@
 // one for another app and an expired one are 401), only POST is served, a
 // body out of the limits is 422 and writes nothing, the first call writes the
 // settings, the services and the owner's account with the role `owner`, a
-// second one is 409. The owner's first page after signing in (the link of the
-// confirmation mail) makes the branches `org` organisations and invites the
-// people through `org`. The demo seed is never loaded.
+// second one is 409. The same call makes the branches `org` organisations and
+// invites the people (`org.bootstrap`, #747), each with their app role: all of
+// it exists before any page is opened. The demo seed is never loaded.
 //
 // `renox test --seed` loads the demo seed into every test file's tenant, so
 // this file empties the tables the seed fills first: the app starts as the
@@ -73,7 +73,7 @@ const SEEDED = [
   "app__contract_items", "app__contracts", "app__contract_numbers", "app__quote_lines", "app__quotes", "app__quote_numbers", "app__links",
   "app__sites", "app__customers", "app__services", "app__branch_hours", "app__branches", "app__settings",
   "booking__staff_services", "booking__staff", "booking__services", "booking__hours", "booking__bookings",
-  "tax_gcc__documents", "tax_gcc__sequences", "org__members", "org__orgs", "auth__users", "renox__role_assignments",
+  "tax_gcc__documents", "tax_gcc__sequences", "org__invites", "org__members", "org__orgs", "app__staff_invites", "auth__users", "renox__role_assignments",
 ];
 
 beforeAll(() => {
@@ -157,7 +157,7 @@ describe("the body", () => {
 });
 
 describe("the setup", () => {
-  test("writes the settings, the services and the owner with the role owner; a second call is 409 and changes nothing; no demo row", async () => {
+  test("writes the settings, the services, the owner with the role owner, the branches and the invitations; a second call is 409 and changes nothing; no demo row", async () => {
     const r = await post(SETUP);
     expect(r.status).toBe(200);
     expect(r.json()).toEqual({
@@ -168,13 +168,12 @@ describe("the setup", () => {
       ],
       skipped: [],
     });
-    expect({ brand: setting("brand_name"), phone: setting("company_phone"), trn: setting("company_trn"), emirate: setting("company_emirate"), hash: setting("setup_hash"), owner: setting("setup_owner_email") }).toEqual({
+    expect({ brand: setting("brand_name"), phone: setting("company_phone"), trn: setting("company_trn"), emirate: setting("company_emirate"), hash: setting("setup_hash") }).toEqual({
       brand: "CoolAir",
       phone: "+971501234567",
       trn: "100123456700003",
       emirate: "dubai",
       hash: HASH,
-      owner: OWNER,
     });
     expect(rows("select code, name_en, unit, price_fils, vat_rate, active, branch_id from app__services order by id")).toEqual([
       { code: "AC-SERVICE", name_en: "AC service", unit: "visit", price_fils: 15000, vat_rate: 5, active: 1, branch_id: null },
@@ -183,13 +182,33 @@ describe("the setup", () => {
     const owner = rows("select id, email from auth__users")[0] as { id: string; email: string };
     expect(owner.email).toBe(OWNER);
     expect(rows("select role, scope_type from renox__role_assignments where user_id = ?", [owner.id])).toEqual([{ role: "owner", scope_type: "global" }]);
-    // The branches wait for the owner's first sign-in: org creates organisations for a signed-in user only.
-    expect(count("app__branches")).toBe(0);
-    expect(JSON.parse(String(setting("setup_pending")))).toEqual({ branches: SETUP.branches, people: [
-      { email: "tech@coolair.ae", role: "technician" },
-      { email: "books@coolair.ae", role: "accountant" },
-      { email: "boss@coolair.ae", role: "branch_manager" },
-    ] });
+    // Everything is in the call: no pending state, no page needed.
+    expect(setting("setup_pending")).toBeUndefined();
+    expect(setting("setup_owner_email")).toBeUndefined();
+    const branches = rows("select b.id, b.slug, b.name_en, b.emirate, o.name as org_name, m.role from app__branches b join org__orgs o on o.id = b.org_id join org__members m on m.org_id = b.org_id and m.user_id = ? order by b.created_at, b.id", [owner.id]);
+    expect(branches).toEqual([
+      { id: "br_dubai", slug: "dubai", name_en: "Dubai", emirate: "dubai", org_name: "Dubai", role: "owner" },
+      { id: "br_sharjah", slug: "sharjah", name_en: "Sharjah", emirate: "sharjah", org_name: "Sharjah", role: "owner" },
+    ]);
+    expect(rows("select distinct branch_id from app__branch_hours order by branch_id").map((r) => r.branch_id)).toEqual(["br_dubai", "br_sharjah"]);
+    expect(rows("select i.email, i.role from org__invites i join app__branches b on b.org_id = i.org_id where b.id = 'br_dubai' order by i.email")).toEqual([
+      { email: "books@coolair.ae", role: "member" },
+      { email: "boss@coolair.ae", role: "member" },
+      { email: "tech@coolair.ae", role: "member" },
+    ]);
+    expect(count("org__invites")).toBe(3);
+    expect(rows("select email, role, invited_by, applied_at from app__staff_invites where branch_id = 'br_dubai' order by email")).toEqual([
+      { email: "books@coolair.ae", role: "accountant", invited_by: owner.id, applied_at: null },
+      { email: "boss@coolair.ae", role: "branch_manager", invited_by: owner.id, applied_at: null },
+      { email: "tech@coolair.ae", role: "technician", invited_by: owner.id, applied_at: null },
+    ]);
+    expect(count("app__staff_invites")).toBe(3);
+    // One mail each, from the same org.send_mail hook as org.invite.
+    for (const to of ["tech@coolair.ae", "books@coolair.ae", "boss@coolair.ae"]) {
+      await until(() => (rows("select 1 from email__messages where to_address = ?", [to]).length > 0 ? true : undefined), `the invitation mail of ${to}`);
+      expect(rows("select 1 from email__messages where to_address = ?", [to])).toHaveLength(1);
+    }
+    expect(rows("select count(*) as n from audit__events where action = 'setup.write'")).toEqual([{ n: 1 }]);
 
     const again = await post({ ...SETUP, company: { ...SETUP.company, name: "Other" } });
     expect(again.status).toBe(409);
@@ -203,38 +222,35 @@ describe("the setup", () => {
     expect(count("app__quotes")).toBe(0);
   });
 
-  test("the owner signs in with the mailed link; their first page makes the branches org organisations and invites the people through org", async () => {
+  test("the owner signs in with the mailed link; their first page changes nothing, and a person who accepts the invitation holds their staff role in the first branch (org.member_added applies app__staff_invites)", async () => {
     const mail = await until(() => rows("select text_body from email__messages where to_address = ?", [OWNER])[0]?.text_body as string | undefined, "the owner's mail");
     const link = /\/auth\/magic\/[0-9a-f]+/u.exec(mail)?.[0];
     expect(link).toBeDefined();
     const owner = t.as("owner");
     expect((await owner.request("GET", link as string)).status).toBe(303);
     expect((await owner.request("GET", "/")).status).toBe(200);
-
-    const ownerId = String(rows("select id from auth__users where email = ?", [OWNER])[0]?.id);
-    const branches = rows("select b.id, b.slug, b.name_en, b.emirate, o.name as org_name, m.role from app__branches b join org__orgs o on o.id = b.org_id join org__members m on m.org_id = b.org_id and m.user_id = ? order by b.created_at, b.id", [ownerId]);
-    expect(branches).toEqual([
-      { id: "br_dubai", slug: "dubai", name_en: "Dubai", emirate: "dubai", org_name: "Dubai", role: "owner" },
-      { id: "br_sharjah", slug: "sharjah", name_en: "Sharjah", emirate: "sharjah", org_name: "Sharjah", role: "owner" },
-    ]);
-    expect(count("app__branch_hours")).toBeGreaterThan(0);
-    expect(rows("select i.email, i.role from org__invites i join app__branches b on b.org_id = i.org_id where b.id = 'br_dubai' order by i.email")).toEqual([
-      { email: "books@coolair.ae", role: "member" },
-      { email: "boss@coolair.ae", role: "member" },
-      { email: "tech@coolair.ae", role: "member" },
-    ]);
-    expect(rows("select email, role from app__staff_invites where branch_id = 'br_dubai' order by email")).toEqual([
-      { email: "books@coolair.ae", role: "accountant" },
-      { email: "boss@coolair.ae", role: "branch_manager" },
-      { email: "tech@coolair.ae", role: "technician" },
-    ]);
-    await until(() => (rows("select 1 from email__messages where to_address = 'tech@coolair.ae'").length > 0 ? true : undefined), "the invitation mail");
-    expect(setting("setup_pending")).toBeUndefined();
-
-    // Done once: another page changes nothing.
     expect((await owner.request("GET", "/")).status).toBe(200);
     expect(count("app__branches")).toBe(2);
+    expect(count("org__orgs")).toBe(2);
     expect(count("org__invites")).toBe(3);
+    expect(count("app__staff_invites")).toBe(3);
+    expect(setting("setup_pending")).toBeUndefined();
     expect(rows("select count(*) as n from app__customers")).toEqual([{ n: 0 }]);
+
+    const techMail = rows("select text_body from email__messages where to_address = 'tech@coolair.ae'")[0]?.text_body as string;
+    const token = /\/org\/accept\/([A-Za-z0-9_-]+)/u.exec(techMail)?.[1] ?? "";
+    expect(token).not.toBe("");
+    const tech = t.as("tech");
+    expect((await tech.action("/auth/register", "default", { email: "tech@coolair.ae", password: "correct-horse-battery-9", display_name: "Tariq Tech" })).status).toBe(200);
+    expect((await tech.action("/auth/login", "default", { email: "tech@coolair.ae", password: "correct-horse-battery-9" })).status).toBe(303);
+    expect((await tech.action(`/org/accept/${token}`, "accept", {})).status).toBe(303);
+    const orgId = String(rows("select org_id from app__branches where id = 'br_dubai'")[0]?.org_id);
+    const held = await until(() => {
+      const r = rows("select scope_type, scope_id from renox__role_assignments where role = 'technician' and user_id = (select id from auth__users where email = 'tech@coolair.ae')");
+      return r.length > 0 ? r : undefined;
+    }, "the technician role");
+    expect(held).toEqual([{ scope_type: "org", scope_id: orgId }]);
+    expect(rows("select applied_at is not null as done from app__staff_invites where email = 'tech@coolair.ae'")).toEqual([{ done: 1 }]);
+    expect(rows("select applied_at is not null as done from app__staff_invites where email = 'books@coolair.ae'")).toEqual([{ done: 0 }]);
   });
 });
