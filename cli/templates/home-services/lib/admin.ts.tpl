@@ -8,8 +8,10 @@
 // global (they apply in every branch the person belongs to); changing a role
 // replaces them and keeps them for the person's other branches.
 import type { Authz, DbStatements, Storage } from "@renoxium/sdk";
-import { audit, org, storage as storageModule, twofa } from "renox:modules";
+import { audit, i18n, notifications, org, storage as storageModule, twofa } from "renox:modules";
 
+import ar from "../i18n/ar.json";
+import en from "../i18n/en.json";
 import { schema, text } from "./forms";
 import { DEFAULT_HOURS } from "./booking-sync";
 import { type Branch, branchDb, type Scopable } from "./scope";
@@ -323,15 +325,49 @@ const plain = (status: number, text: string): Response => new Response(text, { s
 /**
  * The 403 of a refused policy decision, or null when `action` is allowed (and
  * then the second factor is asked for: without a recent one the step-up throws
- * its own 403). `action` is sensitive, so every decision is audited.
+ * its own 403). `action` is sensitive, so every decision is audited; the
+ * policy refuses each of them without a recent second factor (base.cedar).
  */
-export async function sensitive(ctx: { readonly authz: Pick<Authz, "require"> }, action: "settings.write" | "user.manage", next: string): Promise<Response | null> {
+export async function sensitive(
+  ctx: { readonly authz: Pick<Authz, "require"> },
+  action: "settings.write" | "user.manage" | "twofa.reset",
+  next: string,
+  resource?: { type: string; id: string },
+): Promise<Response | null> {
   try {
-    await ctx.authz.require(action);
+    await (resource === undefined ? ctx.authz.require(action) : ctx.authz.require(action, resource));
   } catch (e) {
     if ((e as { code?: string }).code === "RENOX_FORBIDDEN") return plain(403, "Forbidden");
     throw e;
   }
-  await twofa.requireRecent({ next });
+  try {
+    await twofa.requireRecent({ next });
+  } catch (e) {
+    // requireRecent throws only for the step-up. Across modules it arrives as RENOX_MODULE_SERVICE naming
+    // the module and the service, without its own code or verify_url (cause_code carries RENOX_* codes only),
+    // so the verification page is named here. It happens when the session's verification ran out within the
+    // principal's cache time (60 s), so the policy above still saw mfa_verified. Nothing has been written.
+    const d = (e as { code?: string; details?: { module?: unknown; service?: unknown } }).details;
+    if ((e as { code?: string }).code === "RENOX_MODULE_SERVICE" && d?.module === "twofa" && d.service === "requireRecent") {
+      return new Response(null, { status: 303, headers: { location: `/2fa/verify?next=${encodeURIComponent(next)}`, "cache-control": "no-store" } });
+    }
+    throw e;
+  }
   return null;
+}
+
+// ------------------------------------------------------- second-factor reset
+
+/**
+ * Tells a person that their second factor was reset (key `people.twofa_reset`,
+ * in their language). The `notifications` module does the channel: the in-app
+ * item, WhatsApp when the person has a linked phone, and email (config
+ * `channels`). Call it after `twofa.reset`, never before: a module call that
+ * throws ends the transaction (#734).
+ */
+export async function notifyTwofaReset(userId: string, ownerName: string): Promise<void> {
+  const locale = (await i18n.detectLocale({ user_id: userId, org_locale: null })).locale;
+  const tree = (locale === "ar" ? ar : en) as unknown as { people: { twofa_reset: string } };
+  const title = tree.people.twofa_reset.replace("{owner}", ownerName).slice(0, 200);
+  await notifications.notify(userId, { category: "staff", title });
 }

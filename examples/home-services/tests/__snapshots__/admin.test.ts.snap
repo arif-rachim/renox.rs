@@ -131,3 +131,23 @@ exports[`people the users page lists the branch with roles and who has a second 
     </tbody>
   </table>"
 `;
+
+exports[`reset second factor the first POST asks for a confirmation and changes nothing, in English and in Arabic: role: reset second factor confirmation, owner, en 1`] = `
+"<section id="confirm-reset" aria-labelledby="confirm-reset-title">
+    <h2 id="confirm-reset-title">Reset second factor</h2>
+    <p>Reset the second factor of Hamad Saeed? They will set it up again at their next sign-in.</p>
+    <form method="post" action="?/reset_2fa" hx-post="?/reset_2fa" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_shj_hamad"><input type="hidden" name="confirm" value="1">
+      <button type="submit" class="btn-brand" aria-label="Yes, reset it: Hamad Saeed">Yes, reset it</button>
+      <a href="/admin/people">Cancel</a></form>
+  </section>"
+`;
+
+exports[`reset second factor the first POST asks for a confirmation and changes nothing, in English and in Arabic: role: reset second factor confirmation, owner, ar 1`] = `
+"<section id="confirm-reset" aria-labelledby="confirm-reset-title">
+    <h2 id="confirm-reset-title">إعادة تعيين التحقق بخطوتين</h2>
+    <p>هل تريد إعادة تعيين التحقق بخطوتين لـ ⁨Hamad Saeed⁩؟ سيقوم بإعداده من جديد عند تسجيل دخوله التالي.</p>
+    <form method="post" action="?/reset_2fa" hx-post="?/reset_2fa" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_shj_hamad"><input type="hidden" name="confirm" value="1">
+      <button type="submit" class="btn-brand" aria-label="نعم، أعد التعيين: Hamad Saeed">نعم، أعد التعيين</button>
+      <a href="/admin/people">إلغاء</a></form>
+  </section>"
+`;

@@ -373,6 +373,128 @@ describe("people", () => {
   });
 });
 
+// Reset of a person's second factor (#735): the owner's button on /admin/people,
+// the `twofa` module's `reset` behind it. Threat-model row "Account takeover"
+// (docs/24-threat-model.md): a lost authenticator must not lock a technician out
+// for good, and the reset itself must not become the takeover: only the owner,
+// with a recent second factor of their own, never on oneself, never outside the
+// branch, one confirmation step, an audit row (actor: the owner, resource:
+// `twofa:User`) and a notice to the person whose factor was reset.
+describe("reset second factor", () => {
+  /** A cell of the audit table holding exactly `text`. */
+  const cell = (text: string) => new RegExp(`<td[^>]*>${text.replace(/\./gu, "\\.")}</td>`, "u");
+  const HAMAD = "hamad.sharjah@fixit.example";
+  const IMRAN = "imran.sharjah@fixit.example";
+  const enrolled = (id: string) => Number(rows("select count(*) as n from twofa__totp where user_id = ?", [id])[0]?.n);
+  const row = (html: string, id: string) => new RegExp(`<tr id="staff-${id}"[\\s\\S]*?</tr>`, "u").exec(html)?.[0] ?? "";
+  const CONFIRM = "Reset the second factor of Hamad Saeed? They will set it up again at their next sign-in.";
+
+  test("setup: Hamad (Sharjah technician) enrols a second factor; the owner's page offers the button only for people who have one", async () => {
+    await withSecondFactor("hamad", HAMAD, "/me");
+    expect(enrolled("u_shj_hamad")).toBe(1);
+    const res = await owner.page("/admin/people");
+    expect(res.status).toBe(200);
+    expect(row(res.html, "u_shj_hamad")).toContain("Reset second factor");
+    expect(row(res.html, "u_shj_imran")).not.toContain("Reset second factor");
+    expect(row(res.html, "u_owner")).not.toContain("Reset second factor");
+    expect(res.html).not.toContain('id="confirm-reset"');
+  });
+
+  test("the first POST asks for a confirmation and changes nothing, in English and in Arabic", async () => {
+    const res = await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad" });
+    expect(res.status).toBe(200);
+    expect(res.html).toContain('id="confirm-reset"');
+    expect(res.html).toContain(CONFIRM);
+    expect(res.html).toContain('name="confirm" value="1"');
+    expect(res.html).toContain('href="/admin/people"');
+    expect(enrolled("u_shj_hamad")).toBe(1);
+    expect(rows("select count(*) as n from audit__events where action = 'twofa.reset'")[0]?.n).toBe(0);
+    snapshot(/<section id="confirm-reset"[\s\S]*?<\/section>/u.exec(res.html)?.[0] ?? "", { role: "reset second factor confirmation, owner, en" });
+    // ?lang=ar is stored for the owner; it is put back to English after the snapshot.
+    expect((await owner.page("/admin/people?lang=ar")).status).toBe(200);
+    const ar = await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad" });
+    expect((await owner.page("/admin/people?lang=en")).status).toBe(200);
+    expect(ar.status).toBe(200);
+    expect(ar.html).toContain('id="confirm-reset"');
+    expect(ar.html).not.toContain(CONFIRM);
+    snapshot(/<section id="confirm-reset"[\s\S]*?<\/section>/u.exec(ar.html)?.[0] ?? "", { role: "reset second factor confirmation, owner, ar" });
+  });
+
+  test("error cases: a manager, a dispatcher and an accountant get 403; an owner without a recent second factor is stopped; nothing changes", async () => {
+    for (const who of [manager, dispatcher, accountantDxb]) {
+      expect((await who.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad", confirm: "1" })).status).toBe(403);
+    }
+    // The owner's other session never passed a second factor: the policy refuses it (base.cedar), and nothing is called.
+    const stale = await ownerNoFactor.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad", confirm: "1" });
+    expect(stale.status).toBe(403);
+    // And so does the owner's verified session once its verification is older than the window.
+    const aged = rw((db) => {
+      const before = db.query<{ session_id: string; verified_at: number }, []>("select session_id, verified_at from twofa__sessions where user_id = 'u_owner'").all();
+      db.exec("update twofa__sessions set verified_at = verified_at - 20 * 60000 where user_id = 'u_owner'");
+      return before;
+    });
+    const expired = await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad", confirm: "1" });
+    rw((db) => {
+      for (const r of aged) db.query("update twofa__sessions set verified_at = ? where session_id = ?").run(r.verified_at, r.session_id);
+    });
+    expect([303, 403]).toContain(expired.status);
+    if (expired.status === 303) expect(located(expired)).toBe("/2fa/verify?next=%2Fadmin%2Fpeople");
+    expect(enrolled("u_shj_hamad")).toBe(1);
+    expect(rows("select count(*) as n from audit__events where action = 'twofa.reset'")[0]?.n).toBe(0);
+  });
+
+  test("error cases: oneself, someone outside the active branch, a stranger and a person with no second factor are 422", async () => {
+    // The owner's session works in Sharjah (see "people"): Ali is a Dubai technician.
+    await withSecondFactor("ali-2fa", "ali.dubai@fixit.example", "/me");
+    expect((await owner.action("/admin/people", "reset_2fa", { user_id: "u_owner", confirm: "1" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "reset_2fa", { user_id: "u_dxb_ali", confirm: "1" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "reset_2fa", { user_id: "u_nobody", confirm: "1" })).status).toBe(422);
+    expect((await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_imran", confirm: "1" })).status).toBe(422);
+    expect(enrolled("u_dxb_ali")).toBe(1);
+    expect(enrolled("u_shj_hamad")).toBe(1);
+  });
+
+  test("normal case: the confirmed POST resets it; the next sign-in is not held at /2fa/verify; the person is told; the trail has the row", async () => {
+    const done = await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad", confirm: "1" });
+    expect(done.status).toBe(303);
+    expect(located(done)).toBe("/admin/people?saved=twofa_reset");
+    expect(enrolled("u_shj_hamad")).toBe(0);
+    const after = await owner.page("/admin/people?saved=twofa_reset");
+    expect(after.html).toContain('id="saved-twofa-reset"');
+    expect(row(after.html, "u_shj_hamad")).not.toContain("Reset second factor");
+
+    // Hamad's password sign-in starts a session straight away (nothing to verify) and a second factor can be enrolled again.
+    const again = await t.as("hamad-again").action("/auth/login", "default", { email: HAMAD, password: PASSWORD, next: "/me" });
+    expect(again.status).toBe(303);
+    expect(located(again)).not.toContain("/2fa/verify");
+    expect((await t.as("hamad-again").page("/2fa/enroll/totp")).status).toBe(200);
+
+    // The notice: the in-app item and the email (Hamad has no linked WhatsApp number).
+    const text = "Your second factor was reset by Omar Owner. If this was not expected, tell your manager.";
+    expect(rows("select title from notifications__items where user_id = 'u_shj_hamad'").map((r) => r.title)).toContain(text);
+    const mail = await until(() => rows("select subject from email__messages where to_address = ?", [HAMAD]).find((r) => String(r.subject).includes("second factor was reset")), "the notice email");
+    expect(String(mail.subject)).toBe(text);
+
+    // The trail: actor the owner, resource twofa:User.
+    const trail = await until(() => rows("select actor_id, resource_type, resource_id from audit__events where action = 'twofa.reset'")[0], "the audit row");
+    expect(trail).toEqual({ actor_id: "u_owner", resource_type: "twofa:User", resource_id: "u_shj_hamad" });
+    const page = await owner.page("/admin/audit?action=twofa.reset");
+    expect(page.status).toBe(200);
+    expect(page.html).toMatch(cell("twofa.reset"));
+    expect(page.html).toMatch(cell("twofa:User:u_shj_hamad"));
+    expect(page.html).toMatch(/<td[^>]*>twofa\.reset<\/td><td[^>]*>u_owner<\/td><td[^>]*>twofa:User:u_shj_hamad<\/td><td[^>]*>ok<\/td>/u);
+  });
+
+  test("a person with a linked WhatsApp number is told there too (the sandbox's outbox)", async () => {
+    await withSecondFactor("imran", IMRAN, "/me");
+    rw((db) => db.query("insert into whatsapp__contacts (user_id, phone, verified_at) values ('u_shj_imran', '+971500000042', 1793000000000)").run());
+    expect((await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_imran", confirm: "1" })).status).toBe(303);
+    expect(enrolled("u_shj_imran")).toBe(0);
+    const sent = await until(() => rows("select body from whatsapp__messages where direction = 'out' and phone = '+971500000042'").find((r) => String(r.body).includes("second factor was reset")), "the WhatsApp notice");
+    expect(String(sent.body)).toContain("Omar Owner");
+  });
+});
+
 // The trail is the `admin` module's page (/admin/audit) over the audit module;
 // the owner holds audit.read through the owner policy.
 describe("the audit trail", () => {

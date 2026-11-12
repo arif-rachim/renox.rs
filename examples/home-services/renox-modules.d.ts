@@ -63,6 +63,8 @@ declare module "renox:modules" {
     isEnrolled(userId: string): Promise<boolean>;
     /** Resolves when this session verified a second factor recently; else throws STEP_UP_REQUIRED (403). */
     requireRecent(opts?: { within?: number; next?: string }): Promise<void>;
+    /** Resets another user's second factor (twofa.reset on that user, a recent second factor of the caller, never oneself); the next sign-in enrols again. */
+    reset(userId: string): Promise<{ reset: boolean }>;
   };
   export const org: {
     switcher(next?: string): Promise<{ current?: { id: string; locale?: string | null } | null } | null>;

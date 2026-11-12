@@ -55,7 +55,7 @@ actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quot
 sensitive = ["invoice.issue", "invoice.pay", "settings.write", "user.manage"]
 
 [authz.default_roles]
-owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage"]
+owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage", "twofa.reset"]
 branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view"]
 dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write"]
 technician = ["job.read", "visit.perform"]

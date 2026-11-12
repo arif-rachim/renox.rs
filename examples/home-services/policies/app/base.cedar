@@ -60,6 +60,7 @@ permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"bookin
 // as the pages do; policies/tests/tools.json pins them. A technician's token
 // reads only their own jobs through the technician forbid above.
 
-// A sensitive action needs a recent second factor.
-forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write", Renox::Action::"user.manage"], resource)
+// A sensitive action needs a recent second factor (twofa.reset, #735: the
+// twofa module asks for one again itself, before it deletes anything).
+forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write", Renox::Action::"user.manage", Renox::Action::"twofa.reset"], resource)
 unless { principal has mfa_verified && principal.mfa_verified };

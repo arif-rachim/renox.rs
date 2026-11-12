@@ -648,12 +648,18 @@
       "role": "Role",
       "set_role": "Change role",
       "remove": "Remove from branch",
+      "reset_2fa": "Reset second factor",
+      "reset_title": "Reset second factor",
+      "reset_confirm": "Reset the second factor of {name}? They will set it up again at their next sign-in.",
+      "reset_confirm_button": "Yes, reset it",
+      "reset_cancel": "Cancel",
       "you": "You",
       "pending": "Waiting for an answer",
       "pending_none": "No pending invitations.",
       "invited": "Invitation sent.",
       "role_set": "Role changed.",
       "removed": "Removed from the branch.",
+      "twofa_reset": "Second factor reset.",
       "claimed": "Roles applied to people who joined.",
       "no_role": "No role",
       "role_names": {
@@ -685,6 +691,7 @@
       "role": "Choose one of the five roles.",
       "member": "Choose a member of this branch.",
       "self": "You cannot change or remove yourself.",
+      "no_twofa": "This person has no second factor to reset.",
       "remove": "The person could not be removed (the last owner stays)."
     },
     "import": {
@@ -848,5 +855,8 @@
       "bad_number": "A contract number is 1 to 32 characters: letters, digits and . _ / -",
       "no_file": "Choose an Excel file and wait until its name appears."
     }
+  },
+  "people": {
+    "twofa_reset": "Your second factor was reset by {owner}. If this was not expected, tell your manager."
   }
 }
