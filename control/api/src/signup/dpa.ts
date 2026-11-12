@@ -4,5 +4,5 @@
 // show; a new text gets a new date here and on those pages, and the tenant
 // keeps the version it accepted.
 
-export const DPA_VERSION = "2026-10-30";
-export const TERMS_VERSION = "2026-10-30";
+export const DPA_VERSION = "2026-12-14";
+export const TERMS_VERSION = "2026-12-14";

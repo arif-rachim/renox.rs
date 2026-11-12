@@ -27,12 +27,11 @@ export const SITE_ORIGIN = "https://renoxium.com";
 
 /**
  * Whether the ask section shows the waitlist form (#691) instead of the
- * `mailto:` button. Off until the site's Content-Security-Policy lets a form
- * post to `API_ORIGIN`: the worker sends `form-action 'self'` and `renox.toml`
- * cannot widen it yet, so a browser would refuse to submit the form. Turn it
- * on with that change (#719).
+ * `mailto:` button. On since #740: `renox.toml` widens the Content-Security-Policy
+ * with `form_action = ["https://api.renoxium.com"]`, so a browser lets the form
+ * post to `API_ORIGIN`. Set it to false to fall back to the mail button.
  */
-export const WAITLIST_FORM = false;
+export const WAITLIST_FORM = true;
 
 /** The public repository: the code, the measurements, the open problems. */
 export const REPOSITORY = "https://github.com/arif-rachim/renox.rs";
