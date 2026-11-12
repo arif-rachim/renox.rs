@@ -118,6 +118,22 @@ test("the legal pages carry the versions sign-up records", () => {
   expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`<r-t key="dash.terms.version" version="${TERMS_VERSION}" />`);
 });
 
+// #752 (D34 decision 3): the texts, in both languages, name the operator by its licensed legal name.
+test("the DPA and the terms name Renoxium (FZC) and its licence in English and Arabic", () => {
+  for (const lang of ["en", "ar"]) {
+    const dash = (JSON.parse(readFileSync(join(import.meta.dir, `../i18n/${lang}.json`), "utf8")) as { dash: Record<string, Record<string, string>> }).dash;
+    for (const doc of ["dpa", "terms"] as const) {
+      const text = Object.values(dash[doc] ?? {}).join("\n");
+      expect(text, `${lang} ${doc}`).toContain("Renoxium (FZC)");
+      expect(text, `${lang} ${doc}`).toContain("20400");
+      expect(text, `${lang} ${doc}`).not.toMatch(/\bRenox\b/u);
+    }
+  }
+  for (const page of ["dpa", "terms"]) {
+    expect(readFileSync(join(import.meta.dir, `../pages/legal/${page}.html`), "utf8"), page).not.toMatch(/\bRenox\b/u);
+  }
+});
+
 // The templates rendered by the worker (`renox dev`).
 test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow, the checklist and the legal pages", async () => {
   const dev = await devWithData({

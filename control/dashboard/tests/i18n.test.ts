@@ -234,7 +234,7 @@ test.skipIf(!worker)(
         // Accept-Language alone chooses Arabic too.
         ["/signup", { "accept-language": "ar-AE,ar;q=0.9,en;q=0.5" }, ["pages/signup/index.html"], "أنشئ حسابك في Renoxium"],
         ["/legal/dpa", AR, ["pages/legal/dpa.html"], "اتفاقية معالجة البيانات"],
-        ["/legal/terms", AR, ["pages/legal/terms.html"], "الإصدار 2026-10-30."],
+        ["/legal/terms", AR, ["pages/legal/terms.html"], "الإصدار 2026-12-14."],
         ["/apps/shop/deployments", AR, ["pages/apps/[app]/deployments.html", "partials/app-nav.html", "partials/deployment-actions.html"], "<h1>عمليات النشر</h1>"],
       ];
       for (const [path, headers, files, arabic] of pages) {

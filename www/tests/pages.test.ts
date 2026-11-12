@@ -226,6 +226,16 @@ describe("pricing and legal", () => {
     expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
   });
 
+  // #752 (D34 decision 3): both texts name the operator by its licensed legal name, and no bare "Renox" is left.
+  test("the DPA and the terms name Renoxium (FZC) and its licence", () => {
+    for (const name of ["dpa", "terms"]) {
+      const html = readFileSync(join(import.meta.dir, `../pages/legal/${name}.html`), "utf8");
+      expect(html, name).toContain("Renoxium (FZC)");
+      expect(html, name).toContain("20400");
+      expect(html, name).not.toMatch(/\bRenox\b/u);
+    }
+  });
+
   // #741. The landing page's forbidden-word rule (FORBIDDEN, checkLanding) does not apply to legal pages.
   test("the privacy notice has one h1 and its nine sections in order; both footers link Privacy and the DPA apart", () => {
     const html = readFileSync(join(import.meta.dir, "../pages/legal/privacy.html"), "utf8");
