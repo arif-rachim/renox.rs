@@ -60,10 +60,13 @@ ignore = [
   { id = "RUSTSEC-2026-0490", reason = "hickory-proto 0.25.2 zone file lexer: as RUSTSEC-2026-0487" },
   { id = "RUSTSEC-2026-0491", reason = "hickory-proto 0.25.2 via deno_net and renox-runtime's fetch resolver: client-side decode of resolver answers only; fix is 0.26.2, which needs the next deno_runtime release (#731)" },
   # DNSSEC validation (hickory-proto 0.25.2, hickory-resolver 0.25.2 via
-  # deno_fetch and deno_net): both advisories need DNSSEC validation turned
+  # deno_fetch and deno_net): each advisory needs DNSSEC validation turned
   # on. Neither deno_net nor renox-runtime enables the dnssec features (the
   # fetch resolver is hickory-resolver 0.26 with tokio and system-config
   # only), so no answer is ever validated. Fixed in 0.26.2, as #731.
+  { id = "RUSTSEC-2026-0504", reason = "hickory-proto 0.25.2 NSEC3 DNSSEC validation: no dnssec feature is enabled in the worker; fix is 0.26.2 with the next deno_runtime release (#731)" },
+  { id = "RUSTSEC-2026-0505", reason = "hickory-proto 0.25.2 NSEC3 owner check in DNSSEC validation: as RUSTSEC-2026-0504" },
+  { id = "RUSTSEC-2026-0511", reason = "hickory-proto 0.25.2 NSEC NXDOMAIN check in DNSSEC validation: as RUSTSEC-2026-0504" },
   { id = "RUSTSEC-2026-0512", reason = "hickory-proto 0.25.2 DNSSEC validation: no dnssec feature is enabled in the worker; fix is 0.26.2 with the next deno_runtime release (#731)" },
   { id = "RUSTSEC-2026-0514", reason = "hickory-resolver 0.25.2 (deno_fetch, deno_net) DNSSEC validation: no dnssec feature is enabled; fix is 0.26.2 with the next deno_runtime release (#731)" },
   # zstd =0.13.2 is an exact pin of deno_node 0.198 (node:zlib); fixed in
