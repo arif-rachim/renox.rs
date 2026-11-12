@@ -554,31 +554,39 @@ describe("/admin/import in the background (#733)", () => {
     expect((await owner.page("/admin/import?lang=en")).html).toContain(`id="import-${id}"`);
   });
 
-  // 600 rows was tried first: its check (about 30 ms warm) ran out of the 50 ms now and then on a cold isolate, so the test uses 400.
-  test("normal case (measured on the free tier, worker 0.8.0): a file of 400 rows is checked, but its commit needs more CPU than a job attempt has (#768): failed with too_large, the check's report kept, nothing written", async () => {
-    const key = await upload(owner, "four-hundred.xlsx", plainWorkbook(plainRows(400, 2_000_000)));
+  // The commit of a file the check passed, but that is too large to write in one job attempt. The row is made
+  // `checked` directly (2,000 rows: its check would not fit one attempt either), so the test does not depend on how
+  // close a check of a few hundred rows comes to the 50 ms on the machine that runs it. Measured on the free tier,
+  // worker 0.8.0: about 900 rows is the most one check reads and about 250 the most one commit writes.
+  test("error case (the platform's limit until the jobs get a CPU budget of their own, #768): the commit of a checked file of 2,000 rows ends failed with too_large, the report kept, nothing written; a small file goes in", async () => {
+    const key = await upload(owner, "two-thousand.xlsx", plainWorkbook(plainRows(2_000, 2_000_000)));
     const before = count("app__customers");
-    const { id } = await startCheck("customers", key);
-    expect(await settled(id, 90_000)).toBe("checked");
-    expect(importRow(id)).toMatchObject({ rows: 400, ok: 400, errors: 0 });
+    const id = "im_cccccccccccccccc";
+    const db = writable();
+    db.run(
+      "insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at, checked_at) values (?, 'customers', ?, 'two-thousand.xlsx', 'checked', 2000, 2000, 0, 0, '{\"errors\":[],\"insert\":2000,\"update\":0,\"exists\":0}', 'u_owner', ?, ?)",
+      [id, key, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    db.close();
     const done = await commit(id);
     expect(done.status).toBe(303);
-    expect(importRow(id)).toMatchObject({ status: "failed", rows: 400, ok: 400, errors: 0 });
+    expect(importRow(id)).toMatchObject({ status: "failed", rows: 2000, ok: 2000, errors: 0 });
     expect(rows("select error from app__imports where id = ?", [id])[0]?.error).toBe("import.err.too_large");
-    // The killed attempt's transaction rolled back: not one customer, no audit row.
+    // The stopped attempt's transaction rolled back: not one customer, no audit row.
     expect(count("app__customers")).toBe(before);
     expect(rows("select count(*) as n from audit__events where action = 'import.committed' and resource_id = ?", [id])[0]?.n).toBe(0);
     const page = await owner.page(`/admin/import/${id}?lang=en`);
     expect(page.status).toBe(200);
-    expect(total(page.html, "rows")).toBe(400);
+    expect(total(page.html, "rows")).toBe(2000);
     expect(strip(/<p[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec(page.html)?.[1])).toContain("Split it into files of at most about 900 rows to check and 250 rows to import.");
     expect(page.html).not.toContain('id="commit-form"');
-    // Split in files that fit, the rows go in: 100 rows are committed (measured: about 250 is the most a job attempt writes).
-    const small = await upload(owner, "hundred.xlsx", plainWorkbook(plainRows(100, 3_000_000)));
+    // Split in files that fit, the rows go in.
+    const small = await upload(owner, "thirty.xlsx", plainWorkbook(plainRows(30, 3_000_000)));
     const part = (await startCheck("customers", small)).id;
     expect(await settled(part, 90_000)).toBe("checked");
     expect((await commit(part)).status).toBe(303);
     expect(importRow(part).status).toBe("committed");
-    expect(count("app__customers")).toBe(before + 100);
+    expect(count("app__customers")).toBe(before + 30);
   });
+
 });
