@@ -357,7 +357,7 @@ allow_unsandboxed = true
       // What the real dashboard renders from that data, in Chromium.
       const dash2 = await devWithData(
         { "pages/apps/[app]/logs.ts": logs, "pages/apps/[app]/client-errors.ts": errors, "pages/apps/index.ts": apps },
-        { env: { RENOX_API_URL: api } },
+        { port: freePort(), env: { RENOX_API_URL: api } },
       );
       stops.push(dash2.stop);
       await p.goto(`${dash2.base}/apps/${APP}/logs`);
