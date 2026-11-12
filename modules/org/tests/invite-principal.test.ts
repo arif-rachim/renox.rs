@@ -19,6 +19,12 @@ mock.module("renox:modules", () => ({
       return null;
     },
   },
+  // Bun keeps a module mock for the rest of the `bun test` process: every module the
+  // repository's code imports from `renox:modules` is named (as modules/reports' test does).
+  i18n: {},
+  email: {},
+  tax_gcc: {},
+  billing: {},
 }));
 const { invite } = await import("../lib/core.ts");
 

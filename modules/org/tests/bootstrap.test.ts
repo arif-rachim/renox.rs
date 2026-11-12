@@ -12,7 +12,9 @@ import { join } from "node:path";
 import { app, ServiceError, type TestApp } from "../../../sdk/src/test.ts";
 
 // core.ts imports `renox:modules`, which only the worker resolves; bootstrap never calls it.
-mock.module("renox:modules", () => ({ auth: {} }));
+// Bun keeps a module mock for the rest of the `bun test` process, so it names every
+// module the repository's code imports from `renox:modules` (as modules/reports' test does).
+mock.module("renox:modules", () => ({ auth: {}, i18n: {}, email: {}, tax_gcc: {}, billing: {} }));
 const { bootstrap } = await import("../lib/core.ts");
 
 const MODULE = join(import.meta.dir, "..");
