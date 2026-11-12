@@ -5840,16 +5840,29 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 | `requireMember(role?)` | The active organisation, or throws when the user is signed out or holds less than `role` |
 | `switchOrg(org_id)` | Make another of the user's organisations active |
 | `members(org_id)` | `[{ user_id, display_name, email, role }]`. The caller must be a member of that organisation |
-| `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }` |
+| `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }`. With no session, a user principal (an App MCP request with an agent token, #751) invites as itself under the same check; any other caller gets `AUTH_REQUIRED` |
 | `revokeInvite({ org, invite })` | Withdraw a pending invitation |
 | `acceptInvite(token)` | Join as the signed-in user. The invitation works once, before it expires, and only for the email it was sent to |
 | `rename({ org, name })` | Rename the organisation (admin or owner; 1 to 80 characters, `{ error }` otherwise). The slug stays. Emits `org.renamed` |
 | `setRole({ org, user, role })`, `removeMember({ org, user })` | See the roles above. `removeMember` with your own id means leaving |
+| `bootstrap({ owner_user_id, orgs, invites })` | System only (#747), see below. The platform's one-time setup of a new app: `orgs` (1 to 5 of `{ name, slug? }`) with `owner_user_id` as owner, and `invites` (0 to 20 of `{ email, org_index, role }`, role `member`, `admin` or `owner`) as `invite` makes them. Returns `{ orgs: [{ id, name, slug }], invitations: [{ email, org_id }] }` |
 | `switcher(next?)` | The data of the switcher partial, for a page's `load` |
 
 `scope` is `{ org_id, role }`, the organisation part of the authz context of F5 (`docs/11-authorization.md`, `policies/org.cedar`).
 
 **The fence between organisations is in these services.** The SQLite authorizer keeps other modules out of `org__*` tables, but it does not tell one organisation's rows from another's. Until F5 brings `db.scoped`, scope your own tables yourself: store `currentOrg().id` with a row and filter on it. The `shop` example does this for its orders.
+
+## Bootstrap (#747)
+
+`bootstrap` runs in the caller's transaction, has no session (it sets no active organisation), emits `org.created` and `org.member_added` per organisation, and sends each invitation through `org.before_invite` and `org.send_mail` exactly as `invite` does (`invited_by` is the owner; a halt fails the whole call with `ORG_INVITE_HALTED`). A malformed request throws `RENOX_VALIDATION` with `details: [{ field, reason }]`, before any write.
+
+Who may call it: the app's own code in an anonymous request (no principal), on a fresh app (no organisation and no invitation) whose only user is `owner_user_id`. That is the platform's setup call, which registers the owner just before. Everything else gets `RENOX_FORBIDDEN` with `details: { action: "org.bootstrap", reason }` and nothing is written:
+
+- `principal`: a page or action with a session, an App MCP tool call, a job or event handler, a module, or the platform's system principal;
+- `not_fresh`: an organisation or invitation exists. It works once;
+- `owner`: the app has no user, several users, or `owner_user_id` is not the only one.
+
+What the guard does not cover: the runtime does not tell a service which module called it. Another module's code in the same anonymous request, on a fresh app with at most one user, cannot be told apart from the app's code. The window is the app's first anonymous requests, before it has an organisation.
 
 ## Active organisation
 
