@@ -6,7 +6,9 @@
     <r-t key="backoffice.import.committed" :inserted="imp.insert" :updated="imp.update" :exists="imp.exists" />
     <a :href="where" id="import-where"><r-t key="backoffice.import.open" /></a>
   </p>
-  <dl id="import-totals">
+  <p class="notice" id="import-working" role="status" r-if="working"><r-group r-if="imp.status == 'checking'"><r-t key="backoffice.import.working_check" /></r-group><r-group r-else><r-t key="backoffice.import.working_commit" /></r-group></p>
+  <p class="problem" id="import-failed" role="alert" r-if="failed">{{ imp.error | t }} <a href="/admin/import" id="import-again"><r-t key="backoffice.import.again" /></a></p>
+  <dl id="import-totals" r-if="has_report">
     <dt><r-t key="backoffice.import.total.rows" /></dt><dd dir="ltr" id="total-rows">{{ imp.rows }}</dd>
     <dt><r-t key="backoffice.import.total.insert" /></dt><dd dir="ltr" id="total-insert">{{ imp.insert }}</dd>
     <dt><r-t key="backoffice.import.total.update" /></dt><dd dir="ltr" id="total-update">{{ imp.update }}</dd>

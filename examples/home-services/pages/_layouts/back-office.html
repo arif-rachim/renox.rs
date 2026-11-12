@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/renox-ui.css">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/theme">
+  <meta r-if="refresh" http-equiv="refresh" :content="refresh">
 </head>
 <body>
   <a class="skip" href="#main"><r-t key="app.skip" /></a>

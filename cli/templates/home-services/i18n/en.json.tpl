@@ -716,9 +716,12 @@
       },
       "counts": "{rows} rows, {ok} to write, {skipped} already there, {errors} errors",
       "status": {
+        "checking": "Checking",
         "checked": "Checked",
+        "committing": "Importing",
         "committed": "Imported",
-        "discarded": "Discarded"
+        "discarded": "Discarded",
+        "failed": "Failed"
       },
       "kinds": {
         "customers": {
@@ -739,6 +742,9 @@
         }
       },
       "report": "Check report",
+      "working_check": "Checking the file…",
+      "working_commit": "Importing…",
+      "again": "Upload again",
       "committed": "Imported: {inserted} added, {updated} updated, {exists} already there.",
       "open": "See the result",
       "total": {
@@ -853,7 +859,10 @@
       "too_long": "The value is too long.",
       "bad_email": "Not a valid email address.",
       "bad_number": "A contract number is 1 to 32 characters: letters, digits and . _ / -",
-      "no_file": "Choose an Excel file and wait until its name appears."
+      "no_file": "Choose an Excel file and wait until its name appears.",
+      "too_large": "The file is too large to check on the current plan. Split it into files of at most about 900 rows to check and 250 rows to import.",
+      "data_changed": "The data changed since the check, so nothing was imported. Upload the file again.",
+      "check_failed": "The file could not be checked. Upload it again."
     }
   },
   "people": {

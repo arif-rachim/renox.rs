@@ -2,7 +2,6 @@
   <r-group slot="title"><r-t key="backoffice.import.title" /> · {{ brand.name }}</r-group>
   <h1><r-t key="backoffice.import.title" /></h1>
   <p><r-t key="backoffice.import.intro" :mb="max_mb" /></p>
-  <p class="problem" role="alert" id="file-error" r-if="file_error">{{ ('import.err.' ~ file_error) | t }}</p>
   <ol id="import-kinds">
     <li r-for="k in kinds" :id="'kind-' ~ k.kind">
       <strong>{{ ('backoffice.import.kinds.' ~ k.kind ~ '.name') | t }}</strong>: {{ ('backoffice.import.kinds.' ~ k.kind ~ '.desc') | t }}
