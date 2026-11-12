@@ -50,7 +50,7 @@
           <input type="hidden" name="phase" :value="ph.phase">
           <input type="hidden" name="key" :id="'photo-key-' ~ ph.phase">
           <p><label><r-t key="visits.photos.file" /> <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" :data-upload-action="'/me/visits/' ~ job.id ~ '?/photo_url'" data-key-field="key"> <span data-upload-status class="muted"></span></label></p>
-          <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200" :value="values.caption if values.phase == ph.phase else ''" :id="'f-caption' if values.phase == ph.phase else 'f-caption-' ~ ph.phase" :aria-invalid="'true' if values.phase == ph.phase and errors.caption else 'false'" :aria-describedby="'err-caption' if values.phase == ph.phase and errors.caption else ''"></label></p>
+          <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200" :value="values.caption if values.phase == ph.phase else ''" :id="'f-caption' if values.phase == ph.phase else 'f-caption-' ~ ph.phase" :aria-invalid="true if values.phase == ph.phase and errors.caption else false" :aria-describedby="'err-caption' if values.phase == ph.phase and errors.caption else none"></label></p>
           <p><small class="muted"><r-t key="visits.photos.limit" /></small></p>
           <p><button type="submit"><r-t key="visits.photos.add" /></button></p>
         </x-form></r-group>
@@ -72,9 +72,9 @@
       </table></div>
       <p r-else class="muted"><r-t key="visits.parts.none" /></p>
       <r-group r-if="open"><x-form action="part" class="stack narrow" id="part-form">
-        <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" :value="values.description" required id="f-description" :aria-invalid="'true' if errors.description else 'false'" :aria-describedby="'err-description' if errors.description else ''" aria-required="true"></label></p>
-        <p><label><r-t key="visits.parts.qty" /> <input name="qty" :value="values.qty if values.qty is defined else '1'" inputmode="decimal" dir="ltr" required id="f-qty" :aria-invalid="'true' if errors.qty else 'false'" :aria-describedby="'err-qty' if errors.qty else ''" aria-required="true"></label></p>
-        <p><label><r-t key="visits.parts.price" /> <input name="price" :value="values.price if values.price is defined else '0'" inputmode="decimal" dir="ltr" required id="f-price" :aria-invalid="'true' if errors.price else 'false'" :aria-describedby="'err-price' if errors.price else ''" aria-required="true"></label></p>
+        <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" :value="values.description" required id="f-description" :aria-invalid="true if errors.description else false" :aria-describedby="'err-description' if errors.description else none" aria-required="true"></label></p>
+        <p><label><r-t key="visits.parts.qty" /> <input name="qty" :value="values.qty if values.qty is defined else '1'" inputmode="decimal" dir="ltr" required id="f-qty" :aria-invalid="true if errors.qty else false" :aria-describedby="'err-qty' if errors.qty else none" aria-required="true"></label></p>
+        <p><label><r-t key="visits.parts.price" /> <input name="price" :value="values.price if values.price is defined else '0'" inputmode="decimal" dir="ltr" required id="f-price" :aria-invalid="true if errors.price else false" :aria-describedby="'err-price' if errors.price else none" aria-required="true"></label></p>
         <p><button type="submit"><r-t key="visits.parts.add" /></button></p>
       </x-form></r-group>
     </section>
@@ -82,7 +82,7 @@
     <section id="notes">
       <h2><r-t key="visits.notes.title" /></h2>
       <r-group r-if="open"><x-form action="notes" class="stack narrow">
-        <p><label class="visually-hidden" for="f-notes"><r-t key="visits.notes.title" /></label><textarea name="notes" rows="4" maxlength="2000" dir="auto" id="f-notes" :aria-invalid="'true' if errors.notes else 'false'" :aria-describedby="'err-notes' if errors.notes else ''">{{ values.notes if values.notes is defined else visit.notes }}</textarea></p>
+        <p><label class="visually-hidden" for="f-notes"><r-t key="visits.notes.title" /></label><textarea name="notes" rows="4" maxlength="2000" dir="auto" id="f-notes" :aria-invalid="true if errors.notes else false" :aria-describedby="'err-notes' if errors.notes else none">{{ values.notes if values.notes is defined else visit.notes }}</textarea></p>
         <p><button type="submit"><r-t key="visits.notes.save" /></button></p>
       </x-form></r-group>
       <p r-else dir="auto" id="notes-text">{{ visit.notes }}</p>
@@ -94,7 +94,7 @@
       <p r-if="visit.signed_by" id="signed-by"><r-t key="visits.signature.saved" :name="visit.signed_by" /></p>
       <p r-else class="muted"><r-t key="visits.signature.none" /></p>
       <r-group r-if="open"><x-form action="signature" class="stack narrow" id="signature-form">
-        <p><label><r-t key="visits.signature.name" /> <input name="signed_by" maxlength="120" dir="auto" :value="values.signed_by" required id="f-signed_by" :aria-invalid="'true' if errors.signed_by else 'false'" :aria-describedby="'err-signed_by' if errors.signed_by else ''" aria-required="true"></label></p>
+        <p><label><r-t key="visits.signature.name" /> <input name="signed_by" maxlength="120" dir="auto" :value="values.signed_by" required id="f-signed_by" :aria-invalid="true if errors.signed_by else false" :aria-describedby="'err-signed_by' if errors.signed_by else none" aria-required="true"></label></p>
         <p class="muted"><r-t key="visits.signature.draw" /></p>
         <canvas id="sig-canvas" class="sig-canvas" role="img" :aria-label="'visits.signature.draw' | t" width="320" height="160"></canvas>
         <p><label><input type="checkbox" id="sig-typed"> <r-t key="visits.signature.typed" /></label> <small class="muted"><r-t key="visits.signature.typed_hint" /></small></p>
@@ -107,8 +107,8 @@
       <h2><r-t key="visits.summary.title" /></h2>
       <p class="muted"><r-t key="visits.summary.hint" /></p>
       <x-form action="summary" class="stack narrow">
-        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en" :aria-invalid="'true' if errors.summary_en else 'false'" :aria-describedby="'err-summary_en' if errors.summary_en else ''">{{ values.summary_en if values.summary_en is defined else visit.summary_en }}</textarea></label></p>
-        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar" :aria-invalid="'true' if errors.summary_ar else 'false'" :aria-describedby="'err-summary_ar' if errors.summary_ar else ''">{{ values.summary_ar if values.summary_ar is defined else visit.summary_ar }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en" :aria-invalid="true if errors.summary_en else false" :aria-describedby="'err-summary_en' if errors.summary_en else none">{{ values.summary_en if values.summary_en is defined else visit.summary_en }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar" :aria-invalid="true if errors.summary_ar else false" :aria-describedby="'err-summary_ar' if errors.summary_ar else none">{{ values.summary_ar if values.summary_ar is defined else visit.summary_ar }}</textarea></label></p>
         <p><button type="submit"><r-t key="visits.summary.save" /></button></p>
       </x-form>
     </section>

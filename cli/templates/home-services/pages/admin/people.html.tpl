@@ -37,8 +37,8 @@
   <section r-can="user.manage">
     <h2><r-t key="backoffice.users.invite" /></h2>
     <x-form action="invite" class="stack narrow">
-      <p><label><r-t key="backoffice.users.email" /> <input name="email" type="email" dir="ltr" maxlength="254" :value="values.email" required id="f-email" :aria-invalid="'true' if errors.email else 'false'" :aria-describedby="'err-email' if errors.email else ''" aria-required="true"></label></p>
-      <p><label><r-t key="backoffice.users.role" /> <select name="role" id="f-role" :aria-invalid="'true' if errors.role else 'false'" :aria-describedby="'err-role' if errors.role else ''"><option r-for="r in roles" :value="r.value" :selected="r.value == ((values.role if values.user_id is not defined else '') or 'technician')">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select></label></p>
+      <p><label><r-t key="backoffice.users.email" /> <input name="email" type="email" dir="ltr" maxlength="254" :value="values.email" required id="f-email" :aria-invalid="true if errors.email else false" :aria-describedby="'err-email' if errors.email else none" aria-required="true"></label></p>
+      <p><label><r-t key="backoffice.users.role" /> <select name="role" id="f-role" :aria-invalid="true if errors.role else false" :aria-describedby="'err-role' if errors.role else none"><option r-for="r in roles" :value="r.value" :selected="r.value == ((values.role if values.user_id is not defined else '') or 'technician')">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="backoffice.users.invite_submit" /></button></p>
     </x-form>
   </section>

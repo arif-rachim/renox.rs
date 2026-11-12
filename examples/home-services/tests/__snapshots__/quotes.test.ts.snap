@@ -480,15 +480,15 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
   <form method="post" action="?/create" hx-post="?/create" class="stack"><input type="hidden" name="_csrf" value="<csrf>">
     <section class="stack narrow">
       <p><label>Site
-        <select name="site_id" required id="f-site_id" aria-invalid="false" aria-describedby="" aria-required="true">
+        <select name="site_id" required id="f-site_id" aria-required="true">
           <option value="">—</option>
           <option value="st_dxb_05a" dir="auto">Al Barsha Facilities LLC · Building 9</option><option value="st_dxb_03a" dir="auto">Fatima Al Suwaidi · Home</option><option value="st_dxb_01a" dir="auto">Layla Haddad · Apartment</option><option value="st_dxb_04a" dir="auto">Marina Heights Property Management · Tower A</option><option value="st_dxb_04b" dir="auto">Marina Heights Property Management · Tower B</option><option value="st_dxb_02b" dir="auto">Peter Nowak · Office</option><option value="st_dxb_02a" dir="auto">Peter Nowak · Villa</option>
         </select></label></p>
-      <p><label>Valid for (days) <input name="valid_days" type="number" min="1" max="365" value="30" dir="ltr" id="f-valid_days" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>Valid for (days) <input name="valid_days" type="number" min="1" max="365" value="30" dir="ltr" id="f-valid_days"></label></p>
     </section>
     <section class="stack narrow" id="ai-draft">
       <h2>AI draft</h2>
-      <p><label>What did the customer ask for? <textarea name="request" rows="3" maxlength="2000" id="f-request" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
+      <p><label>What did the customer ask for? <textarea name="request" rows="3" maxlength="2000" id="f-request" dir="auto"></textarea></label></p>
       <p><button type="submit" formaction="?/draft" id="draft-button">Draft the lines</button></p>
       
       
@@ -501,41 +501,41 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
       <thead><tr><th scope="col">Service</th><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Price (AED)</th></tr></thead>
       <tbody>
         <tr id="row-0">
-          <td><select name="service_0" aria-label="Service, line 1" id="f-service_0" aria-invalid="false" aria-describedby="">
+          <td><select name="service_0" aria-label="Service, line 1" id="f-service_0">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_0" aria-label="Description, line 1" value="" maxlength="200" id="f-desc_0" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_0" aria-label="Description in Arabic, line 1" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_0" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="qty_0" aria-label="Qty, line 1" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_0" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="price_0" aria-label="Price (AED), line 1" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_0" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="desc_0" aria-label="Description, line 1" value="" maxlength="200" id="f-desc_0" dir="auto"><input name="desc_ar_0" aria-label="Description in Arabic, line 1" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_0"></td>
+          <td><input name="qty_0" aria-label="Qty, line 1" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_0"></td>
+          <td><input name="price_0" aria-label="Price (AED), line 1" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_0"></td>
         </tr><tr id="row-1">
-          <td><select name="service_1" aria-label="Service, line 2" id="f-service_1" aria-invalid="false" aria-describedby="">
+          <td><select name="service_1" aria-label="Service, line 2" id="f-service_1">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_1" aria-label="Description, line 2" value="" maxlength="200" id="f-desc_1" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_1" aria-label="Description in Arabic, line 2" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_1" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="qty_1" aria-label="Qty, line 2" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_1" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="price_1" aria-label="Price (AED), line 2" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_1" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="desc_1" aria-label="Description, line 2" value="" maxlength="200" id="f-desc_1" dir="auto"><input name="desc_ar_1" aria-label="Description in Arabic, line 2" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_1"></td>
+          <td><input name="qty_1" aria-label="Qty, line 2" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_1"></td>
+          <td><input name="price_1" aria-label="Price (AED), line 2" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_1"></td>
         </tr><tr id="row-2">
-          <td><select name="service_2" aria-label="Service, line 3" id="f-service_2" aria-invalid="false" aria-describedby="">
+          <td><select name="service_2" aria-label="Service, line 3" id="f-service_2">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_2" aria-label="Description, line 3" value="" maxlength="200" id="f-desc_2" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_2" aria-label="Description in Arabic, line 3" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_2" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="qty_2" aria-label="Qty, line 3" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_2" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="price_2" aria-label="Price (AED), line 3" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_2" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="desc_2" aria-label="Description, line 3" value="" maxlength="200" id="f-desc_2" dir="auto"><input name="desc_ar_2" aria-label="Description in Arabic, line 3" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_2"></td>
+          <td><input name="qty_2" aria-label="Qty, line 3" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_2"></td>
+          <td><input name="price_2" aria-label="Price (AED), line 3" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_2"></td>
         </tr><tr id="row-3">
-          <td><select name="service_3" aria-label="Service, line 4" id="f-service_3" aria-invalid="false" aria-describedby="">
+          <td><select name="service_3" aria-label="Service, line 4" id="f-service_3">
             <option value="">—</option>
             <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
           </select></td>
-          <td><input name="desc_3" aria-label="Description, line 4" value="" maxlength="200" id="f-desc_3" aria-invalid="false" aria-describedby="" dir="auto"><input name="desc_ar_3" aria-label="Description in Arabic, line 4" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_3" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="qty_3" aria-label="Qty, line 4" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_3" aria-invalid="false" aria-describedby=""></td>
-          <td><input name="price_3" aria-label="Price (AED), line 4" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_3" aria-invalid="false" aria-describedby=""></td>
+          <td><input name="desc_3" aria-label="Description, line 4" value="" maxlength="200" id="f-desc_3" dir="auto"><input name="desc_ar_3" aria-label="Description in Arabic, line 4" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic" id="f-desc_ar_3"></td>
+          <td><input name="qty_3" aria-label="Qty, line 4" value="1" size="5" dir="ltr" inputmode="decimal" id="f-qty_3"></td>
+          <td><input name="price_3" aria-label="Price (AED), line 4" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price" id="f-price_3"></td>
         </tr>
       </tbody>
     </table></div>
-    <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
+    <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
     <p><button type="submit" class="btn-brand">Create quotation</button> <a href="/quotes">Cancel</a></p>
   </form>
 

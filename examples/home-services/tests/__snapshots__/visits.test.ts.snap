@@ -192,8 +192,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       <h2>Summary for the report</h2>
       <p class="muted">Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.</p>
       <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-        <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en" aria-invalid="false" aria-describedby="">Both units serviced.</textarea></label></p>
-        <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar" aria-invalid="false" aria-describedby="">تمت صيانة الوحدتين.</textarea></label></p>
+        <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en">Both units serviced.</textarea></label></p>
+        <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar">تمت صيانة الوحدتين.</textarea></label></p>
         <p><button type="submit">Save summary</button></p>
       </form>
     </section>
@@ -331,8 +331,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
       <h2>ملخص التقرير</h2>
       <p class="muted">جملتان يصيغهما الذكاء الاصطناعي من ملاحظاتك وقطعك عند تشغيله. عدّلهما قبل إرسال التقرير.</p>
       <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-        <p><label>الملخص (الإنجليزية) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en" aria-invalid="false" aria-describedby="">Both units serviced.</textarea></label></p>
-        <p><label>الملخص (العربية) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar" aria-invalid="false" aria-describedby="">تمت صيانة الوحدتين.</textarea></label></p>
+        <p><label>الملخص (الإنجليزية) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en">Both units serviced.</textarea></label></p>
+        <p><label>الملخص (العربية) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar">تمت صيانة الوحدتين.</textarea></label></p>
         <p><button type="submit">حفظ الملخص</button></p>
       </form>
     </section>

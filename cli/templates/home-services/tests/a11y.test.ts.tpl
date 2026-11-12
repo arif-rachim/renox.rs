@@ -385,8 +385,31 @@ describe("a form that cannot be saved (422)", () => {
     expect(res.html).toContain('<a href="#f-name"><strong dir="auto">Name</strong></a>');
     expect(res.html).toMatch(/<input name="name"[^>]*id="f-name"[^>]*aria-invalid="true"[^>]*aria-describedby="err-name"/u);
     expect(res.html).toContain('id="err-name"');
-    expect(res.html).toMatch(/<input name="trn"[^>]*aria-invalid="false"[^>]*aria-describedby=""/u);
+    // A control with no error has neither attribute (#737): the page passes false and none, and the engine leaves them out.
+    const trn = res.html.match(/<input name="trn"[^>]*>/u)?.[0] ?? "";
+    expect(trn).not.toBe("");
+    expect(trn).not.toContain("aria-invalid");
+    expect(trn).not.toContain("aria-describedby");
     expect(audit(res.html, "en")).toEqual([]);
+  });
+
+  test("a valid form marks no control: no aria-invalid and no aria-describedby on any control (#737)", async () => {
+    const res = await dispatcher.page(withLang("/customers/new", "en"));
+    expect(res.status).toBe(200);
+    const controls = res.html.match(/<(input|select|textarea)\b[^>]*>/gu) ?? [];
+    expect(controls.length).toBeGreaterThan(3);
+    for (const c of controls) {
+      expect(c).not.toContain("aria-invalid");
+      expect(c).not.toContain("aria-describedby");
+    }
+  });
+
+  test('no page prints aria-invalid="false" or an empty aria-describedby (#737)', async () => {
+    for (const p of PAGES) {
+      const res = await p.as().page(withLang(p.path, "en"));
+      expect(res.html.includes('aria-invalid="false"'), `${p.path} has aria-invalid="false"`).toBe(false);
+      expect(res.html.includes('aria-describedby=""'), `${p.path} has an empty aria-describedby`).toBe(false);
+    }
   });
 
   test("a page with several forms links to the control of the form that failed", async () => {
