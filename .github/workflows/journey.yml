@@ -7,7 +7,9 @@ name: journey
 # failed run opens (or comments on) an issue labelled `journey`.
 on:
   push:
-    branches: [main]
+    # TEMPORARY (#586): the batch branch, because workflow_dispatch cannot reach
+    # a workflow that is not on main yet; removed before the PR is ready.
+    branches: [main, ccr-53abc3f2-fenwfr]
   schedule:
     - cron: "23 2 * * *"
   workflow_dispatch:
