@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.15 (unreleased)
+
+**Modules**
+
+- `email` 1.2.0: a `url` that is a path of the app (`/org/accept/<token>`, as `org` writes it in an App MCP request, which has no request origin) is completed with the app's origin: the origin of the request that queues the mail, else the new `app_url` config (an `https://` origin, at most 200 characters); the result must have exactly that origin. `//host`, a backslash, a control character, more than 2,000 characters, any other relative value and any non-`https` scheme are dropped as before. With no origin the link is dropped and one warning `EMAIL_LINK_NO_ORIGIN` is logged. The invitation mail of an agent's `invite_people` or `invite_member` now carries its button (#765).
+
 ## 0.1.14 (2026-11-12)
 
 **Install**

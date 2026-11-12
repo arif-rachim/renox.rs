@@ -3,7 +3,7 @@
 // retries a throw, so a provider 5xx is retried and a 4xx is final), and a
 // suppression list that bounces and complaints fill. Bodies are never logged.
 
-import { renderMail } from "./templates.ts";
+import { appUrlOrigin, cleanOrigin, isAppPath, renderMail } from "./templates.ts";
 import * as reputation from "../src/reputation/reputation.ts";
 
 export interface Db {
@@ -18,7 +18,9 @@ export interface EmailCtx {
   db: Db;
   fetch: FetchFn;
   secrets: Record<string, string | undefined>;
-  config: { provider?: string; from?: string; from_name?: string; ses_region?: string; sends_per_minute?: number };
+  config: { provider?: string; from?: string; from_name?: string; ses_region?: string; sends_per_minute?: number; app_url?: string };
+  /** The request being served (a page or route); absent in a job, an event handler and an App MCP tool. */
+  url?: URL;
   events: { emit(name: string, payload: unknown): Promise<void> };
   /** `email.before_send` (this module's hook point): a filler that halts stops the message. */
   hooks?: { run(name: string, args?: unknown): Promise<{ halt: boolean }> };
@@ -69,7 +71,11 @@ export async function suppressed(ctx: EmailCtx, to: unknown): Promise<boolean> {
 export async function sendTemplate(ctx: EmailCtx, to: unknown, template: unknown, data: unknown, opts: { locale?: unknown; reply_to?: unknown; from_name?: unknown } = {}): Promise<{ id: string | null; cancelled?: true }> {
   if (typeof template !== "string") throw new EmailError("a template name", "INVALID");
   const locale = opts.locale === "ar" ? "ar" : "en";
-  const m = renderMail(template, (data ?? {}) as Record<string, unknown>, locale);
+  const d = (data ?? {}) as Record<string, unknown>;
+  // A path link (`/org/accept/<t>`) is completed on the origin of the request that queues the mail, else on `config.app_url`; with neither, it is dropped.
+  const base = cleanOrigin(ctx.url?.origin) ?? appUrlOrigin(ctx.config.app_url);
+  if (base === null && isAppPath(d.url)) ctx.log.warn("email link dropped: no app origin (set the app_url config)", { code: "EMAIL_LINK_NO_ORIGIN", template });
+  const m = renderMail(template, d, locale, base);
   if (m === null) throw new EmailError(`no template ${template}`, "INVALID");
   return sendRaw(ctx, { to, ...m, reply_to: opts.reply_to, from_name: opts.from_name, template, locale });
 }

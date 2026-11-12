@@ -272,7 +272,7 @@ export async function invite(
 /**
  * `invite` as `user` (the session's, or an agent's: the `invite_member`
  * tool, #286). `origin` builds the accept link; without one (no request)
- * the link is the app path and the mail module prefixes the app's host.
+ * the link is the app path and the email module completes it with the app's origin (its `app_url` config).
  */
 export async function inviteAs(
   ctx: OrgCtx,
