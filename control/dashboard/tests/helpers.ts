@@ -89,7 +89,7 @@ const noop = (): void => {};
 
 function fakeDb(d: Dash): Ctx["db"] {
   // No rewriter in unit tests: a scoped Db is the same Db (ops.md section 17 is enforced in Rust).
-  const db: Ctx["db"] = { ...statements(d.sqlite), transaction: async (fn) => fn(statements(d.sqlite)), scoped: () => db };
+  const db: Ctx["db"] = { ...statements(d.sqlite), transaction: async (fn) => fn({ ...statements(d.sqlite), scoped: () => statements(d.sqlite) }), scoped: () => db };
   return db;
 }
 

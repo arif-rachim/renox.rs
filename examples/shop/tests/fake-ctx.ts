@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Ctx, Db, DbStatements, ExecuteResult, Param, Row } from "@renoxium/sdk";
+import type { Ctx, Db, DbStatements, ExecuteResult, Param, Row, TxDb } from "@renoxium/sdk";
 
 const root = join(import.meta.dir, "..");
 
@@ -40,11 +40,11 @@ export function fakeDb(sqlite: Database): Db {
     ...s,
     // Unit tests have no rewriter: a scoped Db is the same Db (ops.md section 17 is enforced in Rust).
     scoped: () => db,
-    transaction: <T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> => {
+    transaction: <T>(fn: (tx: TxDb) => Promise<T>): Promise<T> => {
       const run = chain.then(async () => {
         sqlite.exec("begin immediate");
         try {
-          const out = await fn(s);
+          const out = await fn({ ...s, scoped: () => s });
           sqlite.exec("commit");
           return out;
         } catch (e) {

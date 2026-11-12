@@ -9,6 +9,11 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 - `email` 1.2.0: a `url` that is a path of the app (`/org/accept/<token>`, as `org` writes it in an App MCP request, which has no request origin) is completed with the app's origin: the origin of the request that queues the mail, else the new `app_url` config (an `https://` origin, at most 200 characters); the result must have exactly that origin. `//host`, a backslash, a control character, more than 2,000 characters, any other relative value and any non-`https` scheme are dropped as before. With no origin the link is dropped and one warning `EMAIL_LINK_NO_ORIGIN` is logged. The invitation mail of an agent's `invite_people` or `invite_member` now carries its button (#765).
 - `whatsapp` 1.3.0: the rows of `inbox()`, `outbox()` and `message()` gain `error: string | null`, the provider's failure reason of a failed or retried send (redacted, at most 200 characters, never a token or a secret), and the service `mode()` answers `{ sandbox }`, so an app can show why a message failed and a sandbox banner without reading the module's table or config. (#771)
 
+**SDK**
+
+- The `tx` of `ctx.db.transaction(async (tx) => ...)` is typed `TxDb`, so `tx.scoped(scope)` needs no `(tx as TxDb)` cast (the cast advice of 0.1.14 is no longer needed; it still compiles). A `Db` fake that implements `transaction` passes `{ ...statements, scoped: () => statements }` to `fn` (`ops.md` 1.17.1) (#756).
+- `t.job(name, { payload })` of `@renoxium/sdk/test` runs a queued run of the job with that payload, as `ctx.jobs.enqueue(name, payload)` writes it: one run per call, so a test can run a queued job again (#770).
+
 ## 0.1.14 (2026-11-12)
 
 **Install**

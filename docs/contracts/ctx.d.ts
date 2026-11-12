@@ -269,11 +269,11 @@ export interface Db extends DbStatements {
    * while a transaction is current (a service called from an action), it is a
    * savepoint instead (section 1, "Savepoints", 1.3.0). Inside `fn`, use
    * `tx.scoped(scope)` for scoped statements (1.15.0): the app's
-   * `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. At run time
-   * `tx` is a `TxDb`; the parameter is still typed `DbStatements` so that
-   * existing `Db` fakes keep compiling (#749), so write `(tx as TxDb).scoped(...)`.
+   * `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. `tx` is a
+   * `TxDb` (1.17.1, #756; before, typed `DbStatements` so that existing `Db`
+   * fakes kept compiling): a fake passes `{ ...statements, scoped: () => statements }`.
    */
-  transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: TxDb) => Promise<T>): Promise<T>;
   /**
    * A `Db` whose statements carry `scope` (section 1, "Scoped statements";
    * section 17, "db.scoped()", 1.5.0): owned tables get their owner
