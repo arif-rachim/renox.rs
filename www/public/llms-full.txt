@@ -2212,7 +2212,26 @@ Templates are valid HTML with logic expressed as attributes. At deploy time the 
 | Permission | `r-can="action" :resource="x"`, `r-cannot` | `{% if can(...) %}` (see `11-authorization.md`) |
 | Module component | `<billing:plan-badge :user="user" />` | namespaced macro |
 
-A boolean prints as `true` or `false` in an interpolation and in a bound attribute (`:aria-pressed="task.done"` gives `aria-pressed="true"`), which is what ARIA and `data-*` attributes expect. Boolean HTML attributes (`disabled`, `checked`, `hidden`, ...) keep their present/absent behaviour: `:disabled="x"` emits `disabled` when `x` is truthy and nothing otherwise. Inside `~`, `join` and list displays a boolean still has minijinja's `True`/`False` form.
+A boolean prints as `true` or `false` in an interpolation (`{{ task.done }}` in text gives `true`). Inside `~`, `join` and list displays a boolean still has minijinja's `True`/`False` form.
+
+### Attributes whose value is false, none or undefined
+
+An attribute whose whole value is one expression, either a bound attribute (`:name="expr"`) or a value that is exactly one interpolation (`name="{{ expr }}"`, nothing before the `{{` or after the `}}`, not even a space), is written or omitted by the **value of the expression, before it becomes text** (#737):
+
+| Value of the expression | `name="{{ v }}"` and `:name="v"` | HTML boolean attribute (`disabled="{{ v }}"`) |
+| --- | --- | --- |
+| boolean `false`, `none` (JSON `null`), undefined | attribute omitted | attribute omitted |
+| boolean `true` | `name="true"` | bare `disabled` |
+| the string `"false"` | `name="false"` | `disabled="false"` |
+| the empty string `""` | `name=""` | `disabled=""` |
+| any other value | `name="<value>"`, escaped | `disabled="<value>"`, escaped |
+
+So `aria-invalid="{{ invalid }}"` writes `aria-invalid="true"` for an error and nothing without one, and `aria-describedby="{{ describedby }}"` disappears when there is no message id. A template that needs the text `false` passes the string: `aria-invalid="{{ 'false' }}"`, or `:aria-pressed="'true' if task.done else 'false'"` for a toggle button, where `aria-pressed="false"` carries meaning. The HTML boolean attributes are `allowfullscreen`, `async`, `autofocus`, `autoplay`, `checked`, `controls`, `default`, `defer`, `disabled`, `formnovalidate`, `hidden`, `inert`, `ismap`, `itemscope`, `loop`, `multiple`, `muted`, `nomodule`, `novalidate`, `open`, `playsinline`, `readonly`, `required` and `selected`; bound with `:name`, they keep their present/absent rule: `:disabled="x"` emits `disabled` when `x` is truthy and nothing otherwise.
+
+- The expression is evaluated once (`{% with %}` binds it in the compiled template); a constant `false` or `none` (`:data-x="false"`) drops the attribute at compile time.
+- URL attributes (`href`, `src`, `action`, `hx-get`, ...) are omitted the same way; a written value still goes through the URL filter.
+- An attribute with mixed text (`class="btn {{ x }}"`, `title=" {{ x }}"`) is unchanged: it is always written, a `none` or undefined part prints nothing and `false` prints `false`.
+- Escaping, the `on*` rule, `:class`, `<x-image>`'s own attributes and slots are unchanged.
 
 `r-*` and `:*` attributes are removed from the output; `hx-*` and `x-*` are passed through. Interpolation uses `{{ }}` because single braces clash with `x-data="{ open: false }"` and `hx-vals='{...}'`; interpolation is not processed inside `<script>` and `<style>`.
 

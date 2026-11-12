@@ -194,14 +194,155 @@ fn booleans_render_as_true_false_and_boolean_attrs_stay_present_or_absent() {
     let r = renderer(&c);
     let on = render_page(&r, "pages/index", json!({"x": true, "s": "<b>"}));
     assert!(on.contains("aria-pressed=\"true\""), "{on}");
-    assert!(on.contains("data-on=\"false\""), "{on}");
+    // #737: a bound value that is the boolean `false` omits the attribute.
+    assert!(!on.contains("data-on"), "{on}");
     assert!(on.contains(" disabled"), "{on}");
     assert!(on.contains(">true|false</button>"), "{on}");
     assert!(on.contains("&lt;b&gt;"), "{on}");
     let off = render_page(&r, "pages/index", json!({"x": false, "s": ""}));
-    assert!(off.contains("aria-pressed=\"false\""), "{off}");
+    assert!(!off.contains("aria-pressed"), "{off}");
+    assert!(off.contains("data-on=\"true\""), "{off}");
     assert!(!off.contains("disabled"), "{off}");
     assert!(off.contains(">false|true</button>"), "{off}");
+}
+
+/// #737 (`docs/08-template-engine.md`, "Attributes whose value is false,
+/// none or undefined"): an attribute whose whole value is one expression is
+/// omitted for `false`, `none` and undefined, and written for everything
+/// else, the same for `name="{{ v }}"` and `:name="v"`.
+#[test]
+fn an_attribute_whose_value_is_false_none_or_undefined_is_omitted() {
+    let c = compile_files(&[(
+        "pages/index.html",
+        "<p data-a=\"{{ v }}\" :data-b=\"v\">x</p>",
+    )])
+    .unwrap();
+    let r = renderer(&c);
+    let rows: [(serde_json::Value, &str); 7] = [
+        (json!({"v": false}), "<p>x</p>"),
+        (json!({"v": null}), "<p>x</p>"),
+        (json!({}), "<p>x</p>"),
+        (
+            json!({"v": "false"}),
+            "<p data-a=\"false\" data-b=\"false\">x</p>",
+        ),
+        (json!({"v": ""}), "<p data-a=\"\" data-b=\"\">x</p>"),
+        (
+            json!({"v": true}),
+            "<p data-a=\"true\" data-b=\"true\">x</p>",
+        ),
+        (json!({"v": 0}), "<p data-a=\"0\" data-b=\"0\">x</p>"),
+    ];
+    for (data, want) in rows {
+        let html = render_page(&r, "pages/index", data.clone());
+        assert!(html.contains(want), "{data}: {html}");
+    }
+}
+
+/// The home-services case (#737): `aria-invalid` and `aria-describedby`
+/// with no error leave no attribute; the string `'false'` and `true` stay.
+#[test]
+fn aria_invalid_follows_the_value_kind() {
+    let c = compile_files(&[(
+        "pages/index.html",
+        "<input aria-invalid=\"{{ invalid }}\" aria-describedby=\"{{ describedby }}\"><input :aria-invalid=\"invalid\"><input aria-invalid=\"{{ 'false' }}\">",
+    )])
+    .unwrap();
+    let r = renderer(&c);
+    let ok = render_page(&r, "pages/index", json!({"invalid": false}));
+    assert_eq!(
+        ok.matches("aria-invalid=\"false\"").count(),
+        1,
+        "only the string literal: {ok}"
+    );
+    assert_eq!(ok.matches("aria-invalid").count(), 1, "{ok}");
+    assert!(!ok.contains("aria-describedby"), "{ok}");
+    let bad = render_page(
+        &r,
+        "pages/index",
+        json!({"invalid": true, "describedby": "email-error"}),
+    );
+    assert_eq!(bad.matches("aria-invalid=\"true\"").count(), 2, "{bad}");
+    assert!(bad.contains("aria-describedby=\"email-error\""), "{bad}");
+}
+
+/// HTML boolean attributes (#737): `true` writes the bare name, `false`,
+/// `none` and undefined omit it; with `{{ }}` any other value is written as
+/// text, `:name` keeps its truthiness rule.
+#[test]
+fn boolean_attributes_with_a_whole_value_interpolation() {
+    let c = compile_files(&[(
+        "pages/index.html",
+        "<input disabled=\"{{ v }}\"><input :required=\"v\">",
+    )])
+    .unwrap();
+    let r = renderer(&c);
+    let on = render_page(&r, "pages/index", json!({"v": true}));
+    assert!(on.contains("<input disabled><input required>"), "{on}");
+    for data in [json!({"v": false}), json!({"v": null}), json!({})] {
+        let off = render_page(&r, "pages/index", data.clone());
+        assert!(off.contains("<input><input>"), "{data}: {off}");
+    }
+    let text = render_page(&r, "pages/index", json!({"v": "false"}));
+    assert!(
+        text.contains("<input disabled=\"false\"><input required>"),
+        "{text}"
+    );
+}
+
+/// Mixed text is unchanged by #737: the attribute stays, a `none` part
+/// prints nothing and `false` prints `false`; values stay escaped; URL
+/// attributes keep their filter and are omitted for `false`.
+#[test]
+fn mixed_attribute_text_escaping_and_urls_are_unchanged() {
+    let c = compile_files(&[(
+        "pages/index.html",
+        "<p class=\"btn {{ v }}\" title=\" {{ v }}\" data-x=\"a{{ v }}\" :data-y=\"v\">x</p><a :href=\"u\">a</a><a href=\"{{ u }}\">b</a>",
+    )])
+    .unwrap();
+    let r = renderer(&c);
+    let none = render_page(&r, "pages/index", json!({"v": null, "u": false}));
+    assert!(
+        none.contains("<p class=\"btn \" title=\" \" data-x=\"a\">x</p><a>a</a><a>b</a>"),
+        "{none}"
+    );
+    let f = render_page(&r, "pages/index", json!({"v": false}));
+    assert!(
+        f.contains("<p class=\"btn false\" title=\" false\" data-x=\"afalse\">x</p>"),
+        "{f}"
+    );
+    let hostile = render_page(
+        &r,
+        "pages/index",
+        json!({"v": "\"><script>", "u": "javascript:alert(1)"}),
+    );
+    assert!(
+        hostile.contains("data-y=\"&quot;&gt;&lt;script&gt;\""),
+        "{hostile}"
+    );
+    assert!(!hostile.contains("<script>"), "{hostile}");
+    assert_eq!(
+        hostile.matches("about:invalid#renox-unsafe-url").count(),
+        2,
+        "{hostile}"
+    );
+}
+
+/// A constant `false` or `none` drops the attribute at compile time (#737).
+#[test]
+fn a_constant_false_or_none_attribute_is_dropped_at_compile_time() {
+    let c = compile_files(&[(
+        "pages/index.html",
+        "<p :data-a=\"false\" data-b=\"{{ none }}\" :hidden=\"false\" :href=\"none\" data-c=\"{{ 'false' }}\">x</p>",
+    )])
+    .unwrap();
+    let source = c.sources().find(|(id, _)| *id == "pages/index").unwrap().1;
+    assert!(!source.contains("data-a"), "{source}");
+    assert!(!source.contains("data-b"), "{source}");
+    assert!(!source.contains("hidden"), "{source}");
+    assert!(!source.contains("href"), "{source}");
+    let html = render_page(&renderer(&c), "pages/index", json!({}));
+    assert!(html.contains("<p data-c=\"false\">x</p>"), "{html}");
 }
 
 /// Bound URLs cannot carry `javascript:` (`docs/24-threat-model.md`, row
