@@ -4661,6 +4661,17 @@ export const actions = {
 | `isEnrolled(userId)` | Whether the user has TOTP or a passkey |
 | `requireRecent({ within?, next? })` | Resolves when this session verified within `within` minutes (default `step_up_minutes`). Otherwise it throws `STEP_UP_REQUIRED` (status 403), with `details.verify_url` |
 | `verifiedAt(sessionId)` | Unix ms of the session's last verification, or `null` |
+| `reset(userId)` | An administrator resets another user's second factor: `{ reset: true }` when something was deleted, `{ reset: false }` when the user had nothing. Throws `INVALID` (not a user id), `UNAUTHENTICATED` (no signed-in caller), `SELF_RESET` (the target is the caller), `RENOX_FORBIDDEN` (no `twofa.reset` on that user) or `STEP_UP_REQUIRED` (the caller's session has no recent second factor) |
+
+## Reset by an administrator
+
+A user who lost their authenticator app and their recovery codes cannot sign in. `reset(userId)` deletes that user's TOTP secret, passkeys, recovery codes, verified sessions, pending sign-in and passkey challenges, so their next sign-in is not sent to `/2fa/verify` and they enrol again. It reads no secret and returns none.
+
+- **Who may.** Whoever holds the sensitive action `twofa.reset` on that user, granted by the app's policies (the resource is the entity `Twofa::User` with that id, which the module declares in `[authz.entities]`, so a policy reads `permit (principal is Renox::User, action == Renox::Action::"twofa.reset", resource is Twofa::User) when { principal in Renox::Role::"support" };`; the module grants nobody). A decision on a sensitive action writes a `renox__authz_audit` row, allowed or denied.
+- **Step-up.** The caller's own session must have passed its second factor within `step_up_minutes` (`requireRecent`), else `STEP_UP_REQUIRED` with `details.verify_url`.
+- **No self-reset.** A user cannot reset themselves through it (`SELF_RESET`): they use `/2fa` and their recovery codes.
+- **Order.** Every check comes before the first write, so a refusal leaves the data untouched.
+- **Event.** `twofa.reset { user_id, by }` (`by` is the administrator), emitted once and only when something was deleted; a second reset of the same user is `{ reset: false }` and emits nothing. No secret is in it. The `audit` module can record it from this event.
 
 ## The account page
 
@@ -4682,6 +4693,7 @@ A passkey in auth (#291) is a way to sign in without a password. A passkey here 
 - `mfa_verified` and the refund, before and after;
 - step-up expiry;
 - the verify rate limit;
+- the administrator reset (`tests/reset.test.ts`): allowed, refused without the action, without a recent second factor and for oneself, the target enrolling again, the event once;
 - English and Arabic snapshots;
 - no secret, key or code in logs or snapshots.
 
@@ -4821,6 +4833,7 @@ These events become rows with no code in the app (`hooks.ts`, `on`):
 | `authz.roles_changed` | `system:authz`; `details` names the user, the role and `op` |
 | `org.created`, `org.member_added` | The user |
 | `org.member_removed` | `by`, the user who removed the member |
+| `twofa.reset` (#735) | `by`, the administrator who reset the second factor; `resource_type` `twofa:User`, `resource_id` the user whose factors were deleted |
 | `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome; `details.grant_id` is the owner connector grant the token was minted under, when the event carries it (#748) |
 
 ## Append-only

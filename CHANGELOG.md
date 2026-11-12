@@ -7,6 +7,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **Modules**
 
 - `2fa` 1.1.0: the service `reset(user_id)` for an administrator holding the new sensitive action `twofa.reset` on that user, with a recent second factor of their own and never on themselves; it deletes the user's second factors, recovery codes and verified sessions so the next sign-in enrols again, and emits `twofa.reset { user_id, by }`. (#735)
+- `audit` 1.1.0: the listener records `twofa.reset` (2fa 1.1.0) with the administrator as the actor and the user as the resource `twofa:User`. (#735)
 - `audit` 1.0.1: the row of an App MCP `mcp.tool_called` event keeps the event's optional `grant_id` (the owner connector grant the agent token was minted under) in `details`. (#748)
 
 **Worker**
