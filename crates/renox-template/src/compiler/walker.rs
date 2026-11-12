@@ -113,7 +113,7 @@ fn attr(node: &Handle, name: &str) -> Option<String> {
         NodeData::Element { attrs, .. } => attrs
             .borrow()
             .iter()
-            .find(|a| a.name.local.as_ref() == name)
+            .find(|a| &*a.name.local == name)
             .map(|a| a.value.to_string()),
         _ => None,
     }
