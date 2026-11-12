@@ -10,3 +10,8 @@ timezone = "Asia/Dubai"
 [permissions]
 network = []
 secrets = []
+
+# The waitlist form posts to the control-plane API (#740): the CSP's form-action
+# is 'self' plus this origin and nothing else.
+[security.csp]
+form_action = ["https://api.renoxium.com"]

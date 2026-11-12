@@ -210,7 +210,7 @@ describe("pricing and legal", () => {
     expect(LINKS.waitlist).toBe(`${API_ORIGIN}/v1/waitlist`);
     expect(new URL(LINKS.waitlistReturn).origin).toBe(SITE_ORIGIN);
     expect(new URL(LINKS.waitlistReturn).pathname).toBe("/thanks");
-    // While the worker's CSP keeps form-action 'self', the ask is the mail button (lib/contact.ts).
+    // The site's CSP allows the post to the API (renox.toml form_action, #740), so the ask is the form.
     expect(homeLoad().waitlistForm).toBe(WAITLIST_FORM);
   });
 
@@ -319,6 +319,13 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     const home = await get("/");
     expect(home.status).toBe(200);
     checkLanding(home.text);
+    // #740: renox.toml widens form-action to the API, so a browser lets the waitlist form post there.
+    const homeHeaders = (await fetch(`${base}/`)).headers;
+    expect(homeHeaders.get("content-security-policy")).toContain(`form-action 'self' ${API_ORIGIN}`);
+    const ask = home.text.slice(home.text.indexOf('<section id="ask"'));
+    expect(ask).toContain(`<form class="waitlist" method="post" action="${API_ORIGIN}/v1/waitlist">`);
+    expect(ask).toContain("Join the connector list");
+    expect(ask).not.toContain("mailto:support@renoxium.com?subject=Connector");
     // #691: the three states of /thanks, no script of the site's own.
     for (const [query, heading] of [["?confirmed=1&list=connector", "You are on the list."], ["?confirmed=0", "This link no longer works."], ["?list=connector", "Check your mail."]] as const) {
       const t = await get(`/thanks${query}`);
@@ -402,10 +409,11 @@ function checkLanding(html: string): void {
   expect(html).toContain('href="https://github.com/arif-rachim/renox.rs/issues/668">#668</a>');
   expect(text).not.toContain("if we disappear tomorrow");
   expect(html.match(/href="https:\/\/github\.com\/arif-rachim\/renox\.rs\/blob\/main\/docs\/14-benchmarks\.md">How we measured it</gu)?.length).toBe(2);
-  // Links: sign in to the dashboard; the list as a mail until the form exists; WhatsApp from lib/contact.ts.
+  // Links: sign in to the dashboard; the list as the waitlist form (#740); WhatsApp from lib/contact.ts.
   expect(html).toContain('<a class="button" href="https://dashboard.renoxium.com/signin">Sign in</a>');
-  if (WAITLIST_FORM) expect(html).toContain(`<form class="waitlist" method="post" action="${LINKS.waitlist}">`);
-  else expect(html).toContain(`href="${LINKS.connectorList.replaceAll("&", "&amp;")}">Join the connector list</a>`);
+  expect(WAITLIST_FORM).toBe(true);
+  expect(html).toContain(`<form class="waitlist" method="post" action="${LINKS.waitlist}">`);
+  expect(html).not.toContain(`href="${LINKS.connectorList.replaceAll("&", "&amp;")}">Join the connector list</a>`);
   expect(html.split(`href="${LINKS.whatsapp}"`).length - 1).toBe(2);
   // Nothing of the previous page remains.
   for (const old of ["Deploy. Run.", "installed, not rewritten", "TLS at the edge", "Built for coding agents", "Stop rebuilding", "dot-idle"]) expect(html, old).not.toContain(old);
