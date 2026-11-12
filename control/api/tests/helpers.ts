@@ -212,6 +212,15 @@ export function sseReader(res: Response): { next(timeoutMs?: number): Promise<{ 
   };
 }
 
+/** Polls `cond` until it holds, for work a request leaves running in the background; `ms` is only a hang guard. */
+export async function until(cond: () => boolean | Promise<boolean>, ms = 10_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!(await cond())) {
+    if (Date.now() > deadline) throw new Error("condition not met before the hang guard");
+    await Bun.sleep(5);
+  }
+}
+
 export async function auditRows(h: Harness): Promise<Record<string, unknown>[]> {
   return h.db.query("select tenant_id, actor, action, target, status from audit order by id");
 }

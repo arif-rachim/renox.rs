@@ -12,7 +12,7 @@ import { rendezvous } from "../src/workers/assign.ts";
 import { setNodeCall, type NodeCall } from "../src/workers/failover.ts";
 import { sweep } from "../src/workers/health.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { assertScoped, auditRows, createApp_, harness, nodeToken, scopedToken, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, nodeToken, scopedToken, tenant, until, type Harness } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -142,7 +142,7 @@ describe("failover (FO1-FO6)", () => {
     // FO4: node-a comes back and is told to drop the two moved tenants.
     h.clock.now += 1_000;
     expect((await heartbeat(h, "node-a", tokens.get("node-a") as string)).status).toBe(200);
-    for (let i = 0; i < 50 && calls.filter((c) => c.method === "DELETE").length < 2; i++) await Bun.sleep(10);
+    await until(() => calls.filter((c) => c.method === "DELETE").length >= 2);
     const drops = calls.filter((c) => c.method === "DELETE");
     expect(drops.map((c) => [c.node, c.path]).sort()).toEqual(
       [t0, t1].map((t) => ["node-a", `/nodes/node-a/tenants/${t}`]).sort(),

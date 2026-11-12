@@ -166,6 +166,14 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
   }
 }
 
+/** The erasure runs a request started after its answer, per `deps`; tests wait on them with `erasureIdle`. */
+const background = new WeakMap<Deps, Set<Promise<void>>>();
+
+/** Resolves when every erasure run a request started in the background has finished (test hook). */
+export async function erasureIdle(deps: Deps): Promise<void> {
+  while ((background.get(deps)?.size ?? 0) > 0) await Promise.all([...(background.get(deps) as Set<Promise<void>>)]);
+}
+
 /**
  * Runs the steps of `tenantId`'s erasure that are not confirmed yet; returns
  * the state reached. Safe to call again (each step is idempotent); calls for
@@ -316,7 +324,11 @@ export function registerErasure(app: Hono<Env>, deps: Deps): void {
     c.set("auditTarget", { tenant_id: id, state: record.state });
     // Outside the request's scope: the steps run as the platform, after the answer.
     requestScope.exit(() => {
-      setTimeout(() => void runErasure(deps, id).catch(() => undefined), 0);
+      const run = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => runErasure(deps, id)).then(() => undefined, () => undefined);
+      const set = background.get(deps) ?? new Set<Promise<void>>();
+      background.set(deps, set);
+      set.add(run);
+      void run.then(() => set.delete(run));
     });
     return c.json(record, 202);
   });

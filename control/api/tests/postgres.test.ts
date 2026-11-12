@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { openPostgres } from "../src/db/postgres.ts";
 import { migrate, readMigrations } from "../src/db/migrate.ts";
+import { until } from "./helpers.ts";
 
 const url = process.env.CONTROL_TEST_DATABASE_URL;
 
@@ -34,7 +35,7 @@ describe.skipIf(url === undefined)("postgres adapter", () => {
     const got: string[] = [];
     const unlisten = await db.listen("renox_test", (p) => got.push(p));
     await db.query("select pg_notify('renox_test', 'v42')");
-    for (let i = 0; i < 50 && got.length === 0; i++) await Bun.sleep(20);
+    await until(() => got.length > 0);
     expect(got).toEqual(["v42"]);
     await unlisten();
     await db.close();

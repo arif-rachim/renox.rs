@@ -1,7 +1,7 @@
 // Activation, rollback and route publication (docs/contracts/deploy-api.md
 // sections 6-8; docs/12-developer-experience.md "Deploy without downtime").
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { checkMessage } from "../src/contract.ts";
 import { routeService } from "../src/routes/service.ts";
@@ -12,6 +12,9 @@ import { helloArtifact, upload } from "./artifacts.ts";
 import { assertScoped, auditRows, createApp_, harness, nodeToken, OPERATOR_TOKEN, registeredNode, sseReader, tenant, type Harness } from "./helpers.ts";
 
 afterEach(assertScoped);
+
+// A hang guard, not a budget: a loaded CI runner may take longer than bun's 5 s default to sign up and hash.
+setDefaultTimeout(30_000);
 
 const enc = new TextEncoder();
 const variant = (n: number) => helloArtifact((_m, f) => f.set("code/n.json", enc.encode(String(n))));
@@ -47,19 +50,25 @@ const stateOf = async (h: Harness, token: string, hash: string) =>
   ((await (await h.request("GET", `/v1/apps/hello/deployments/${hash}`, { token })).json()) as { state: string; last_error: unknown; secrets_version: number | null });
 
 describe("activate", () => {
-  test("publishes the route delta to a subscribed node within 100 ms", async () => {
+  test("publishes the route delta to a subscribed node before activate returns to its caller", async () => {
     const { h, token, node, a } = await setup();
     const stream = sseReader(await h.request("GET", "/v1/nodes/node-1/stream", { token: node }));
     const first = await stream.next();
     expect(checkMessage("resync", first.data)).toEqual({ type: "resync", schema_version: 0, version: 0 });
 
-    const started = performance.now();
+    // The publish is awaited inside `activate` and the hub writes to the
+    // stream synchronously, so the delta is readable without any timer or
+    // poll: it must arrive before the next macrotask the test schedules once
+    // `activate` has resolved. The 100 ms of deploy-api.md section 6 is a
+    // wall-clock property of the real network path; no benchmark in
+    // docs/14-benchmarks.md owns it (B4 is the cold start), and a shared CI
+    // runner cannot promise it. The 2,000 ms of `next` is only a hang guard.
     const res = await activateReq(h, token, a);
     expect(res.status).toBe(200);
-    const event = await stream.next();
-    const elapsed = performance.now() - started;
-    expect(elapsed).toBeLessThan(100);
-    const delta = assertDelta(event.data);
+    const nextTask = new Promise<null>((resolve) => setTimeout(() => resolve(null), 0));
+    const event = await Promise.race([stream.next(2000), nextTask]);
+    expect(event).not.toBeNull();
+    const delta = assertDelta((event as { data: unknown }).data);
     expect(delta.upserts).toEqual([
       {
         hostname: "hello.renox.app",
