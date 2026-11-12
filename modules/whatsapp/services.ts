@@ -11,6 +11,7 @@ export const verifyOtp = (ctx: Ctx, phone: unknown, code: unknown) => core.verif
 export const linkPhone = (ctx: Ctx, userId: unknown, phone: unknown) => core.linkPhone(ctx, userId, phone);
 export const inbox = (ctx: Ctx, filter?: { phone?: string; direction?: "in" | "out"; limit?: number }) => core.inbox(ctx, filter ?? {});
 export const message = (ctx: Ctx, id: unknown) => core.message(ctx, id);
+export const mode = (ctx: Ctx) => core.mode(ctx);
 export const outbox = (ctx: Ctx, limit?: number) => core.outbox(ctx, limit);
 
 export async function chatLink(_ctx: Ctx, phone: unknown, text: unknown): Promise<{ url: string } | null> {

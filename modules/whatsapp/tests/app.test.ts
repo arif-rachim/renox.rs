@@ -45,4 +45,8 @@ describe.skipIf(!worker)("whatsapp sandbox in an app", () => {
     const out = (await t.service("whatsapp").outbox(10)) as { id: string; status: string }[];
     expect(out.find((m) => m.id === id)).toMatchObject({ status: "sent" });
   });
+
+  test("mode() answers sandbox in the sandbox app", async () => {
+    expect(await t.service("whatsapp").mode()).toEqual({ sandbox: true });
+  });
 });

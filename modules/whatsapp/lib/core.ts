@@ -135,6 +135,36 @@ export interface InboxRow {
   body: string;
   status: string;
   at: number;
+  /** The provider's failure reason of a failed or retried send, redacted and at most 200 characters; null otherwise. */
+  error: string | null;
+}
+
+/** The longest `error` an `InboxRow` carries. */
+export const ERROR_MAX = 200;
+
+/**
+ * A failure reason that is safe to show: the secrets this tenant holds, `Bearer` credentials and any long
+ * token-looking run are replaced with `[redacted]`, control characters become spaces, and the text is cut to
+ * ERROR_MAX characters. Empty or missing is null.
+ */
+export function redactError(ctx: WaCtx, raw: unknown): string | null {
+  if (typeof raw !== "string" || raw === "") return null;
+  let s = raw;
+  s = s.replace(/\bBearer\s+\S+/giu, "Bearer [redacted]").replace(/[A-Za-z0-9_\-+/=.]{20,}/gu, "[redacted]");
+  for (const v of Object.values(ctx.secrets)) if (typeof v === "string" && v.length >= 4) s = s.split(v).join("[redacted]");
+  // eslint-disable-next-line no-control-regex
+  s = s.replace(/[\u0000-\u001f\u007f]+/gu, " ").trim();
+  if (s === "") return null;
+  return s.length > ERROR_MAX ? `${s.slice(0, ERROR_MAX - 1)}\u2026` : s;
+}
+
+type StoredRow = InboxRow;
+
+const shown = (ctx: WaCtx, r: StoredRow): InboxRow => ({ ...r, body: r.kind === "otp" ? "[otp]" : r.body, error: redactError(ctx, r.error) });
+
+/** Whether the module runs with `sandbox = true`: an app reads it here, as it cannot read the module's config. */
+export function mode(ctx: WaCtx): { sandbox: boolean } {
+  return { sandbox: ctx.config.sandbox === true };
 }
 
 export async function inbox(ctx: WaCtx, filter: { phone?: string; direction?: "in" | "out"; limit?: number } = {}): Promise<InboxRow[]> {
@@ -150,16 +180,16 @@ export async function inbox(ctx: WaCtx, filter: { phone?: string; direction?: "i
     params.push(filter.direction);
   }
   const limit = Math.min(Math.max(Math.trunc(Number(filter.limit ?? 50)) || 50, 1), 200);
-  const rows = await ctx.db.query<InboxRow>(`select id, direction, kind, phone, body, status, at from whatsapp__messages ${where.length ? `where ${where.join(" and ")}` : ""} order by at desc, id desc limit ?`, [...params, limit]);
-  return rows.map((r) => (r.kind === "otp" ? { ...r, body: "[otp]" } : r));
+  const rows = await ctx.db.query<StoredRow>(`select id, direction, kind, phone, body, status, at, error from whatsapp__messages ${where.length ? `where ${where.join(" and ")}` : ""} order by at desc, id desc limit ?`, [...params, limit]);
+  return rows.map((r) => shown(ctx, r));
 }
 
 /** One stored message by id, shaped like an `inbox()` row (an OTP's body shows as `[otp]`), or null. One lookup by primary key. */
 export async function message(ctx: WaCtx, id: unknown): Promise<InboxRow | null> {
   if (typeof id !== "string" || id === "" || id.length > 128) throw new TypeError("whatsapp.message: id must be a non-empty string of at most 128 characters");
-  const r = await ctx.db.queryOne<InboxRow>("select id, direction, kind, phone, body, status, at from whatsapp__messages where id = ?", [id]);
+  const r = await ctx.db.queryOne<StoredRow>("select id, direction, kind, phone, body, status, at, error from whatsapp__messages where id = ?", [id]);
   if (r === null || r === undefined) return null;
-  return r.kind === "otp" ? { ...r, body: "[otp]" } : r;
+  return shown(ctx, r);
 }
 
 /** Outgoing rows newest first, with status and body (an OTP's body shows as `[otp]`): what a sandbox app would have sent. */
