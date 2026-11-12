@@ -94,7 +94,8 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.2.0"
 source = "official"
-hash = "4d61c92eef81957280998c7639b6d17563972ecb0319633e0db553041e79cb96"
+hash = "a2f502cef9227cab24a6ca8149dc15dd7b09a3c2bdcd95ecf63c6cf2dd51b4a5"
+approved_version = "1.2.0"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
@@ -103,13 +104,14 @@ approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header
 
 [[module]]
 name = "email"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "ba038395534c5fb0070f8837640c761960a9d5230f49d97e1dea3c3dd9c41545"
+hash = "73c741a3fd66ce0d31b258183f409f69be1313bb241e87ee3fc03b9140b306d3"
+approved_version = "1.2.0"
 isolation = "shared"
 mount = "/email"
 dependencies = ["auth", "i18n"]
-config = { provider = "resend", from = "", from_name = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
+config = { provider = "resend", from = "", from_name = "", ses_region = "me-central-1", sends_per_minute = 120, app_url = "https://{{APP}}.renoxium.app", base_path = "/email" }
 approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail", "org.send_mail"] }
 
 [[module]]
