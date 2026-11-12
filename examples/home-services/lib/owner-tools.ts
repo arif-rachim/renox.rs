@@ -333,3 +333,37 @@ export const isNoSession = (e: unknown): boolean => (e as { code?: string } | nu
 
 /** The roles of the contract (`invite_people`): the app's `branch_manager` is `manager` there. */
 export const contractRole = (role: string | undefined): string | null => (role === undefined || role === "" ? null : role === "branch_manager" ? "manager" : role);
+
+// ------------------------------------------------------------- invite_staff
+
+/** The roles `invite_staff` gives (#751): the app's staff roles but `owner`, which an invitation never grants. */
+export const INVITE_ROLES = ["branch_manager", "dispatcher", "technician", "accountant"] as const;
+export type InviteRole = (typeof INVITE_ROLES)[number];
+
+export const INVITE_STAFF_JSON = {
+  type: "object",
+  properties: {
+    email: str("The person's email address", 254),
+    role: { type: "string", enum: [...INVITE_ROLES], description: "The staff role: branch_manager, dispatcher, technician or accountant" },
+    branch: str("The branch's name, in English or Arabic (list_branches)", 80),
+  },
+  required: ["email", "role", "branch"],
+  additionalProperties: false,
+};
+
+export function parseInviteStaff(raw: Raw, issues: Issue[]): { email: string; role: InviteRole; branch: string } {
+  noExtra(raw, ["email", "role", "branch"], issues);
+  const email = text(raw, "email", 3, 254, issues, [], false)?.toLowerCase() ?? "";
+  if (email !== "" && !EMAIL.test(email)) issues.push({ message: "email is an email address", path: ["email"] });
+  const role = typeof raw.role === "string" ? raw.role.trim() : "";
+  if (!(INVITE_ROLES as readonly string[]).includes(role)) issues.push({ message: `role is one of ${INVITE_ROLES.join(", ")}`, path: ["role"] });
+  const branch = text(raw, "branch", 1, 80, issues, [], false) ?? "";
+  return { email, role: role as InviteRole, branch };
+}
+
+/** The branch a name points to: its English or Arabic name, compared trimmed and case-insensitively (exact, not a prefix); null when none or two branches share it. */
+export function branchByName<B extends { name_en: string; name_ar: string }>(branches: readonly B[], name: string): B | null {
+  const w = name.trim().toLowerCase();
+  const hits = branches.filter((b) => b.name_en.trim().toLowerCase() === w || b.name_ar.trim().toLowerCase() === w);
+  return hits.length === 1 ? (hits[0] as B) : null;
+}

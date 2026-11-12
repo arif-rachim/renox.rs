@@ -93,7 +93,7 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.2.0"
 source = "official"
-hash = "484ac64c40d09eee34089eef50b6ac00fa9bd50c2479deab73763e3e2b01b8c0"
+hash = "2ec9c6353fa9de0ac853fcd2fd9c12ae240d2ceb5f62d98d0ecef47362d719ba"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]

@@ -252,8 +252,21 @@ export async function invite(
   ctx: OrgCtx & { url: URL },
   input: { org?: unknown; email?: unknown; role?: unknown },
 ): Promise<{ ok: true; invite_id: string; expires_at: number } | { ok: false; error: string; halt?: Response }> {
-  const s = await requireSession();
-  return inviteAs(ctx, s.user, ctx.url.origin, input);
+  const me = ctx.principal;
+  let s: { id: string; user: User } | null = null;
+  try {
+    s = await session();
+  } catch (e) {
+    // An App MCP request has no cookie for `auth.currentSession` to read, and it fails; a user principal then goes on below, anything else fails as before.
+    if (me?.kind !== "user") throw e;
+  }
+  if (s !== null) return inviteAs(ctx, s.user, ctx.url?.origin ?? null, input);
+  // No session (an App MCP request with an agent token, #751): the request's
+  // user invites, under the same admin or owner check; any other principal is
+  // refused as before.
+  if (me?.kind !== "user" || typeof me.id !== "string" || me.id === "") throw new OrgError("AUTH_REQUIRED", "sign in first");
+  const user = await ctx.db.queryOne<{ id: string; display_name: string }>("select id, display_name from auth__public_users_v1 where id = ?", [me.id]);
+  return inviteAs(ctx, user ?? { id: me.id, display_name: "" }, ctx.url?.origin ?? null, input);
 }
 
 /**

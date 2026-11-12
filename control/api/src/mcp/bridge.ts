@@ -88,10 +88,19 @@ export interface CallOptions {
 /** The bridge of one API process; its token cache is per `deps`, shared by every bridge made from it. */
 export interface Bridge {
   callAppTool(agent: BridgeAgent, app: string, tool: string, args: Record<string, unknown>, opts?: CallOptions): Promise<AppToolResult>;
+  /**
+   * The names of the app tools a token of `scopes` (`tools:<name>`) sees in the
+   * app's `tools/list` (#751: which of two app tools the app has). Optional so a
+   * test double need not offer it: a caller treats its absence as "none listed".
+   */
+  listAppTools?(agent: BridgeAgent, app: string, scopes: string[]): Promise<{ ok: true; untrusted: true; tools: string[] } | Extract<AppToolResult, { ok: false }>>;
 }
 
 export function createBridge(deps: Deps, inject: BridgeInject = {}): Bridge {
-  return { callAppTool: (agent, app, tool, args, opts) => callAppTool(deps, inject, agent, app, tool, args, opts) };
+  return {
+    callAppTool: (agent, app, tool, args, opts) => callAppTool(deps, inject, agent, app, tool, args, opts),
+    listAppTools: (agent, app, scopes) => listAppTools(deps, inject, agent, app, scopes),
+  };
 }
 
 interface Cached {
@@ -215,11 +224,32 @@ async function callAppTool(deps: Deps, inject: BridgeInject, agent: BridgeAgent,
   const db = withTenant(deps.db, { kind: "tenant", via: "token", tenantId: agent.tenantId, tokenId: agent.tokenId, scopes: [], userId: null, role: null });
   const [known] = await db.query<{ name: string }>("select name from apps where tenant_id = $1 and name = $2 and deleted_at is null", [agent.tenantId, app]);
   if (known === undefined) return fail(404, "RENOX_NOT_FOUND", `No app named ${app} in this team.`);
-  const call = inject.appCall ?? httpAppCall;
-  const url = `https://${app}.${deps.config.platformDomain}/mcp`;
   if (opts.confirmation !== undefined && (typeof opts.confirmation !== "string" || opts.confirmation.length === 0 || opts.confirmation.length > 2048)) return fail(400, "invalid_input", "confirmation is the app's confirmation token");
   const params = { name: tool, arguments: args, ...(opts.confirmation === undefined ? {} : { _meta: { "renox/confirmation": opts.confirmation } }) };
-  const rpc = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params });
+  return rpcApp(deps, inject, agent, app, scopes, "tools/call", params, answerOf);
+}
+
+type ListAnswer = { ok: true; untrusted: true; tools: string[] } | Extract<AppToolResult, { ok: false }>;
+
+/** The names of the tools the app lists to a token of `scopes` (`tools/list`; #751). */
+async function listAppTools(deps: Deps, inject: BridgeInject, agent: BridgeAgent, app: string, scopes: string[]): Promise<ListAnswer> {
+  const bad = (message: string): ListAnswer => ({ ok: false, untrusted: true, status: 400, error: { code: "invalid_input", message } });
+  if (!APP.test(app)) return bad("app is not an app name");
+  const wanted = [...new Set(scopes)];
+  if (wanted.length < 1 || wanted.length > 10 || !wanted.every((s) => /^tools:[a-z][a-z0-9_]{0,63}$/u.test(s))) return bad("scopes are 1 to 10 tools:<name>");
+  const r = await rpcApp(deps, inject, agent, app, wanted, "tools/list", {}, (res) => {
+    const list = ((res.body ?? {}) as { result?: { tools?: unknown } }).result?.tools;
+    if (!Array.isArray(list)) return answerOf(res);
+    return { ok: true, untrusted: true, result: list.map((x) => (x as { name?: unknown } | null)?.name).filter((n): n is string => typeof n === "string") };
+  });
+  return r.ok ? { ok: true, untrusted: true, tools: r.result as string[] } : r;
+}
+
+/** One JSON-RPC call to the app's `/mcp` as the signed-in owner's app user; `parse` reads the answer. */
+async function rpcApp(deps: Deps, inject: BridgeInject, agent: BridgeAgent, app: string, scopes: string[], method: string, params: Record<string, unknown>, parse: (res: { status: number; body: unknown }) => AppToolResult): Promise<AppToolResult> {
+  const call = inject.appCall ?? httpAppCall;
+  const url = `https://${app}.${deps.config.platformDomain}/mcp`;
+  const rpc = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
   let t = await tokenFor(deps, inject, agent, app, scopes, false);
   for (let attempt = 0; ; attempt++) {
     if (!t.ok) return t.result;
@@ -239,7 +269,7 @@ async function callAppTool(deps: Deps, inject: BridgeInject, agent: BridgeAgent,
       }
       return fail(503, "RENOX_UNAVAILABLE", `${app} refused the connector's sign-in. Try again in a minute.`);
     }
-    return scrub(answerOf(res), token);
+    return scrub(parse(res), token);
   }
 }
 

@@ -44,7 +44,7 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 | `requireMember(role?)` | The active organisation, or throws when the user is signed out or holds less than `role` |
 | `switchOrg(org_id)` | Make another of the user's organisations active |
 | `members(org_id)` | `[{ user_id, display_name, email, role }]`. The caller must be a member of that organisation |
-| `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }` |
+| `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }`. With no session, a user principal (an App MCP request with an agent token, #751) invites as itself under the same check; any other caller gets `AUTH_REQUIRED` |
 | `revokeInvite({ org, invite })` | Withdraw a pending invitation |
 | `acceptInvite(token)` | Join as the signed-in user. The invitation works once, before it expires, and only for the email it was sent to |
 | `rename({ org, name })` | Rename the organisation (admin or owner; 1 to 80 characters, `{ error }` otherwise). The slug stays. Emits `org.renamed` |
