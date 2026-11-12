@@ -50,9 +50,17 @@ export async function readForJob(ctx: JobContext<ImportPayload>, row: ImportRow,
   try {
     return await readCells(bytes);
   } catch (e) {
-    // The service's failure ended this attempt's transaction: nothing can be written to the database any more.
-    // The object store is outside it, so the code waits there for the next attempt.
-    await ctx.storage.put(marker, new TextEncoder().encode(readErrorCode(e)), { contentType: "text/plain" });
+    const code = readErrorCode(e);
+    // Catch, then write. On a worker with savepoints around service calls (#734, ops.md 1.17.0) only the call was
+    // undone and the attempt's transaction goes on, so the failure is written now and the job ends normally.
+    try {
+      await failImport(ctx.db, row.id, from, code);
+      return null;
+    } catch {
+      // The pinned worker (0.8.0): the failed call ended the attempt's transaction (RENOX_DB_TX_STATE).
+    }
+    // Then the object store, which is outside the transaction, keeps the code for the next attempt.
+    await ctx.storage.put(marker, new TextEncoder().encode(code), { contentType: "text/plain" });
     throw e;
   }
 }

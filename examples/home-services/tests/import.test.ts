@@ -364,7 +364,7 @@ describe("/admin/import", () => {
     // A zip that is no workbook (here a cut-off one) is the check's not_xlsx.
     const key = await upload(owner, "notes.xlsx", plainWorkbook([["branch"], ["Dubai"]]).slice(0, 80));
     const broken = (await startCheck("customers", key)).id;
-    // The job ends the import as failed (a failed module service ends its transaction, so the retry writes it); it stays in the history.
+    // The job ends the import as failed (on the pinned worker a failed module service ends its transaction, so the retry writes it; with #734's savepoints the same attempt does); it stays in the history.
     expect(await settled(broken)).toBe("failed");
     expect(rows("select error from app__imports where id = ?", [broken])[0]?.error).toBe("import.err.not_xlsx");
     expect(strip(/<p class="problem"[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec((await owner.page(`/admin/import/${broken}`)).html)?.[1])).toContain("This is not an Excel .xlsx file.");

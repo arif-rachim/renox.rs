@@ -13,17 +13,20 @@
 // write from. So the failure is written by the next attempt (the retry, 10 s later):
 //   - before the service: the cheap checks of the file (over 10 MiB, no zip signature)
 //     write `failed` at once (lib/import.ts cheapFileError), with no service call;
-//   - when `readXlsx` throws, the job catches the error, writes a marker with its code to
-//     storage (`app/imports/<id>.error`, text/plain; the object store is outside the
-//     SQLite transaction, so the marker survives the rollback) and rethrows, so the
+//   - when `readXlsx` throws, the job catches the error and first tries to write `failed`
+//     in the same attempt: that works on a worker with savepoints around service calls
+//     (#734, the worker CI builds from main), and the job is done. On the pinned worker the
+//     write is refused (the transaction ended with the call), so it writes a marker with the
+//     code to storage (`app/imports/<id>.error`, text/plain; the object store is outside
+//     the SQLite transaction, so the marker survives the rollback) and rethrows, so the
 //     attempt ends and is retried;
 //   - an attempt after the first, for a row still `checking`: with the marker, it writes
 //     `failed` with its code (`not_xlsx`, `too_many_rows`) and deletes the marker; with
 //     none, the previous attempt was stopped before it could catch (the CPU or wall limit
 //     of the attempt: a file that is too large to read in it, `import.err.too_large`).
 //     It never calls the service again.
-// Once a worker with savepoints around service calls (#734) is pinned, the catch can write
-// `failed` in the same attempt, and the marker and the retry go.
+// Once a worker with savepoints around service calls (#734) is pinned, the marker and the
+// retry are no longer used and can go.
 //
 // Every job route has a schedule (artifact V27); this one is a queue: its runs come from
 // the action's enqueue, and the yearly tick (no payload) does nothing.
