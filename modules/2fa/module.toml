@@ -1,6 +1,6 @@
 [module]
 name = "twofa"
-version = "1.0.1"
+version = "1.1.0"
 description = "Two-step verification: TOTP, passkeys and recovery codes after the password, mfa_verified on the principal, step-up for sensitive actions"
 
 [dependencies]
@@ -29,6 +29,7 @@ slots = ["account.sections"]
 [exports.services]
 isEnrolled = "Whether a user has a second factor: (user_id) -> boolean"
 requireRecent = "Step-up for sensitive actions: resolves when this session verified within `within` minutes (default step_up_minutes), else throws STEP_UP_REQUIRED with the verify URL"
+reset = "Reset another user's second factor: (user_id) -> { reset: boolean }; needs twofa.reset on that user and a recent second factor of the caller, never on oneself; the next sign-in enrols again"
 verifiedAt = "When this session last passed the second factor (Unix ms), or null"
 
 [[slots]]
@@ -36,4 +37,13 @@ name = "account.sections"
 template = "partials/account.html"
 
 [authz]
-actions = ["twofa.manage"]
+actions = ["twofa.manage", "twofa.reset"]
+sensitive = ["twofa.reset"]
+
+# The target of a reset, for the app's policy (`resource is Twofa::User`; the app names it `twofa:User`): a user of the app, by id.
+[authz.entities]
+User = { attrs = ["id"] }
+
+[exports.events."twofa.reset"]
+payload = { type = "object", required = ["user_id", "by"], additionalProperties = false, properties = { user_id = { type = "string" }, by = { type = "string" } } }
+description = "An administrator reset a user's second factor (user_id; by is the administrator); no secret in it; the audit module can record it"

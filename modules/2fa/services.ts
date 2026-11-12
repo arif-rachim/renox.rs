@@ -6,3 +6,4 @@ type Ctx = core.TwofaCtx;
 export const isEnrolled = (ctx: Ctx, userId: unknown) => (typeof userId === "string" ? core.isEnrolled(ctx, userId) : Promise.resolve(false));
 export const requireRecent = (ctx: Ctx, opts?: { within?: number; next?: string }) => core.requireRecent(ctx, opts ?? {});
 export const verifiedAt = (ctx: Ctx, sessionId: unknown) => core.verifiedAt(ctx, sessionId);
+export const reset = (ctx: Ctx, userId: unknown) => core.reset(ctx, userId);
