@@ -178,11 +178,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
         <select name="method" id="pay-method">
           <option value="cash" dir="auto">Cash</option><option value="transfer" dir="auto">Bank transfer</option><option value="cheque" dir="auto">Cheque</option>
         </select></label></p>
-      <p><label>Amount (AED) <input name="amount" inputmode="decimal" dir="ltr" required id="f-amount" aria-invalid="false" aria-describedby="" aria-required="true"></label></p>
-      <p><label>Date received <input type="date" name="received_on" value="<day>" dir="ltr" id="f-received_on" aria-invalid="false" aria-describedby=""></label></p>
-      <p><label>Reference <input name="reference" maxlength="120" id="f-reference" aria-invalid="false" aria-describedby="" dir="auto"></label></p>
-      <p><label>Cheque number <input name="cheque_number" maxlength="40" dir="ltr" id="f-cheque_number" aria-invalid="false" aria-describedby=""></label></p>
-      <p><label>Cheque date <input type="date" name="cheque_date" dir="ltr" id="f-cheque_date" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>Amount (AED) <input name="amount" inputmode="decimal" dir="ltr" required id="f-amount" aria-required="true"></label></p>
+      <p><label>Date received <input type="date" name="received_on" value="<day>" dir="ltr" id="f-received_on"></label></p>
+      <p><label>Reference <input name="reference" maxlength="120" id="f-reference" dir="auto"></label></p>
+      <p><label>Cheque number <input name="cheque_number" maxlength="40" dir="ltr" id="f-cheque_number"></label></p>
+      <p><label>Cheque date <input type="date" name="cheque_date" dir="ltr" id="f-cheque_date"></label></p>
       <p><small class="muted">A cheque needs its number and date. More than the balance is refused.</small></p>
       <p><button type="submit" class="btn-brand">Record payment</button></p>
     </form>
@@ -198,7 +198,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
     <h2>Credit note</h2>
     <p class="muted">Credits the whole invoice and cancels the job. Payments already received are not refunded here.</p>
     <form method="post" action="?/credit" hx-post="?/credit" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>Reason <input name="reason" maxlength="200" required id="f-reason" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+      <p><label>Reason <input name="reason" maxlength="200" required id="f-reason" aria-required="true" dir="auto"></label></p>
       <p><button type="submit">Issue the credit note</button></p>
     </form>
   </section>
@@ -316,11 +316,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
         <select name="method" id="pay-method">
           <option value="cash" dir="auto">نقداً</option><option value="transfer" dir="auto">تحويل بنكي</option><option value="cheque" dir="auto">شيك</option>
         </select></label></p>
-      <p><label>المبلغ (درهم) <input name="amount" inputmode="decimal" dir="ltr" required id="f-amount" aria-invalid="false" aria-describedby="" aria-required="true"></label></p>
-      <p><label>تاريخ الاستلام <input type="date" name="received_on" value="<day>" dir="ltr" id="f-received_on" aria-invalid="false" aria-describedby=""></label></p>
-      <p><label>المرجع <input name="reference" maxlength="120" id="f-reference" aria-invalid="false" aria-describedby="" dir="auto"></label></p>
-      <p><label>رقم الشيك <input name="cheque_number" maxlength="40" dir="ltr" id="f-cheque_number" aria-invalid="false" aria-describedby=""></label></p>
-      <p><label>تاريخ الشيك <input type="date" name="cheque_date" dir="ltr" id="f-cheque_date" aria-invalid="false" aria-describedby=""></label></p>
+      <p><label>المبلغ (درهم) <input name="amount" inputmode="decimal" dir="ltr" required id="f-amount" aria-required="true"></label></p>
+      <p><label>تاريخ الاستلام <input type="date" name="received_on" value="<day>" dir="ltr" id="f-received_on"></label></p>
+      <p><label>المرجع <input name="reference" maxlength="120" id="f-reference" dir="auto"></label></p>
+      <p><label>رقم الشيك <input name="cheque_number" maxlength="40" dir="ltr" id="f-cheque_number"></label></p>
+      <p><label>تاريخ الشيك <input type="date" name="cheque_date" dir="ltr" id="f-cheque_date"></label></p>
       <p><small class="muted">الشيك يحتاج إلى رقمه وتاريخه. لا يُقبل مبلغ أكبر من الرصيد.</small></p>
       <p><button type="submit" class="btn-brand">تسجيل الدفعة</button></p>
     </form>
@@ -336,7 +336,7 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
     <h2>إشعار دائن</h2>
     <p class="muted">يلغي الفاتورة كاملة ويلغي المهمة. لا تُرد الدفعات المستلمة من هنا.</p>
     <form method="post" action="?/credit" hx-post="?/credit" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>السبب <input name="reason" maxlength="200" required id="f-reason" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+      <p><label>السبب <input name="reason" maxlength="200" required id="f-reason" aria-required="true" dir="auto"></label></p>
       <p><button type="submit">إصدار الإشعار الدائن</button></p>
     </form>
   </section>

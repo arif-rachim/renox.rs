@@ -471,9 +471,8 @@ export async function planImport(ctx: PlanCtx, kind: ImportKind, rows: readonly 
 export type FileErrorCode = "not_xlsx" | "too_many_rows";
 
 /**
- * The checks of a stored file that need no module service: its size, then the zip signature. A module
- * service that throws ends the attempt's transaction (jobs/import-check.ts), so what can be known
- * without calling `reports.readXlsx` is known first.
+ * The checks of a stored file that need no module service: its size, then the zip signature. What can
+ * be known without calling `reports.readXlsx` is known first, which spares the service call.
  */
 export function cheapFileError(bytes: Uint8Array): FileErrorCode | null {
   if (bytes.length > MAX_FILE_BYTES) return "too_many_rows";

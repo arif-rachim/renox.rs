@@ -8,12 +8,11 @@
 //
 // Safe to run twice: only a `committing` row is worked.
 //
-// The failure protocol is the one of jobs/import-check.ts (read it there; #734, savepoints
-// around service calls, lets the catch write in the same attempt once a worker has them):
-// the cheap checks fail the row at once; a thrown `readXlsx` leaves a marker in storage and
-// the retry ends the row as `failed` with its code; a retry with no marker means the first
-// attempt was stopped by the CPU or wall limit, so the row ends as `failed` with
-// `too_large`, keeping the report of its check. Nothing of the file was written: the
+// The failure protocol is the one of jobs/import-check.ts (read it there): the cheap
+// checks fail the row at once; a thrown `readXlsx` is caught and the row ends as `failed`
+// with its code in the same attempt (#734, a savepoint per service call); a retry means
+// the first attempt was stopped by the CPU or wall limit, so the row ends as `failed`
+// with `too_large`, keeping the report of its check. Nothing of the file was written: the
 // stopped attempt's transaction rolled back, and the one transaction per file stays.
 //
 // Every job route has a schedule (artifact V27); this one is a queue: its runs come from

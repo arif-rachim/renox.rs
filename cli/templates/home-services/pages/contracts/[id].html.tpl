@@ -46,14 +46,14 @@
     <h2><r-t key="contracts.add_item" /></h2>
     <x-form action="item" class="stack narrow">
       <p><label><r-t key="contracts.f.site" />
-        <select name="site_id" required id="f-site_id" :aria-invalid="'true' if errors.site_id else 'false'" :aria-describedby="'err-site_id' if errors.site_id else ''" aria-required="true">
+        <select name="site_id" required id="f-site_id" :aria-invalid="true if errors.site_id else false" :aria-describedby="'err-site_id' if errors.site_id else none" aria-required="true">
           <option r-for="x in sites" :value="x.id" :selected="x.id == values.site_id">{{ x.name }}</option>
         </select></label></p>
       <p><label><r-t key="contracts.f.service" />
-        <select name="service" required id="f-service" :aria-invalid="'true' if errors.service else 'false'" :aria-describedby="'err-service' if errors.service else ''" aria-required="true">
+        <select name="service" required id="f-service" :aria-invalid="true if errors.service else false" :aria-describedby="'err-service' if errors.service else none" aria-required="true">
           <option r-for="x in catalogue" :value="x.sid" :selected="x.sid == values.service">{{ x.name }}</option>
         </select></label></p>
-      <p><label><r-t key="contracts.f.visits" /> <input name="visits" inputmode="numeric" dir="ltr" maxlength="2" :value="values.visits" required id="f-visits" :aria-invalid="'true' if errors.visits else 'false'" :aria-describedby="'err-visits' if errors.visits else ''" aria-required="true"></label></p>
+      <p><label><r-t key="contracts.f.visits" /> <input name="visits" inputmode="numeric" dir="ltr" maxlength="2" :value="values.visits" required id="f-visits" :aria-invalid="true if errors.visits else false" :aria-describedby="'err-visits' if errors.visits else none" aria-required="true"></label></p>
       <p><button type="submit"><r-t key="contracts.add_item" /></button></p>
     </x-form>
   </section>

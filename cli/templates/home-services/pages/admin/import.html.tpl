@@ -11,8 +11,8 @@
   </ol>
   <x-form action="check" class="stack narrow" id="import-form">
     <p><label><r-t key="backoffice.import.f.kind" />
-      <select name="kind" id="f-kind" :aria-invalid="'true' if errors.kind else 'false'" :aria-describedby="'err-kind' if errors.kind else ''"><option r-for="k in kinds" :value="k.kind" :selected="k.kind == values.kind">{{ ('backoffice.import.kinds.' ~ k.kind ~ '.name') | t }}</option></select></label></p>
-    <p><label><r-t key="backoffice.import.f.file" /> <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required aria-required="true" id="f-file_key" :aria-invalid="'true' if errors.file_key else 'false'" :aria-describedby="'err-file_key' if errors.file_key else ''"> <span data-upload-status class="muted"></span></label>
+      <select name="kind" id="f-kind" :aria-invalid="true if errors.kind else false" :aria-describedby="'err-kind' if errors.kind else none"><option r-for="k in kinds" :value="k.kind" :selected="k.kind == values.kind">{{ ('backoffice.import.kinds.' ~ k.kind ~ '.name') | t }}</option></select></label></p>
+    <p><label><r-t key="backoffice.import.f.file" /> <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required aria-required="true" id="f-file_key" :aria-invalid="true if errors.file_key else false" :aria-describedby="'err-file_key' if errors.file_key else none"> <span data-upload-status class="muted"></span></label>
       <input type="hidden" name="file_key"></p>
     <p><button type="submit" class="btn-brand"><r-t key="backoffice.import.check" /></button></p>
   </x-form>

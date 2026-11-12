@@ -27,8 +27,8 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
   </ol>
   <form method="post" action="?/check" hx-post="?/check" class="stack narrow" id="import-form"><input type="hidden" name="_csrf" value="<csrf>">
     <p><label>محتوى الملف
-      <select name="kind" id="f-kind" aria-invalid="false" aria-describedby=""><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="contracts" dir="auto">العقود</option></select></label></p>
-    <p><label>ملف إكسل (‎.xlsx‎) <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required aria-required="true" id="f-file_key" aria-invalid="false" aria-describedby=""> <span data-upload-status="" class="muted"></span></label>
+      <select name="kind" id="f-kind"><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="contracts" dir="auto">العقود</option></select></label></p>
+    <p><label>ملف إكسل (‎.xlsx‎) <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required aria-required="true" id="f-file_key"> <span data-upload-status="" class="muted"></span></label>
       <input type="hidden" name="file_key"></p>
     <p><button type="submit" class="btn-brand">افحص الملف</button></p>
   </form>

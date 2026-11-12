@@ -62,11 +62,11 @@
         <select name="method" id="pay-method">
           <option r-for="m in methods" :value="m.value" :selected="m.value == values.method">{{ ('invoices.method.' ~ m.value) | t }}</option>
         </select></label></p>
-      <p><label><r-t key="invoices.f.amount" /> <input name="amount" inputmode="decimal" dir="ltr" :value="values.amount" required id="f-amount" :aria-invalid="'true' if errors.amount else 'false'" :aria-describedby="'err-amount' if errors.amount else ''" aria-required="true"></label></p>
-      <p><label><r-t key="invoices.f.date" /> <input type="date" name="received_on" :value="values.received_on if values.received_on is defined else today" dir="ltr" id="f-received_on" :aria-invalid="'true' if errors.received_on else 'false'" :aria-describedby="'err-received_on' if errors.received_on else ''"></label></p>
-      <p><label><r-t key="invoices.f.reference" /> <input name="reference" maxlength="120" :value="values.reference" id="f-reference" :aria-invalid="'true' if errors.reference else 'false'" :aria-describedby="'err-reference' if errors.reference else ''"></label></p>
-      <p><label><r-t key="invoices.f.cheque_number" /> <input name="cheque_number" maxlength="40" dir="ltr" :value="values.cheque_number" id="f-cheque_number" :aria-invalid="'true' if errors.cheque_number else 'false'" :aria-describedby="'err-cheque_number' if errors.cheque_number else ''"></label></p>
-      <p><label><r-t key="invoices.f.cheque_date" /> <input type="date" name="cheque_date" dir="ltr" :value="values.cheque_date" id="f-cheque_date" :aria-invalid="'true' if errors.cheque_date else 'false'" :aria-describedby="'err-cheque_date' if errors.cheque_date else ''"></label></p>
+      <p><label><r-t key="invoices.f.amount" /> <input name="amount" inputmode="decimal" dir="ltr" :value="values.amount" required id="f-amount" :aria-invalid="true if errors.amount else false" :aria-describedby="'err-amount' if errors.amount else none" aria-required="true"></label></p>
+      <p><label><r-t key="invoices.f.date" /> <input type="date" name="received_on" :value="values.received_on if values.received_on is defined else today" dir="ltr" id="f-received_on" :aria-invalid="true if errors.received_on else false" :aria-describedby="'err-received_on' if errors.received_on else none"></label></p>
+      <p><label><r-t key="invoices.f.reference" /> <input name="reference" maxlength="120" :value="values.reference" id="f-reference" :aria-invalid="true if errors.reference else false" :aria-describedby="'err-reference' if errors.reference else none"></label></p>
+      <p><label><r-t key="invoices.f.cheque_number" /> <input name="cheque_number" maxlength="40" dir="ltr" :value="values.cheque_number" id="f-cheque_number" :aria-invalid="true if errors.cheque_number else false" :aria-describedby="'err-cheque_number' if errors.cheque_number else none"></label></p>
+      <p><label><r-t key="invoices.f.cheque_date" /> <input type="date" name="cheque_date" dir="ltr" :value="values.cheque_date" id="f-cheque_date" :aria-invalid="true if errors.cheque_date else false" :aria-describedby="'err-cheque_date' if errors.cheque_date else none"></label></p>
       <p><small class="muted"><r-t key="invoices.pay.hint" /></small></p>
       <p><button type="submit" class="btn-brand"><r-t key="invoices.pay.submit" /></button></p>
     </x-form>
@@ -82,7 +82,7 @@
     <h2><r-t key="invoices.credit.title" /></h2>
     <p class="muted"><r-t key="invoices.credit.hint" /></p>
     <x-form action="credit" class="stack narrow">
-      <p><label><r-t key="invoices.f.reason" /> <input name="reason" maxlength="200" :value="values.reason" required id="f-reason" :aria-invalid="'true' if errors.reason else 'false'" :aria-describedby="'err-reason' if errors.reason else ''" aria-required="true"></label></p>
+      <p><label><r-t key="invoices.f.reason" /> <input name="reason" maxlength="200" :value="values.reason" required id="f-reason" :aria-invalid="true if errors.reason else false" :aria-describedby="'err-reason' if errors.reason else none" aria-required="true"></label></p>
       <p><button type="submit"><r-t key="invoices.credit.submit" /></button></p>
     </x-form>
   </section>

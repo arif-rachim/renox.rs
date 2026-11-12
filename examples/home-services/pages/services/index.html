@@ -24,8 +24,8 @@
     <x-form action="save" class="row" r-for="s in services">
       <input type="hidden" name="service" :value="s.id">
       <span dir="ltr">{{ s.code }}</span>
-      <label><r-t key="catalogue.f.price" /> <input name="price" dir="ltr" inputmode="decimal" :value="values.price if (values.service == s.id and values.price is defined) else s.price_input" size="8" :id="'f-price' if values.service == s.id else 'f-price-' ~ s.id" :aria-invalid="'true' if values.service == s.id and errors.price else 'false'" :aria-describedby="'err-price' if values.service == s.id and errors.price else ''"></label>
-      <label><input type="checkbox" name="active" value="1" :checked="(values.service == s.id and values.price is defined and values.active == '1') or ((values.service != s.id or values.price is not defined) and s.active)" :id="'f-active' if values.service == s.id else 'f-active-' ~ s.id" :aria-invalid="'true' if values.service == s.id and errors.active else 'false'" :aria-describedby="'err-active' if values.service == s.id and errors.active else ''"> <r-t key="catalogue.f.active" /></label>
+      <label><r-t key="catalogue.f.price" /> <input name="price" dir="ltr" inputmode="decimal" :value="values.price if (values.service == s.id and values.price is defined) else s.price_input" size="8" :id="'f-price' if values.service == s.id else 'f-price-' ~ s.id" :aria-invalid="true if values.service == s.id and errors.price else false" :aria-describedby="'err-price' if values.service == s.id and errors.price else none"></label>
+      <label><input type="checkbox" name="active" value="1" :checked="(values.service == s.id and values.price is defined and values.active == '1') or ((values.service != s.id or values.price is not defined) and s.active)" :id="'f-active' if values.service == s.id else 'f-active-' ~ s.id" :aria-invalid="true if values.service == s.id and errors.active else false" :aria-describedby="'err-active' if values.service == s.id and errors.active else none"> <r-t key="catalogue.f.active" /></label>
       <button type="submit"><r-t key="catalogue.save" /></button>
     </x-form>
   </section>
