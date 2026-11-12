@@ -256,15 +256,15 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <section><form method="post" action="?/addSite" hx-post="?/addSite" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
     <h3>Add a site</h3>
     
-<p><label>Site name <input name="label" maxlength="80" value="" required id="f-label" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>Site name <input name="label" maxlength="80" required id="f-label" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
 <p><label>Emirate <select name="emirate" required id="f-emirate" aria-invalid="false" aria-describedby="" aria-required="true">
   <option value="AE-AZ" dir="auto">Abu Dhabi</option><option value="AE-DU" selected dir="auto">Dubai</option><option value="AE-SH" dir="auto">Sharjah</option><option value="AE-AJ" dir="auto">Ajman</option><option value="AE-UQ" dir="auto">Umm Al Quwain</option><option value="AE-RK" dir="auto">Ras Al Khaimah</option><option value="AE-FU" dir="auto">Fujairah</option>
 </select></label></p>
-<p><label>Area <input name="area" maxlength="80" value="" required id="f-area" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
-<p><label>Address <input name="address" maxlength="300" value="" required id="f-address" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
-<p><label>Makani number <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani" aria-invalid="false" aria-describedby=""></label></p>
-<p><label>Latitude <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lat" aria-invalid="false" aria-describedby=""></label></p>
-<p><label>Longitude <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lng" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>Area <input name="area" maxlength="80" required id="f-area" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>Address <input name="address" maxlength="300" required id="f-address" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>Makani number <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" id="f-makani" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>Latitude <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" id="f-lat" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>Longitude <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" id="f-lng" aria-invalid="false" aria-describedby=""></label></p>
 <p><label>Access notes <textarea name="access_notes" maxlength="500" id="f-access_notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
 
     <p><button type="submit" class="btn-brand">Add site</button></p>
@@ -347,15 +347,15 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <section><form method="post" action="?/addSite" hx-post="?/addSite" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
     <h3>إضافة موقع</h3>
     
-<p><label>اسم الموقع <input name="label" maxlength="80" value="" required id="f-label" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>اسم الموقع <input name="label" maxlength="80" required id="f-label" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
 <p><label>الإمارة <select name="emirate" required id="f-emirate" aria-invalid="false" aria-describedby="" aria-required="true">
   <option value="AE-AZ" dir="auto">أبوظبي</option><option value="AE-DU" selected dir="auto">دبي</option><option value="AE-SH" dir="auto">الشارقة</option><option value="AE-AJ" dir="auto">عجمان</option><option value="AE-UQ" dir="auto">أم القيوين</option><option value="AE-RK" dir="auto">رأس الخيمة</option><option value="AE-FU" dir="auto">الفجيرة</option>
 </select></label></p>
-<p><label>المنطقة <input name="area" maxlength="80" value="" required id="f-area" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
-<p><label>العنوان <input name="address" maxlength="300" value="" required id="f-address" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
-<p><label>رقم مكاني <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani" aria-invalid="false" aria-describedby=""></label></p>
-<p><label>خط العرض <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lat" aria-invalid="false" aria-describedby=""></label></p>
-<p><label>خط الطول <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" value="" id="f-lng" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>المنطقة <input name="area" maxlength="80" required id="f-area" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>العنوان <input name="address" maxlength="300" required id="f-address" aria-invalid="false" aria-describedby="" aria-required="true" dir="auto"></label></p>
+<p><label>رقم مكاني <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" id="f-makani" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>خط العرض <input name="lat" dir="ltr" inputmode="decimal" maxlength="20" id="f-lat" aria-invalid="false" aria-describedby=""></label></p>
+<p><label>خط الطول <input name="lng" dir="ltr" inputmode="decimal" maxlength="20" id="f-lng" aria-invalid="false" aria-describedby=""></label></p>
 <p><label>ملاحظات الدخول <textarea name="access_notes" maxlength="500" id="f-access_notes" aria-invalid="false" aria-describedby="" dir="auto"></textarea></label></p>
 
     <p><button type="submit" class="btn-brand">إضافة الموقع</button></p>

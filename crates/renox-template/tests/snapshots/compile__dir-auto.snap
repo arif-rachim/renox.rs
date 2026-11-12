@@ -6,8 +6,8 @@ expression: text
 <h1 dir="auto">{{ product.name }}</h1>
 <p dir="ltr">{{ product.sku }}</p>
 <p>Static text only</p>
-<input type="text" name="q" value="{{ query }}" dir="auto">
-<input type="number" name="n" value="{{ count }}">
+<input type="text" name="q"{% with __attr = query %}{% if __attr is not false and __attr is not none and __attr is defined %} value="{{ __attr }}"{% endif %}{% endwith %} dir="auto">
+<input type="number" name="n"{% with __attr = count %}{% if __attr is not false and __attr is not none and __attr is defined %} value="{{ __attr }}"{% endif %}{% endwith %}>
 <textarea name="note" dir="auto">{{ note }}</textarea>
 
 -- fragments: {}

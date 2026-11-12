@@ -11,7 +11,7 @@ import { run as renoxLogs } from "../../../cli/src/commands/logs.ts";
 import type { Io } from "../../../cli/src/commands/login.ts";
 import { logIngest, LOG_LINES_PER_MINUTE } from "../src/ingest/logs.ts";
 import { helloArtifact, named, upload } from "./artifacts.ts";
-import { assertScoped, createApp_, type Harness, harness, nodeToken, scopedToken, sseReader, tenant } from "./helpers.ts";
+import { assertScoped, createApp_, type Harness, harness, nodeToken, scopedToken, sseReader, tenant, until } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -178,7 +178,7 @@ describe("GET /v1/apps/{app}/logs", () => {
     // A stream that is not followed is not counted.
     expect((await open(h, token)).status).toBe(200);
     await readers[0]?.close();
-    await Bun.sleep(20);
+    await until(() => logIngest(h.deps).stream.open.get("t_hello") === cap - 1);
     const again = await open(h, token, "?follow=true");
     expect(again.status).toBe(200);
     await again.body?.cancel();
@@ -190,8 +190,7 @@ describe("GET /v1/apps/{app}/logs", () => {
     const res = await open(h, token, "?follow=true");
     expect(logIngest(h.deps).stream.open.get("t_hello")).toBe(1);
     await res.body?.cancel();
-    await Bun.sleep(20);
-    expect(logIngest(h.deps).stream.open.get("t_hello")).toBe(0);
+    await until(() => logIngest(h.deps).stream.open.get("t_hello") === 0);
   });
 });
 

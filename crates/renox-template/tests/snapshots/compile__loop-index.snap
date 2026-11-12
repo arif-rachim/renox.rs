@@ -4,7 +4,7 @@ expression: text
 ---
 == pages/index (Page)
 <ol>
-  {% for p in (products) | __loop %}{% set i = loop.index0 %}<li data-index="{{ i }}" dir="auto">{{ i + 1 }}. {{ p.name }}</li>{% endfor %}
+  {% for p in (products) | __loop %}{% set i = loop.index0 %}<li{% with __attr = i %}{% if __attr is not false and __attr is not none and __attr is defined %} data-index="{{ __attr }}"{% endif %}{% endwith %} dir="auto">{{ i + 1 }}. {{ p.name }}</li>{% endfor %}
 </ol>
 
 -- fragments: {}

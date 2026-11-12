@@ -40,6 +40,10 @@ const NO_DIR_AUTO: [&str; 7] = [
 const DEFAULT_SLOT: &str = "content";
 /// Names the compiler binds; templates cannot use them as variables.
 const CAN_FN: &str = "can";
+/// The name an attribute's value is bound to while the emitter decides
+/// whether to write it (`emit_value_attr`). Names starting with `__` are
+/// reserved for the platform, so template data cannot shadow it.
+const ATTR_VAR: &str = "__attr";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -1229,21 +1233,62 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 continue;
             }
             let expr = self.expr(ctx, node, name, value);
+            if attrs::is_absent_constant(&expr) {
+                // `false` or `none` written in the template: the attribute
+                // is never written, so nothing is emitted (#737).
+                continue;
+            }
             if attrs::is_boolean_attr(target) {
                 self.out
                     .push_str(&format!("{{% if {expr} %}} {target}{{% endif %}}"));
-            } else if attrs::URL_ATTRS.contains(&target) {
-                let filter = attrs::url_filter(tag, target);
-                self.out
-                    .push_str(&format!(" {target}=\"{{{{ ({expr}) | {filter} }}}}\""));
             } else {
-                self.out
-                    .push_str(&format!(" {target}=\"{{{{ {expr} }}}}\""));
+                self.emit_value_attr(tag, target, &expr, '"', false);
             }
         }
     }
 
+    /// An attribute whose whole value is one expression (`:name="expr"`, or
+    /// `name="{{ expr }}"`): omitted when the value is `false`, `none` or
+    /// undefined, written as `name="..."` otherwise (#737,
+    /// `docs/08-template-engine.md`, "Attributes whose value is false, none
+    /// or undefined"). The value is bound once with `{% with %}` so the
+    /// expression is evaluated once. `bare_true`: an HTML boolean attribute
+    /// written as `name="{{ expr }}"`, where `true` writes the bare name.
+    /// URL attributes keep their filter on the written value.
+    fn emit_value_attr(&mut self, tag: &str, name: &str, expr: &str, quote: char, bare_true: bool) {
+        let value = if attrs::URL_ATTRS.contains(&name) {
+            let filter = attrs::url_filter(tag, name);
+            format!("{{{{ ({ATTR_VAR}) | {filter} }}}}")
+        } else {
+            format!("{{{{ {ATTR_VAR} }}}}")
+        };
+        let present =
+            format!("{ATTR_VAR} is not false and {ATTR_VAR} is not none and {ATTR_VAR} is defined");
+        let written = format!(" {name}={quote}{value}{quote}");
+        if bare_true {
+            self.out.push_str(&format!(
+                "{{% with {ATTR_VAR} = {expr} %}}{{% if {ATTR_VAR} is true %}} {name}{{% elif {present} %}}{written}{{% endif %}}{{% endwith %}}"
+            ));
+        } else {
+            self.out.push_str(&format!(
+                "{{% with {ATTR_VAR} = {expr} %}}{{% if {present} %}}{written}{{% endif %}}{{% endwith %}}"
+            ));
+        }
+    }
+
     fn emit_static_attr(&mut self, ctx: &Ctx, node: &Handle, tag: &str, name: &str, value: &str) {
+        if let [Segment::Interp(inner)] = attrs::segments(value).as_slice() {
+            match self.cx.checker.check(inner) {
+                Ok(e) if attrs::is_absent_constant(&e) => {}
+                Ok(e) => {
+                    let quote = attrs::pick_quote(value);
+                    let bare_true = attrs::is_boolean_attr(name);
+                    self.emit_value_attr(tag, name, &e, quote, bare_true);
+                }
+                Err(m) => self.error(ctx, node, Some(name), format!("`{name}`: {m}")),
+            }
+            return;
+        }
         self.out.push(' ');
         self.out.push_str(name);
         if value.is_empty() && attrs::is_boolean_attr(name) {

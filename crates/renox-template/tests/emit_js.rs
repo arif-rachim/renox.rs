@@ -275,6 +275,35 @@ fn values_print_like_path_a() {
     assert!(compare("values", &compiled, &data) > 0);
 }
 
+/// #737: attributes whose value is `false`, `none` or undefined are omitted
+/// the same way on both paths.
+#[test]
+fn omitted_attributes_match_path_a() {
+    let compiled = compile_files(&[(
+        "pages/index.html",
+        r#"<p data-a="{{ v }}" :data-b="v" :aria-invalid="!v" class="btn {{ v }}" disabled="{{ v }}" :hidden="v">x</p><a :href="v">a</a><a href="{{ v }}">b</a><img :src="v" :alt="v">"#,
+    )])
+    .unwrap();
+    let data: Vec<_> = [
+        json!(false),
+        json!(null),
+        json!(true),
+        json!("false"),
+        json!(""),
+        json!(0),
+        json!("/p?a=\"b\""),
+        json!("javascript:x"),
+    ]
+    .into_iter()
+    .map(|v| json!({ "v": v }))
+    .chain([json!({})])
+    .collect();
+    assert_eq!(
+        compare("omit", &compiled, &data),
+        data.len() * LOCALES.len()
+    );
+}
+
 /// The shop list page at the B8 sizes: 100 and 1,000 items.
 #[test]
 fn shop_page_is_byte_equal_at_b8_sizes() {

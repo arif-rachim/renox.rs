@@ -3,15 +3,18 @@
 // deleteTenant, the state machine, the node drop, the exports and records
 // deleted, the audit rows, the owner's email, the refusals.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
-import { erasureOf, runErasure, TIME_BOX_MS } from "../src/tenants/erasure.ts";
+import { erasureIdle, erasureOf, runErasure, TIME_BOX_MS } from "../src/tenants/erasure.ts";
 import { setNodeCall } from "../src/workers/failover.ts";
 import { logIngest } from "../src/ingest/logs.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { addMember, assertScoped, auditRows, createApp_, harness, login, nodeToken, scopedToken, signup, type Harness, type Session } from "./helpers.ts";
 
 afterEach(assertScoped);
+
+// A hang guard, not a budget: a loaded CI runner may take longer than bun's 5 s default to sign up and hash.
+setDefaultTimeout(30_000);
 
 const T = "t_er";
 
@@ -72,9 +75,9 @@ async function setup(): Promise<Setup> {
 async function settle(h: Harness, max = 20): Promise<string | null> {
   let state: string | null = null;
   for (let i = 0; i < max; i++) {
+    await erasureIdle(h.deps); // the run the request started, awaited instead of polled
     state = (await runErasure(h.deps, T)) ?? state;
     if (state === "done" || state === "failed") return state;
-    await Bun.sleep(5);
   }
   return (await erasureOf(h.db, T))?.state ?? null;
 }
@@ -138,6 +141,17 @@ describe("deleteTenant (deploy-api.md 0.4 section 3)", () => {
     await settle(h);
   });
 
+  test("a run that finds another run holding the tenant returns null and changes nothing", async () => {
+    const { h, owner, calls } = await setup();
+    expect((await h.request("DELETE", `/v1/tenants/${T}`, { session: owner, json: { confirm: T } })).status).toBe(202);
+    await erasureIdle(h.deps);
+    const [first, second] = await Promise.all([runErasure(h.deps, T), runErasure(h.deps, T)]);
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+    await settle(h);
+  });
+
   test("409 while the tenant is moving", async () => {
     const { h, owner } = await setup();
     await h.db.query("update tenants set moving_since = $2 where id = $1", [T, h.clock.now]);
@@ -150,8 +164,9 @@ describe("deleteTenant (deploy-api.md 0.4 section 3)", () => {
     const { h, owner, nodeUp } = await setup();
     nodeUp.up = false;
     expect((await h.request("DELETE", `/v1/tenants/${T}`, { session: owner, json: { confirm: T } })).status).toBe(202);
-    await Bun.sleep(20);
-    await runErasure(h.deps, T);
+    // The run the request started in the background, awaited (no timer).
+    await erasureIdle(h.deps);
+    expect(await runErasure(h.deps, T)).toBe("erasing");
     expect(await erasureOf(h.db, T)).toMatchObject({ state: "erasing", completed_at: null });
     // Routes and tokens went first; the records wait for the node.
     expect(await count(h, "route_entries")).toBe(0);

@@ -9,7 +9,7 @@ import { contentHash, writeTar } from "@renox/artifact-validate";
 import { logIngest } from "../src/ingest/logs.ts";
 import { BUDGET_MS, MAX_FRAMES, parseStack, withServerFrames } from "../src/logs/symbolicate-server.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { assertScoped, createApp_, type Harness, harness, nodeToken, sseReader, tenant } from "./helpers.ts";
+import { assertScoped, createApp_, type Harness, harness, nodeToken, sseReader, tenant, until } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -90,7 +90,7 @@ describe("server stacks through streamLogs", () => {
     const { h, token, node, hash } = await setup(true);
     const res = await h.request("GET", "/v1/apps/hello/logs?follow=true", { token });
     const sse = sseReader(res);
-    await Bun.sleep(20);
+    await until(() => logIngest(h.deps).stream.open.get("t_hello") === 1);
     await ingest(h, node, [thrown(hash), { ...thrown(hash), fields: null, message: "plain" }]);
     const first = (await sse.next()).data as { fields: { frames: Frames } };
     expect(first.fields.frames[0]?.original).toEqual({ file: "functions/api/hello.ts", line: 7, column: 4 });

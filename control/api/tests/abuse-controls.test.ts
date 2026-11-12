@@ -23,7 +23,7 @@ import { checkTenant, currentSafeBrowsingFetch, DAY_MS, lookup, setSafeBrowsingF
 import { asnIn, asnOf, captcha, currentCaptchaFetch, parseAsnTable, setCaptchaFetch } from "../src/signup/friction.ts";
 import { check } from "../src/contract.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { assertScoped, auditRows, harness, OPERATOR_TOKEN, PASSWORD, registeredNode, signup, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, harness, OPERATOR_TOKEN, PASSWORD, registeredNode, signup, tenant, until, type Harness } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -154,7 +154,7 @@ describe("Safe Browsing", () => {
       await withEnv({ RENOX_SAFE_BROWSING_KEY: KEY }, async () => {
         const t = await liveTenant(h, "t-sbact", "shoes");
         // The activation's check runs off the request path; wait for its row.
-        for (let i = 0; i < 100 && (await h.db.query("select 1 from safe_browsing_checks where hostname = $1", [t.host])).length === 0; i++) await Bun.sleep(10);
+        await until(async () => (await h.db.query("select 1 from safe_browsing_checks where hostname = $1", [t.host])).length > 0);
         expect((await h.db.query<{ verdict: string }>("select verdict from safe_browsing_checks where hostname = $1", [t.host]))[0]?.verdict).toBe("safe");
         const g2 = fakeGoogle({ [t.host]: "UNWANTED_SOFTWARE" });
         setSafeBrowsingFetch(g2.f);

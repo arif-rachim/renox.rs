@@ -47,6 +47,13 @@ pub fn is_boolean_attr(name: &str) -> bool {
     BOOLEAN_ATTRS.contains(&name)
 }
 
+/// Whether a checked expression is the constant `false` or `none`: an
+/// attribute whose whole value is that constant is dropped at compile time
+/// (#737).
+pub fn is_absent_constant(expr: &str) -> bool {
+    matches!(expr.trim(), "false" | "False" | "none" | "None")
+}
+
 /// Attributes whose value is a URL: a bound value is checked at render time
 /// for `javascript:` and similar schemes (the `url` platform filter).
 pub const URL_ATTRS: &[&str] = &[
