@@ -30,7 +30,7 @@ email = { version = "^1.0.0" }
 # sandbox = true: nothing leaves the host (the module records each message as
 # sent, calls no API and needs no WHATSAPP_* secret); `whatsapp.outbox()` shows
 # what would have gone out. Production sets it to false (README, "Sandbox").
-whatsapp = { version = "^1.2.0", mount = "/whatsapp", config = { sandbox = true } }
+whatsapp = { version = "^1.3.0", mount = "/whatsapp", config = { sandbox = true } }
 # billing is booking's dependency; no PSP is configured (D31: no payments).
 billing = { version = "^1.0.0" }
 booking = { version = "^1.0.0", mount = "/booking", config = { slot_minutes = 30, hold_minutes = 10 } }

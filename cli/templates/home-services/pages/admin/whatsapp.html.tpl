@@ -1,6 +1,7 @@
 <r-layout use="back-office">
   <r-group slot="title"><r-t key="backoffice.whatsapp.title" /> · {{ brand.name }}</r-group>
   <h1><r-t key="backoffice.whatsapp.title" /></h1>
+  <p class="notice" id="whatsapp-sandbox" role="note" r-if="sandbox"><r-t key="backoffice.whatsapp.sandbox" /></p>
   <p><small class="muted"><r-t key="backoffice.whatsapp.note" /></small></p>
   <form class="search" action="/admin/whatsapp" method="get">
     <label><r-t key="backoffice.whatsapp.f.status" />
@@ -19,7 +20,7 @@
         <td dir="ltr">{{ m.when }}</td>
         <td><span dir="ltr">{{ m.phone }}</span></td>
         <td><r-group r-if="m.template"><span dir="ltr">{{ m.template }}</span></r-group><r-group r-else>{{ m.text }}</r-group></td>
-        <td><span :class="'status status-' ~ m.status">{{ ('backoffice.whatsapp.status.' ~ m.status) | t }}</span></td>
+        <td><span :class="'status status-' ~ m.status">{{ ('backoffice.whatsapp.status.' ~ m.status) | t }}</span><r-group r-if="m.error"><br><small class="muted"><r-t key="backoffice.whatsapp.reason" />: <span dir="ltr">{{ m.error }}</span></small></r-group></td>
       </tr>
       <tr r-empty="messages"><td colspan="4"><r-t key="backoffice.whatsapp.none" /></td></tr>
     </tbody>

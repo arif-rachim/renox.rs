@@ -791,7 +791,9 @@
         "delivered": "Delivered",
         "read": "Read",
         "failed": "Failed"
-      }
+      },
+      "sandbox": "Sandbox: nothing leaves this server. The messages below are what the app would have sent.",
+      "reason": "Reason"
     },
     "hours": {
       "title": "Working hours",

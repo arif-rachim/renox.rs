@@ -332,8 +332,8 @@ describe("the owner's WhatsApp page (/admin/whatsapp)", () => {
   };
   /** The page's rows with what moves between runs (ids, times) masked, for the snapshots. */
   const table = (html: string) => (/<table id="whatsapp-outbox"[\s\S]*?<\/table>/u.exec(html)?.[0] ?? "").replace(/id="wa-[^"]*"/gu, 'id="wa-<id>"').replace(/<td dir="ltr">\d{4}-\d{2}-\d{2} \d{2}:\d{2}<\/td>/gu, '<td dir="ltr"><time></td>');
-  const plant = (id: string, kind: string, phone: string, body: string, status: string, at: number) =>
-    rw((db) => db.run("insert into whatsapp__messages (id, direction, kind, phone, body, status, error, at, updated_at) values (?, 'out', ?, ?, ?, ?, null, ?, ?)", [id, kind, phone, body, status, at, at]));
+  const plant = (id: string, kind: string, phone: string, body: string, status: string, at: number, error: string | null = null) =>
+    rw((db) => db.run("insert into whatsapp__messages (id, direction, kind, phone, body, status, error, at, updated_at) values (?, 'out', ?, ?, ?, ?, ?, ?, ?)", [id, kind, phone, body, status, error, at, at]));
 
   test("normal case: after a quotation is sent the page lists the message as sent, with the phone masked", async () => {
     const q = rows("select customer_id, number from app__quotes where status = 'sent' and branch_id = 'br_dubai' order by number limit 1")[0] as { customer_id: string; number: string };
@@ -395,5 +395,28 @@ describe("the owner's WhatsApp page (/admin/whatsapp)", () => {
     expect(ar.html).toContain('dir="rtl"');
     expect(ar.html).toContain("رسائل واتساب");
     snapshot(table(ar.html), { role: "whatsapp outbox, failed, owner, ar" });
+  });
+
+  test("a failed message shows the module's failure reason after its status; a sent one shows none (#771)", async () => {
+    plant("wa_t_reason", "text", "+971500000045", "Reason message body", "failed", Date.now() + 3, "400 (131026)");
+    const page = await (await asOwner()).page("/admin/whatsapp?status=failed");
+    const row = /<tr id="wa-wa_t_reason">[\s\S]*?<\/tr>/u.exec(page.html)?.[0] ?? "";
+    expect(row).toContain("status-failed");
+    expect(row).toMatch(/Failed<\/span><br><small class="muted">Reason: <span dir="ltr">400 \(131026\)<\/span><\/small>/u);
+    const all = await (await asOwner()).page("/admin/whatsapp");
+    const sent = new RegExp(`<tr id="wa-[^"]*">(?:(?!</tr>)[\\s\\S])*quote_sent(?:(?!</tr>)[\\s\\S])*</tr>`, "u").exec(all.html)?.[0] ?? "";
+    expect(sent).toContain("status-sent");
+    expect(sent).not.toContain("Reason");
+  });
+
+  test("with the module in sandbox mode the page says nothing leaves the server, also when no message is listed (#771)", async () => {
+    const u = await asOwner();
+    const page = await u.page("/admin/whatsapp");
+    expect(page.html).toContain('<p class="notice" id="whatsapp-sandbox" role="note">Sandbox: nothing leaves this server.');
+    const empty = await u.page("/admin/whatsapp?phone=not-a-phone");
+    expect(empty.html).toContain('<tr><td colspan="4">');
+    expect(empty.html).toContain('id="whatsapp-sandbox"');
+    expect((await u.page("/admin/whatsapp?lang=ar")).html).toContain("وضع التجربة: لا يخرج شيء من هذا الخادم.");
+    expect((await u.page("/admin/whatsapp?lang=en")).status).toBe(200);
   });
 });
