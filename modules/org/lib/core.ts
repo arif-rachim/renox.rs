@@ -25,6 +25,8 @@ export interface OrgCtx {
   url?: URL;
   events: { emit(name: string, payload: Record<string, unknown>, options?: { durable?: boolean }): Promise<string> };
   hooks: { run(name: string, args: unknown): Promise<{ halt: false } | { halt: true; response: Response; module: string }> };
+  /** Who the cell runs the service for: null (anonymous), a user, or a system principal (`bootstrap` reads it). */
+  principal?: { kind?: unknown; id?: unknown } | null;
 }
 
 export type Role = "owner" | "admin" | "member";
@@ -272,8 +274,23 @@ export async function inviteAs(
   if (!EMAIL.test(email)) return { ok: false, error: "Enter a valid email address." };
   const role = isRole(input?.role) ? input.role : "member";
   if (role === "owner" && mine !== "owner") throw new OrgError("ORG_FORBIDDEN", "only an owner invites an owner");
-  const hook = await ctx.hooks.run("org.before_invite", { org_id: orgId, email, role, invited_by: s.user.id });
-  if (hook.halt) return { ok: false, error: "The invitation was not sent.", halt: hook.response };
+  const r = await issueInvite(ctx, { orgId, email, role, invitedBy: s.user.id, inviterName: s.user.display_name, origin });
+  return r.ok ? r : { ok: false, error: "The invitation was not sent.", halt: r.halt };
+}
+
+/**
+ * The part of an invitation `inviteAs` and `bootstrap` share (the caller has
+ * checked the right to invite and the email): the `org.before_invite` hook
+ * (a halt creates nothing), the replaced pending invitation, the row with
+ * only the token's hash, and the one `org.send_mail` run that carries the link.
+ */
+async function issueInvite(
+  ctx: OrgCtx,
+  i: { orgId: string; email: string; role: Role; invitedBy: string; inviterName: string; origin: string | null },
+): Promise<{ ok: true; invite_id: string; expires_at: number } | { ok: false; halt: Response }> {
+  const { orgId, email, role } = i;
+  const hook = await ctx.hooks.run("org.before_invite", { org_id: orgId, email, role, invited_by: i.invitedBy });
+  if (hook.halt) return { ok: false, halt: hook.response };
   const t = now();
   await ctx.db.execute("update org__invites set revoked_at = ? where org_id = ? and email = ? and accepted_at is null and revoked_at is null", [t, orgId, email]);
   const token = randomHex(32);
@@ -282,13 +299,13 @@ export async function inviteAs(
   const expires = t + days * 86400;
   await ctx.db.execute(
     "insert into org__invites (id, org_id, token_hash, email, role, invited_by, expires_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, orgId, await sha256Hex(token), email, role, s.user.id, expires, t],
+    [id, orgId, await sha256Hex(token), email, role, i.invitedBy, expires, t],
   );
   const org = await ctx.db.queryOne<{ name: string; locale: string | null }>("select name, locale from org__orgs where id = ?", [orgId]);
   const mail: Mail = {
     to: email,
     template: "org_invite",
-    args: { url: `${origin ?? ""}${basePath(ctx)}/accept/${token}`, org_name: org?.name ?? "", role, expires_days: days, invited_by: s.user.display_name, locale: org?.locale ?? null },
+    args: { url: `${i.origin ?? ""}${basePath(ctx)}/accept/${token}`, org_name: org?.name ?? "", role, expires_days: days, invited_by: i.inviterName, locale: org?.locale ?? null },
   };
   await ctx.hooks.run("org.send_mail", mail);
   return { ok: true, invite_id: id, expires_at: expires };
@@ -429,4 +446,181 @@ export async function switcher(ctx: OrgCtx, next?: unknown): Promise<Switcher | 
     members_url: `${base}/members`,
     next: safePath(next),
   };
+}
+
+// ---- bootstrap (#747) ----
+
+/** Thrown by `bootstrap` when the guard refuses (code `RENOX_FORBIDDEN`, 403); nothing was written. */
+export class BootstrapForbiddenError extends Error {
+  readonly code = "RENOX_FORBIDDEN";
+  readonly status = 403;
+  readonly details: { action: "org.bootstrap"; reason: "principal" | "not_fresh" | "owner" };
+  constructor(reason: "principal" | "not_fresh" | "owner") {
+    super("Bootstrap is not allowed here.");
+    this.name = "BootstrapForbiddenError";
+    this.details = { action: "org.bootstrap", reason };
+  }
+}
+
+/** Thrown by `bootstrap` for a malformed request (code `RENOX_VALIDATION`, `details: [{ field, reason }]`), before any write. */
+export class BootstrapValidationError extends Error {
+  readonly code = "RENOX_VALIDATION";
+  readonly status = 400;
+  constructor(readonly details: { field: string; reason: string }[]) {
+    super("The request is not valid.");
+    this.name = "BootstrapValidationError";
+  }
+}
+
+/** An `org.before_invite` filler halted an invitation of `bootstrap`: the whole call fails (code `ORG_INVITE_HALTED`, 409). */
+export class BootstrapHaltedError extends Error {
+  readonly code = "ORG_INVITE_HALTED";
+  readonly status = 409;
+  constructor(readonly details: { field: string; reason: string }[]) {
+    super("An invitation was not allowed.");
+    this.name = "BootstrapHaltedError";
+  }
+}
+
+export interface BootstrapInput {
+  owner_user_id: string;
+  orgs: { name: string; slug?: string }[];
+  invites?: { email: string; org_index: number; role: Role }[];
+}
+
+export interface BootstrapResult {
+  orgs: { id: string; name: string; slug: string }[];
+  invitations: { email: string; org_id: string }[];
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * The platform's one-time setup of a new app (#747): `orgs` (1 to 5) with
+ * `owner_user_id` as owner, and `invites` (0 to 20) into them, in the
+ * caller's transaction, with no session (no active organisation is set).
+ * Emits `org.created` and `org.member_added` per organisation; each
+ * invitation is the one `org.invite` makes (`issueInvite`).
+ *
+ * The guard, checked in this order, before anything is written:
+ * 1. `ctx.principal` is null: the setup call is an anonymous HTTPS request.
+ *    A user (a session, an App MCP call) or a system principal (a job, an
+ *    event handler, a module, the platform's `renox`) is refused.
+ * 2. The app is fresh: no organisation and no invitation. One-shot.
+ * 3. The app's only user is `owner_user_id` (the setup call registers the
+ *    owner just before).
+ * NOT covered: the runtime does not tell a service which module called it,
+ * so another module's code in the same anonymous request on a fresh app
+ * (before any organisation, with one user at most) looks like the app's own.
+ * That window is the app's first anonymous requests.
+ */
+export async function bootstrap(ctx: OrgCtx, input: unknown): Promise<BootstrapResult> {
+  if (ctx.principal !== null && ctx.principal !== undefined) throw new BootstrapForbiddenError("principal");
+  if ((await ctx.db.queryOne("select 1 as x from org__orgs limit 1")) !== null || (await ctx.db.queryOne("select 1 as x from org__invites limit 1")) !== null) {
+    throw new BootstrapForbiddenError("not_fresh");
+  }
+  const ownerId = isObject(input) ? input.owner_user_id : undefined;
+  const users = await ctx.db.query<{ id: string; display_name: string | null }>("select id, display_name from auth__public_users_v1 limit 2");
+  if (typeof ownerId !== "string" || ownerId === "" || users.length !== 1 || users[0]?.id !== ownerId) throw new BootstrapForbiddenError("owner");
+  const plan = bootstrapPlan(input as Record<string, unknown>);
+  const inviterName = users[0]?.display_name ?? "";
+
+  const t = now();
+  const orgs: BootstrapResult["orgs"] = [];
+  for (const o of plan.orgs) {
+    const id = randomHex(16);
+    await ctx.db.execute("insert into org__orgs (id, slug, name, created_by, created_at) values (?, ?, ?, ?, ?)", [id, o.slug, o.name, ownerId, t]);
+    await ctx.db.execute("insert into org__members (org_id, user_id, role, created_at) values (?, ?, 'owner', ?)", [id, ownerId, t]);
+    await ctx.events.emit("org.created", { org_id: id, user_id: ownerId, at: t });
+    await ctx.events.emit("org.member_added", { org_id: id, user_id: ownerId, role: "owner", at: t });
+    orgs.push({ id, name: o.name, slug: o.slug });
+  }
+  const origin = ctx.url?.origin ?? null;
+  const invitations: BootstrapResult["invitations"] = [];
+  for (const [n, v] of plan.invites.entries()) {
+    const orgId = orgs[v.org_index]?.id as string;
+    const r = await issueInvite(ctx, { orgId, email: v.email, role: v.role, invitedBy: ownerId, inviterName, origin });
+    if (!r.ok) throw new BootstrapHaltedError([{ field: `invites[${n}]`, reason: "halted by org.before_invite" }]);
+    invitations.push({ email: v.email, org_id: orgId });
+  }
+  return { orgs, invitations };
+}
+
+/** Validates a bootstrap request and derives the slugs; throws `BootstrapValidationError`. */
+function bootstrapPlan(input: Record<string, unknown>): { orgs: { name: string; slug: string }[]; invites: { email: string; org_index: number; role: Role }[] } {
+  const bad: { field: string; reason: string }[] = [];
+  const unknown = (o: Record<string, unknown>, allowed: string[], at: string) => {
+    for (const k of Object.keys(o)) if (!allowed.includes(k)) bad.push({ field: at === "" ? k : `${at}.${k}`, reason: "unknown field" });
+  };
+  unknown(input, ["owner_user_id", "orgs", "invites"], "");
+  const orgsIn = input.orgs;
+  const invitesIn = input.invites ?? [];
+  const orgs: { name: string; slug: string; explicit: boolean }[] = [];
+  if (!Array.isArray(orgsIn) || orgsIn.length < 1 || orgsIn.length > 5) bad.push({ field: "orgs", reason: "1 to 5 organisations" });
+  else {
+    for (const [i, o] of orgsIn.entries()) {
+      const at = `orgs[${i}]`;
+      if (!isObject(o)) {
+        bad.push({ field: at, reason: "an object { name, slug? }" });
+        continue;
+      }
+      unknown(o, ["name", "slug"], at);
+      const name = typeof o.name === "string" ? o.name.trim() : "";
+      if (name.length < 1 || name.length > 80) bad.push({ field: `${at}.name`, reason: "1 to 80 characters" });
+      let slug = "";
+      const explicit = o.slug !== undefined && o.slug !== null && !(typeof o.slug === "string" && o.slug.trim() === "");
+      if (explicit) {
+        slug = typeof o.slug === "string" ? slugify(o.slug) : "";
+        if (slug === "") bad.push({ field: `${at}.slug`, reason: "letters and digits, up to 50 characters" });
+      } else {
+        slug = slugify(name);
+        if (slug === "" && name !== "") bad.push({ field: `${at}.name`, reason: "needs letters or digits for its address" });
+      }
+      orgs.push({ name, slug, explicit });
+    }
+  }
+  // An explicit slug used twice is invalid; a derived one gets `-2`, `-3` ... when taken.
+  const taken = new Set<string>();
+  for (const [i, o] of orgs.entries()) {
+    if (!o.explicit || o.slug === "") continue;
+    if (taken.has(o.slug)) bad.push({ field: `orgs[${i}].slug`, reason: "already used by another organisation of this call" });
+    taken.add(o.slug);
+  }
+  for (const o of orgs) {
+    if (o.explicit || o.slug === "") continue;
+    const base = o.slug;
+    let slug = base;
+    for (let n = 2; taken.has(slug); n++) slug = `${base.slice(0, 48 - String(n).length)}-${n}`;
+    o.slug = slug;
+    taken.add(slug);
+  }
+  const invites: { email: string; org_index: number; role: Role }[] = [];
+  if (!Array.isArray(invitesIn) || invitesIn.length > 20) bad.push({ field: "invites", reason: "0 to 20 invitations" });
+  else {
+    const seen = new Set<string>();
+    for (const [i, v] of invitesIn.entries()) {
+      const at = `invites[${i}]`;
+      if (!isObject(v)) {
+        bad.push({ field: at, reason: "an object { email, org_index, role }" });
+        continue;
+      }
+      unknown(v, ["email", "org_index", "role"], at);
+      const email = typeof v.email === "string" ? v.email.trim().toLowerCase() : "";
+      const emailOk = EMAIL.test(email);
+      if (!emailOk) bad.push({ field: `${at}.email`, reason: "a valid email address" });
+      const idx = v.org_index;
+      const idxOk = typeof idx === "number" && Number.isInteger(idx) && idx >= 0 && idx < orgs.length;
+      if (!idxOk) bad.push({ field: `${at}.org_index`, reason: "an index into orgs" });
+      const roleOk = isRole(v.role);
+      if (!roleOk) bad.push({ field: `${at}.role`, reason: "member, admin or owner" });
+      if (emailOk && idxOk && roleOk) {
+        const key = `${idx}\n${email}`;
+        if (seen.has(key)) bad.push({ field: at, reason: "the same email twice for one organisation" });
+        seen.add(key);
+        invites.push({ email, org_index: idx as number, role: v.role as Role });
+      }
+    }
+  }
+  if (bad.length > 0) throw new BootstrapValidationError(bad);
+  return { orgs: orgs.map((o) => ({ name: o.name, slug: o.slug })), invites };
 }

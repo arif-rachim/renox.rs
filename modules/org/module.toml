@@ -1,6 +1,6 @@
 [module]
 name = "org"
-version = "1.1.0"
+version = "1.2.0"
 description = "Organisations, memberships with roles, invitations, and the active organisation of a session"
 
 [dependencies]
@@ -39,6 +39,7 @@ setRole = "Change a member's role (admin or owner; only an owner grants or remov
 removeMember = "Remove a member, or leave (any member for themselves); the last owner stays: { org, user } -> { ok } or { error }"
 setOrgLocale = "Set the organisation's default locale (admin or owner): { org, locale } (null clears it) -> { ok } or { error }"
 rename = "Rename the organisation (admin or owner); the slug stays: { org, name } (1 to 80 characters) -> { ok } or { error }"
+bootstrap = "System only (#747): the platform's one-time setup, anonymous, on a fresh app with the owner as only user: { owner_user_id, orgs, invites } -> { orgs, invitations }; RENOX_FORBIDDEN or RENOX_VALIDATION"
 switcher = "What the switcher partial renders, for a page's load: (next?) -> { orgs, current, action, ... } or null"
 
 [exports.events."org.created"]
