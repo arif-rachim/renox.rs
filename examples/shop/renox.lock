@@ -118,7 +118,7 @@ approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hook
 name = "reports"
 version = "1.2.0"
 source = "official"
-hash = "69c114ae83737ddd21d18814f1acfb18e6331690663ccddc381b521f351b54e3"
+hash = "c2208288b3447c6fe696115d29bc81b7f4ef41ad01a5e533ea0310ab3f6d1918"
 approved_version = "1.2.0"
 isolation = "shared"
 mount = "/reports"
