@@ -13,7 +13,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { app } from "@renoxium/sdk/test";
+import { app, snapshot } from "@renoxium/sdk/test";
 
 import { renderMessage } from "../lib/messages";
 import { replyKind } from "../lib/reply";
@@ -317,5 +317,83 @@ describe("a customer's reply", () => {
 describe("the ownership fence", () => {
   test("every task repeats its job's branch", () => {
     expect(rows("select count(*) as n from app__tasks k join app__jobs j on j.id = k.job_id where k.branch_id != j.branch_id")[0]?.n).toBe(0);
+  });
+});
+
+describe("the owner's WhatsApp page (/admin/whatsapp)", () => {
+  const owner = t.as("owner");
+  let signedIn = false;
+  const asOwner = async () => {
+    if (!signedIn) {
+      expect((await owner.action("/auth/login", "default", { email: "owner@fixit.example", password: PASSWORD, next: "/admin/whatsapp" })).status).toBe(303);
+      signedIn = true;
+    }
+    return owner;
+  };
+  /** The page's rows with what moves between runs (ids, times) masked, for the snapshots. */
+  const table = (html: string) => (/<table id="whatsapp-outbox"[\s\S]*?<\/table>/u.exec(html)?.[0] ?? "").replace(/id="wa-[^"]*"/gu, 'id="wa-<id>"').replace(/<td dir="ltr">\d{4}-\d{2}-\d{2} \d{2}:\d{2}<\/td>/gu, '<td dir="ltr"><time></td>');
+  const plant = (id: string, kind: string, phone: string, body: string, status: string, at: number) =>
+    rw((db) => db.run("insert into whatsapp__messages (id, direction, kind, phone, body, status, error, at, updated_at) values (?, 'out', ?, ?, ?, ?, null, ?, ?)", [id, kind, phone, body, status, at, at]));
+
+  test("normal case: after a quotation is sent the page lists the message as sent, with the phone masked", async () => {
+    const q = rows("select customer_id, number from app__quotes where status = 'sent' and branch_id = 'br_dubai' order by number limit 1")[0] as { customer_id: string; number: string };
+    const phone = String(rows("select phone from app__customers where id = ?", [q.customer_id])[0]?.phone);
+    const page = await (await asOwner()).page("/admin/whatsapp");
+    expect(page.status).toBe(200);
+    expect(page.html).toContain('id="whatsapp-outbox"');
+    const row = new RegExp(`<tr id="wa-[^"]*">(?:(?!</tr>)[\\s\\S])*quote_sent(?:(?!</tr>)[\\s\\S])*</tr>`, "u").exec(page.html)?.[0] ?? "";
+    expect(row).toContain("status-sent");
+    expect(row).toContain("Sent");
+    // Only the last four digits show, inside a left-to-right element; the number itself is nowhere on the page.
+    expect(row).toContain(`<span dir="ltr">+${"•".repeat(phone.replace(/\D/gu, "").length - 4)}${phone.slice(-4)}</span>`);
+    expect(page.html).not.toContain(phone);
+    // No resend: the table holds no form and no button.
+    expect(table(page.html)).not.toMatch(/<(button|form|input)/u);
+  });
+
+  test("an OTP's body is never shown, and a text is cut at 80 characters", async () => {
+    const at = Date.now();
+    plant("wa_t_otp", "otp", "+971500000042", "SEALED-CODE-654321", "queued", at);
+    plant("wa_t_text", "text", "+971500000043", `${"x".repeat(80)}TAIL`, "sent", at + 1);
+    const page = await (await asOwner()).page("/admin/whatsapp");
+    expect(page.html).not.toContain("SEALED-CODE-654321");
+    expect(page.html).not.toContain("654321");
+    expect(page.html).toContain("[otp]");
+    expect(page.html).toContain(`${"x".repeat(80)}…`);
+    expect(page.html).not.toContain("TAIL");
+  });
+
+  test("the filters: by status, and by phone as the customer form normalises it", async () => {
+    plant("wa_t_failed", "text", "+971500000044", "Failed message body", "failed", Date.now() + 2);
+    const u = await asOwner();
+    const failed = await u.page("/admin/whatsapp?status=failed");
+    expect(failed.html).toContain("Failed message body");
+    expect(failed.html).toContain("status-failed");
+    expect(failed.html).not.toContain("status-sent");
+    // A number typed with spaces and the 00 prefix finds the same row.
+    const byPhone = await u.page("/admin/whatsapp?phone=00971%2050%20000%200044");
+    expect(byPhone.html).toContain("Failed message body");
+    expect(byPhone.html).not.toContain("quote_sent");
+    expect((await u.page("/admin/whatsapp?phone=not-a-phone")).html).toContain('<tr><td colspan="4">');
+    // The newest message comes first.
+    const all = await u.page("/admin/whatsapp");
+    expect(all.html.indexOf("Failed message body")).toBeLessThan(all.html.indexOf("quote_sent"));
+  });
+
+  test("error case: a dispatcher gets 403, and nobody is shown the page signed out", async () => {
+    expect((await dubai.page("/admin/whatsapp")).status).toBe(403);
+    expect((await t.as("anonymous").page("/admin/whatsapp")).status).not.toBe(200);
+  });
+
+  test("in Arabic: the page and its table", async () => {
+    const u = await asOwner();
+    const en = await u.page("/admin/whatsapp?status=failed");
+    snapshot(table(en.html), { role: "whatsapp outbox, failed, owner, en" });
+    expect((await u.page("/admin/whatsapp?lang=ar")).status).toBe(200);
+    const ar = await u.page("/admin/whatsapp?status=failed");
+    expect((await u.page("/admin/whatsapp?lang=en")).status).toBe(200);
+    expect(ar.html).toContain('dir="rtl"');
+    expect(ar.html).toContain("رسائل واتساب");
+    snapshot(table(ar.html), { role: "whatsapp outbox, failed, owner, ar" });
   });
 });

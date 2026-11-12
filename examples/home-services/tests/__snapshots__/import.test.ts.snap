@@ -6,7 +6,6 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
   
   <h1>الاستيراد من إكسل</h1>
   <p>أدخل عملاءك ومواقعك وخدماتك وعقودك من ملفات إكسل. ارفع ملف ‎.xlsx‎ واحداً لكل نوع بهذا الترتيب (حتى ⁨10⁩ ميغابايت و10٬000 صف لكل ملف، الورقة الأولى فقط، والصف الأول هو العناوين). يُفحص الملف أولاً ولا يُكتب شيء حتى تستورد ملفاً بلا أخطاء.</p>
-  
   <ol id="import-kinds">
     <li id="kind-customers" dir="auto">
       <strong dir="auto">العملاء</strong>: الشركات والمنازل، كلٌّ في فرع واحد، برقم هاتف وبريد إلكتروني ورقم ضريبي ولغة اختيارياً.
@@ -46,6 +45,8 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
   
   <h1>تقرير الفحص</h1>
   <p><strong dir="auto">العملاء</strong> · <span dir="ltr" id="import-file">customers.xlsx</span> · <span id="import-status" dir="auto">تم فحصه</span></p>
+  
+  
   
   <dl id="import-totals">
     <dt>الصفوف</dt><dd dir="ltr" id="total-rows">1</dd>

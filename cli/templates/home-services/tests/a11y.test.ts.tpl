@@ -71,6 +71,10 @@ rw((db) => {
   const ok = JSON.stringify({ errors: [], insert: 2, update: 0, exists: 1 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11b0', 'customers', 'k1', 'bad.xlsx', 'checked', 3, 1, 0, 2, ?, 'u_owner', ?)", [bad, now]);
   db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11c0', 'customers', 'k2', 'ok.xlsx', 'checked', 3, 2, 1, 0, ?, 'u_owner', ?)", [ok, now]);
+  // The background states of #733: a file being checked (its page reloads itself) and one that failed.
+  const empty = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 });
+  db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_00000000000a11d0', 'customers', 'k3', 'waiting.xlsx', 'checking', ?, 'u_owner', ?)", [empty, now]);
+  db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at, error) values ('im_00000000000a11e0', 'customers', 'k4', 'broken.xlsx', 'failed', ?, 'u_owner', ?, 'import.err.not_xlsx')", [empty, now]);
 });
 
 // Ali checks in to his job J-000006 and records a part: its visit page then holds every form (J-000010 is still before check-in).
@@ -230,10 +234,15 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/admin/tile", as: () => owner },
   { path: "/admin/settings", as: () => owner },
   { path: "/admin/branches", as: () => owner },
+  { path: "/admin/whatsapp", as: () => owner },
+  { path: "/admin/whatsapp?status=failed", as: () => owner, note: "a filter" },
   { path: "/admin/people", as: () => owner },
   { path: "/admin/import", as: () => owner },
   { path: "/admin/import/im_00000000000a11b0", as: () => owner, note: "a file with errors" },
   { path: "/admin/import/im_00000000000a11c0", as: () => owner, note: "a clean file" },
+  { path: "/admin/import/im_00000000000a11d0", as: () => owner, note: "being checked" },
+  { path: "/admin/import/im_00000000000a11e0", as: () => owner, note: "failed" },
+  { path: "/jobs?outside_hours=1", as: () => owner, note: "outside the branch's hours" },
   { path: "/me", as: () => ali },
   { path: "/me/visits/jb_seed_10", as: () => ali, note: "before check-in" },
   { path: "/me/visits/jb_seed_06", as: () => ali, note: "visit open" },
@@ -333,6 +342,40 @@ describe("the dispatch board", () => {
 });
 
 // -- an invalid form --------------------------------------------------------------------------------------------------------
+
+// -- the back-office steps that only an action shows (#735, #736) --------------------------------------------------------
+
+describe("the confirmation of a second-factor reset and the working hours that cannot be saved", () => {
+  for (const lang of ["en", "ar"] as const) {
+    test(`/admin/people, the confirmation step (#735), ${lang}`, async () => {
+      // Ali gets a confirmed authenticator for the one request, so the owner's page offers the reset.
+      rw((db) => db.run("insert into twofa__totp (user_id, secret_sealed, confirmed_at, last_step, created_at) values ('u_dxb_ali', 'sealed', ?, null, ?)", [Date.now(), Date.now()]));
+      try {
+        await owner.page(withLang("/admin/people", lang));
+        const res = await owner.action("/admin/people", "reset_2fa", { user_id: "u_dxb_ali" });
+        expect(res.status).toBe(200);
+        expect(res.html).toContain('id="confirm-reset"');
+        expect(res.html).toContain(`<html lang="${lang}"`);
+        expect(audit(res.html, lang)).toEqual([]);
+      } finally {
+        rw((db) => db.run("delete from twofa__totp where user_id = 'u_dxb_ali'"));
+        await owner.page(withLang("/admin/people", "en"));
+      }
+    });
+    test(`/admin/branches, working hours with every day closed (422, #736), ${lang}`, async () => {
+      await owner.page(withLang("/admin/branches", lang));
+      try {
+        const res = await owner.action("/admin/branches", "hours", { branch_id: "br_dubai", ...Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [`closed_${d}`, "on"])) });
+        expect(res.status).toBe(422);
+        expect(res.html).toMatch(/<section class="problem" role="alert" tabindex="-1" id="form-errors">/u);
+        expect(res.html).toContain(`<html lang="${lang}"`);
+        expect(audit(res.html, lang)).toEqual([]);
+      } finally {
+        await owner.page(withLang("/admin/branches", "en"));
+      }
+    });
+  }
+});
 
 describe("a form that cannot be saved (422)", () => {
   test("the summary is an alert that can take focus and links to each control; each control is marked and described", async () => {

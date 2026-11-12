@@ -8,10 +8,12 @@
 // global (they apply in every branch the person belongs to); changing a role
 // replaces them and keeps them for the person's other branches.
 import type { Authz, DbStatements, Storage } from "@renoxium/sdk";
-import { audit, org, storage as storageModule, twofa } from "renox:modules";
+import { audit, i18n, notifications, org, storage as storageModule, twofa } from "renox:modules";
 
+import ar from "../i18n/ar.json";
+import en from "../i18n/en.json";
 import { schema, text } from "./forms";
-import { DEFAULT_HOURS } from "./booking-sync";
+import { DEFAULT_HOURS, type HourRow, WEEK_ORDER } from "./booking-sync";
 import { type Branch, branchDb, type Scopable } from "./scope";
 
 export const STAFF_ROLES = ["owner", "branch_manager", "dispatcher", "technician", "accountant"] as const;
@@ -201,6 +203,50 @@ export async function updateBranch(ctx: AdminCtx, id: string, input: BranchInput
   return true;
 }
 
+// ------------------------------------------------------------ working hours
+
+const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/u;
+
+/** `HH:MM` of minutes from local midnight (the value of an `<input type="time">`). */
+export const clockOf = (minutes: number): string => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+/**
+ * The weekly hours form: for each weekday 0 to 6 (0 is Sunday) `closed_<d>` (a checked box) or `open_<d>` and
+ * `close_<d>` as `HH:MM` on a 30-minute step, the close after the open; at least one weekday is open. Errors are
+ * keyed `hours_<d>` (that row) or `hours` (the whole week). A closed weekday has no row.
+ */
+export function hoursFromForm(form: FormData): { value: HourRow[] } | { errors: Record<string, string> } {
+  const errors: Record<string, string> = {};
+  const rows: HourRow[] = [];
+  const get = (key: string): string => {
+    const v = form.get(key);
+    return typeof v === "string" ? v.trim() : "";
+  };
+  for (const wd of WEEK_ORDER) {
+    if (get(`closed_${wd}`) !== "") continue;
+    const open = CLOCK.exec(get(`open_${wd}`));
+    const close = CLOCK.exec(get(`close_${wd}`));
+    if (open === null || close === null) {
+      errors[`hours_${wd}`] = "backoffice.err.hours_time";
+      continue;
+    }
+    const from = Number(open[1]) * 60 + Number(open[2]);
+    const to = Number(close[1]) * 60 + Number(close[2]);
+    if (from % 30 !== 0 || to % 30 !== 0) errors[`hours_${wd}`] = "backoffice.err.hours_step";
+    else if (to <= from) errors[`hours_${wd}`] = "backoffice.err.hours_order";
+    else rows.push({ weekday: wd, open_min: from, close_min: to });
+  }
+  if (Object.keys(errors).length === 0 && rows.length === 0) errors.hours = "backoffice.err.hours_none";
+  return Object.keys(errors).length > 0 ? { errors } : { value: rows.sort((a, b) => a.weekday - b.weekday) };
+}
+
+/** Replaces the branch's weekly hours (one transaction: the action's) and records who did it. The caller then syncs `booking` (lib/booking-sync.ts `syncHours`). */
+export async function replaceHours(ctx: AdminCtx, branchId: string, hours: readonly HourRow[]): Promise<void> {
+  await ctx.db.execute("delete from app__branch_hours where branch_id = ?", [branchId]);
+  for (const h of hours) await ctx.db.execute("insert into app__branch_hours (branch_id, weekday, open_min, close_min) values (?, ?, ?, ?)", [branchId, h.weekday, h.open_min, h.close_min]);
+  await audit.record({ action: "branch.hours", actor: { kind: "user", id: ctx.principal?.id ?? "unknown" }, resource: { type: "Branch", id: branchId }, details: { hours: hours.map((h) => `${h.weekday}:${clockOf(h.open_min)}-${clockOf(h.close_min)}`) } });
+}
+
 // ------------------------------------------------------------------ people
 
 export interface StaffRow {
@@ -323,15 +369,49 @@ const plain = (status: number, text: string): Response => new Response(text, { s
 /**
  * The 403 of a refused policy decision, or null when `action` is allowed (and
  * then the second factor is asked for: without a recent one the step-up throws
- * its own 403). `action` is sensitive, so every decision is audited.
+ * its own 403). `action` is sensitive, so every decision is audited; the
+ * policy refuses each of them without a recent second factor (base.cedar).
  */
-export async function sensitive(ctx: { readonly authz: Pick<Authz, "require"> }, action: "settings.write" | "user.manage", next: string): Promise<Response | null> {
+export async function sensitive(
+  ctx: { readonly authz: Pick<Authz, "require"> },
+  action: "settings.write" | "user.manage" | "twofa.reset",
+  next: string,
+  resource?: { type: string; id: string },
+): Promise<Response | null> {
   try {
-    await ctx.authz.require(action);
+    await (resource === undefined ? ctx.authz.require(action) : ctx.authz.require(action, resource));
   } catch (e) {
     if ((e as { code?: string }).code === "RENOX_FORBIDDEN") return plain(403, "Forbidden");
     throw e;
   }
-  await twofa.requireRecent({ next });
+  try {
+    await twofa.requireRecent({ next });
+  } catch (e) {
+    // requireRecent throws only for the step-up. Across modules it arrives as RENOX_MODULE_SERVICE naming
+    // the module and the service, without its own code or verify_url (cause_code carries RENOX_* codes only),
+    // so the verification page is named here. It happens when the session's verification ran out within the
+    // principal's cache time (60 s), so the policy above still saw mfa_verified. Nothing has been written.
+    const d = (e as { code?: string; details?: { module?: unknown; service?: unknown } }).details;
+    if ((e as { code?: string }).code === "RENOX_MODULE_SERVICE" && d?.module === "twofa" && d.service === "requireRecent") {
+      return new Response(null, { status: 303, headers: { location: `/2fa/verify?next=${encodeURIComponent(next)}`, "cache-control": "no-store" } });
+    }
+    throw e;
+  }
   return null;
+}
+
+// ------------------------------------------------------- second-factor reset
+
+/**
+ * Tells a person that their second factor was reset (key `people.twofa_reset`,
+ * in their language). The `notifications` module does the channel: the in-app
+ * item, WhatsApp when the person has a linked phone, and email (config
+ * `channels`). Call it after `twofa.reset`, never before: a module call that
+ * throws ends the transaction (#734).
+ */
+export async function notifyTwofaReset(userId: string, ownerName: string): Promise<void> {
+  const locale = (await i18n.detectLocale({ user_id: userId, org_locale: null })).locale;
+  const tree = (locale === "ar" ? ar : en) as unknown as { people: { twofa_reset: string } };
+  const title = tree.people.twofa_reset.replace("{owner}", ownerName).slice(0, 200);
+  await notifications.notify(userId, { category: "staff", title });
 }

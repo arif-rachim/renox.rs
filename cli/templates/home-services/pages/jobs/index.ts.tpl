@@ -1,23 +1,29 @@
 // GET /jobs: the active branch's jobs, filtered by status, technician and day
 // (`?status=scheduled&technician=<user id>&day=2026-11-09`). The guard is
-// `job.read`; a technician sees only the jobs assigned to them (the policy
+// `job.read`; `?outside_hours=1` keeps the jobs still to come that fall outside the
+// branch's working hours (the link /admin/branches shows after the hours change);
+// `?branch=<id>` names another branch of the company for the owner (`settings.read`). A technician sees only the jobs assigned to them (the policy
 // refuses the others, and the list is cut to the same set), everyone else with
 // `job.read` sees the branch's.
 import type { LoaderContext } from "@renoxium/sdk";
 
-import { clock } from "../../lib/booking-sync";
+import { clock, jobsOutsideHours } from "../../lib/booking-sync";
 import { listJobs, PRIORITIES, readsAll, STATUSES } from "../../lib/jobs";
 import { shell } from "../../lib/page";
 import { day } from "../../lib/quotes";
-import { branchOf, noBranch, scopedDb } from "../../lib/scope";
+import { branchOf, findBranch, noBranch, scopedDb } from "../../lib/scope";
 import { techniciansOf } from "../../lib/technicians";
 
 export const guard = { action: "job.read" };
 
 export async function load(ctx: LoaderContext) {
   const page = await shell(ctx);
-  const branch = await branchOf(ctx);
-  if (branch === null) return noBranch();
+  const active = await branchOf(ctx);
+  if (active === null) return noBranch();
+  let branch = active;
+  const askedBranch = ctx.url.searchParams.get("branch") ?? "";
+  if (askedBranch !== "" && askedBranch !== active.id && /^[a-z0-9_]{1,64}$/u.test(askedBranch) && (await ctx.authz.can("settings.read"))) branch = (await findBranch(ctx.db, askedBranch)) ?? active;
+  const outsideOnly = ctx.url.searchParams.get("outside_hours") === "1";
   const all = await readsAll(ctx.authz, branch.id);
   const asked = ctx.url.searchParams.get("status") ?? "";
   const status = (STATUSES as readonly string[]).includes(asked) ? asked : "";
@@ -27,6 +33,7 @@ export async function load(ctx: LoaderContext) {
   const technicians = all ? await techniciansOf(ctx, branch) : [];
   const technician = technicians.some((t) => t.id === askedTech) ? askedTech : "";
   const rows = await listJobs(scopedDb(ctx.db, branch), { status, technician, day: dayKey }, all ? null : (ctx.principal?.id ?? "-"));
+  const outsideIds = outsideOnly ? new Set(await jobsOutsideHours(ctx.db, scopedDb(ctx.db, branch), branch.id, Math.floor(Date.now() / 1000))) : null;
   const scoped = scopedDb(ctx.db, branch);
   const customers = new Map((await scoped.query<{ id: string; name: string }>("select id, name from app__customers", [])).map((c) => [c.id, c.name]));
   const services = new Map((await ctx.db.query<{ id: number; name_en: string; name_ar: string }>("select id, name_en, name_ar from app__services", [])).map((s) => [s.id, page.locale === "ar" ? s.name_ar : s.name_en]));
@@ -40,7 +47,9 @@ export async function load(ctx: LoaderContext) {
     statuses: STATUSES.map((s) => ({ value: s, current: s === status })),
     priorities: PRIORITIES,
     technicians: technicians.map((t) => ({ id: t.id, name: t.name, current: t.id === technician })),
-    jobs: rows.map((j) => ({
+    outside_hours: outsideOnly,
+    branch_id: branch.id,
+    jobs: rows.filter((j) => outsideIds === null || outsideIds.has(j.id)).map((j) => ({
       id: j.id,
       number: j.number,
       status: j.status,

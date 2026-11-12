@@ -4,12 +4,14 @@
 // by row with the validators the forms use (lib/forms.ts, the gcc module,
 // lib/contract-forms.ts), planned against the database (`insert`, `update`,
 // `exists`) and reported; nothing but the `app__imports` row is written until
-// `commitImport`, which writes the whole file in the action's one transaction
-// and only for a checked import with no errors.
+// the commit, which writes the whole file in one transaction (a job attempt's)
+// and only for a checked import with no errors. Both run as background jobs
+// (jobs/import-check.ts, jobs/import-commit.ts, lib/import-job.ts): the
+// action only makes the row (`checking`, `committing`) and enqueues the job.
 //
 // The error `code`s are i18n keys: `import.err.<code>`. A row's `row` is its
 // 1-based sheet row (the header is row 1); a file-level error has row 0.
-import type { DbStatements, Principal, Storage } from "@renoxium/sdk";
+import type { DbStatements, Principal } from "@renoxium/sdk";
 import { audit, reports } from "renox:modules";
 
 import { type ContractInput, validDay } from "./contract-forms";
@@ -466,22 +468,25 @@ export async function planImport(ctx: PlanCtx, kind: ImportKind, rows: readonly 
 // ------------------------------------------------------------- the stored file
 
 /** A problem with the file as a whole: `not_xlsx`, or `too_many_rows` (over 100,000 cells or 10 MiB). */
-export type FileError = { fileError: "not_xlsx" | "too_many_rows" };
+export type FileErrorCode = "not_xlsx" | "too_many_rows";
 
 /**
- * The first sheet of the stored file, or the file-level error. A module service that throws ends the
- * caller's transaction (nothing can be written after it), so the cheap checks come first (a size, the
- * zip signature) and a file that still fails is answered by the caller with a redirect, not a stored report.
+ * The checks of a stored file that need no module service: its size, then the zip signature. A module
+ * service that throws ends the attempt's transaction (jobs/import-check.ts), so what can be known
+ * without calling `reports.readXlsx` is known first.
  */
-export async function readFile(storage: Pick<Storage, "read">, key: string): Promise<{ cells: Cell[][] } | FileError> {
-  const bytes = await storage.read(key);
-  if (bytes.length > MAX_FILE_BYTES) return { fileError: "too_many_rows" };
-  if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) return { fileError: "not_xlsx" };
-  try {
-    return { cells: (await reports.readXlsx(bytes)) as Cell[][] };
-  } catch (e) {
-    return { fileError: /over 100,000 cells|over 10 MiB/u.test(e instanceof Error ? e.message : "") ? "too_many_rows" : "not_xlsx" };
-  }
+export function cheapFileError(bytes: Uint8Array): FileErrorCode | null {
+  if (bytes.length > MAX_FILE_BYTES) return "too_many_rows";
+  if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) return "not_xlsx";
+  return null;
+}
+
+/** The file-level code of an error thrown by `reports.readXlsx`. */
+export const readErrorCode = (e: unknown): FileErrorCode => (/over 100,000 cells|over 10 MiB/u.test(e instanceof Error ? e.message : "") ? "too_many_rows" : "not_xlsx");
+
+/** The first sheet of a stored file; throws when `reports.readXlsx` does (call `cheapFileError` first). */
+export async function readCells(bytes: Uint8Array): Promise<Cell[][]> {
+  return (await reports.readXlsx(bytes)) as Cell[][];
 }
 
 export interface Checked {
@@ -491,25 +496,25 @@ export interface Checked {
   counts: Plan["counts"];
 }
 
-/** Reads, parses and plans a stored file. */
-export async function checkFile(ctx: PlanCtx & { readonly storage: Pick<Storage, "read"> }, kind: ImportKind, key: string): Promise<Checked | FileError> {
-  const file = await readFile(ctx.storage, key);
-  if ("fileError" in file) return file;
-  const parsed = await parseSheet(kind, file.cells);
+/** Parses and plans the cells of a file: the validation rules are the same for the check and the commit. */
+export async function checkCells(ctx: PlanCtx, kind: ImportKind, cells: Cell[][]): Promise<Checked> {
+  const parsed = await parseSheet(kind, cells);
   const planned = await planImport(ctx, kind, parsed.rows);
-  const dataRows = Math.max(0, file.cells.length - 1);
+  const dataRows = Math.max(0, cells.length - 1);
   const errors = [...parsed.errors, ...planned.errors].sort((a, b) => a.row - b.row);
   return { rows: dataRows, errors, plan: planned.plan, counts: planned.counts };
 }
 
 // -------------------------------------------------------------- the import rows
 
+export type ImportStatus = "checking" | "checked" | "committing" | "committed" | "discarded" | "failed";
+
 export type ImportRow = {
   id: string;
   kind: ImportKind;
   file_key: string;
   file_name: string;
-  status: "checked" | "committed" | "discarded";
+  status: ImportStatus;
   rows: number;
   ok: number;
   skipped: number;
@@ -518,6 +523,9 @@ export type ImportRow = {
   created_by: string | null;
   created_at: number;
   committed_at: number | null;
+  /** `import.err.<code>` of a failed import, null otherwise. */
+  error: string | null;
+  checked_at: number | null;
 };
 
 export interface Report {
@@ -533,12 +541,12 @@ export const importId = (raw: unknown): string | null => (typeof raw === "string
 
 export async function findImport(db: DbStatements, raw: unknown): Promise<ImportRow | null> {
   const id = importId(raw);
-  return id === null ? null : db.queryOne<ImportRow>("select id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at, committed_at from app__imports where id = ?", [id]);
+  return id === null ? null : db.queryOne<ImportRow>("select id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at, committed_at, error, checked_at from app__imports where id = ?", [id]);
 }
 
 export async function recentImports(db: DbStatements, limit = 10): Promise<(ImportRow & { who: string; when: string })[]> {
   const rows = await db.query<ImportRow & { who: string | null }>(
-    `select i.id, i.kind, i.file_key, i.file_name, i.status, i.rows, i.ok, i.skipped, i.errors, i.report, i.created_by, i.created_at, i.committed_at,
+    `select i.id, i.kind, i.file_key, i.file_name, i.status, i.rows, i.ok, i.skipped, i.errors, i.report, i.created_by, i.created_at, i.committed_at, i.error, i.checked_at,
        (select display_name from auth__public_users_v1 u where u.id = i.created_by) as who
      from app__imports i order by i.created_at desc, i.id desc limit ?`,
     [limit],
@@ -557,40 +565,63 @@ export function fileNameOf(key: string): string {
   return `${m?.[1] ?? "import"}.xlsx`;
 }
 
-/** Checks a stored file and keeps the result as a `checked` import. Nothing else is written; a file that is no workbook is only named (`fileError`). */
-export async function checkImport(ctx: PlanCtx & { readonly storage: Pick<Storage, "read"> }, kind: ImportKind, key: string): Promise<{ id: string; errors: number } | FileError> {
-  const result = await checkFile(ctx, kind, key);
-  if ("fileError" in result) return result;
-  const report: Report = { errors: result.errors.slice(0, MAX_REPORTED), ...result.counts };
+export const EMPTY_REPORT = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 } satisfies Report);
+
+/** Makes the import row of an uploaded file, `checking`; the job `import-check` fills it in. Answers its id. */
+export async function startImport(ctx: { readonly db: DbStatements; readonly principal: Principal | null }, kind: ImportKind, key: string): Promise<string> {
   const id = `im_${crypto.randomUUID().replace(/-/gu, "").slice(0, 16)}`;
   await ctx.db.execute(
-    "insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values (?, ?, ?, ?, 'checked', ?, ?, ?, ?, ?, ?, ?)",
-    [id, kind, key, fileNameOf(key), result.rows, result.counts.insert + result.counts.update, result.counts.exists, result.errors.length, JSON.stringify(report), ctx.principal?.id ?? null, now()],
+    "insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values (?, ?, ?, ?, 'checking', 0, 0, 0, 0, ?, ?, ?)",
+    [id, kind, key, fileNameOf(key), EMPTY_REPORT, ctx.principal?.id ?? null, now()],
   );
-  return { id, errors: result.errors.length };
+  return id;
 }
 
-export type CommitResult = { ok: true; counts: Plan["counts"] } | { ok: false; status: 404 | 409; message: string };
+/** Keeps the result of the check: the report, the counts and `checked`. Only a `checking` row is changed. */
+export async function finishCheck(db: DbStatements, id: string, result: Checked): Promise<void> {
+  const report: Report = { errors: result.errors.slice(0, MAX_REPORTED), ...result.counts };
+  const at = now();
+  await db.execute("update app__imports set status = 'checked', rows = ?, ok = ?, skipped = ?, errors = ?, report = ?, checked_at = ? where id = ? and status = 'checking'", [
+    result.rows,
+    result.counts.insert + result.counts.update,
+    result.counts.exists,
+    result.errors.length,
+    JSON.stringify(report),
+    at,
+    id,
+  ]);
+}
 
 /**
- * Writes the whole file of a `checked` import with no errors, through the same plan, so a file whose
- * data changed since the check (a customer it names was removed) is refused rather than half-written.
- * The caller's request is one transaction: a throw anywhere rolls every row back.
+ * Ends a `checking` or `committing` import as `failed` with the i18n key `import.err.<code>`. A failed
+ * check has no report of its own (the empty one stays); a failed commit keeps the report of its check.
  */
-export async function commitImport(ctx: PlanCtx & { readonly storage: Pick<Storage, "read"> }, rawId: unknown): Promise<CommitResult> {
-  const row = await findImport(ctx.db, rawId);
-  if (row === null) return { ok: false, status: 404, message: "Import not found" };
-  if (row.status !== "checked") return { ok: false, status: 409, message: `This import is ${row.status}: check the file again.` };
-  if (row.errors > 0) return { ok: false, status: 409, message: "This file has errors: fix it and check it again." };
-  const result = await checkFile(ctx, row.kind, row.file_key);
-  if ("fileError" in result) return { ok: false, status: 409, message: "The stored file can no longer be read: check it again." };
-  if (result.errors.length > 0) return { ok: false, status: 409, message: "The data changed since the check: check the file again." };
+export async function failImport(db: DbStatements, id: string, from: "checking" | "committing", code: string): Promise<void> {
+  await db.execute("update app__imports set status = 'failed', error = ? where id = ? and status = ?", [`import.err.${code}`, id, from]);
+}
+
+/** Asks for the commit of a `checked` import with no errors: `committing`, until `import-commit` has run. False when the row is not in that state. */
+export async function startCommit(db: DbStatements, id: string): Promise<boolean> {
+  const done = await db.execute("update app__imports set status = 'committing' where id = ? and status = 'checked' and errors = 0", [id]);
+  return done.changes === 1;
+}
+
+export type CommitDone = { ok: true; counts: Plan["counts"] } | { ok: false; code: "data_changed" };
+
+/**
+ * Writes the whole file of a `committing` import through the plan of `checkCells`, so a file whose data
+ * changed since the check (a customer it names was removed) is refused (`data_changed`) rather than
+ * half-written. The caller (jobs/import-commit.ts) runs it in the attempt's one transaction: a throw
+ * anywhere rolls every row back. `by` is the user who asked for the import (the audit row's actor).
+ */
+export async function commitChecked(ctx: PlanCtx, row: ImportRow, result: Checked, by: string): Promise<CommitDone> {
+  if (result.errors.length > 0) return { ok: false, code: "data_changed" };
   if (row.kind === "customers") await writeCustomers(ctx, result.plan);
   else if (row.kind === "sites") await writeSites(ctx, result.plan);
   else if (row.kind === "services") await writeServices(ctx, result.plan);
   else await writeContracts(ctx, result.plan);
   const report: Report = { errors: [], ...result.counts };
-  await ctx.db.execute("update app__imports set status = 'committed', committed_at = ?, rows = ?, ok = ?, skipped = ?, report = ? where id = ?", [
+  await ctx.db.execute("update app__imports set status = 'committed', committed_at = ?, rows = ?, ok = ?, skipped = ?, report = ? where id = ? and status = 'committing'", [
     now(),
     result.rows,
     result.counts.insert + result.counts.update,
@@ -600,7 +631,7 @@ export async function commitImport(ctx: PlanCtx & { readonly storage: Pick<Stora
   ]);
   await audit.record({
     action: "import.committed",
-    actor: { kind: "user", id: ctx.principal?.id ?? "unknown" },
+    actor: { kind: "user", id: by },
     resource: { type: "Import", id: row.id },
     details: { kind: row.kind, rows: result.rows, inserted: result.counts.insert, updated: result.counts.update, existing: result.counts.exists },
   });

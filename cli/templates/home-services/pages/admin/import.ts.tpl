@@ -2,13 +2,14 @@
 // Excel (`settings.write`: the owner). Four kinds, one sheet each, with a
 // template to download. The browser sends the file straight to the store with a
 // signed PUT (`public/upload.js`: a page action is limited to 1 MiB), POST
-// ?/upload_url signs it, and POST ?/check reads the stored file, validates it
-// and keeps the report as an `app__imports` row; nothing else is written. The
-// report and the commit are at /admin/import/<id>.
+// ?/upload_url signs it, and POST ?/check makes an `app__imports` row
+// (`checking`) and enqueues the job `import-check`, which reads the stored file,
+// validates it and keeps the report; nothing else is written. The report and the
+// commit are at /admin/import/<id>.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { invalid } from "../../lib/invalid";
-import { checkImport, COLUMNS, isKind, isUploadKey, KINDS, MAX_FILE_BYTES, recentImports, XLSX_TYPE } from "../../lib/import";
+import { COLUMNS, isKind, isUploadKey, KINDS, MAX_FILE_BYTES, recentImports, startImport, XLSX_TYPE } from "../../lib/import";
 import { shell } from "../../lib/page";
 
 export const guard = { action: "settings.write" };
@@ -24,7 +25,6 @@ export async function load(ctx: LoaderContext) {
     kinds: KINDS.map((k) => ({ kind: k, columns: COLUMNS[k].map((c) => (c.required ? `${c.name}*` : c.name)).join(", ") })),
     max_mb: MAX_FILE_BYTES / (1024 * 1024),
     imports,
-    file_error: ["not_xlsx", "too_many_rows"].includes(ctx.url.searchParams.get("error") ?? "") ? ctx.url.searchParams.get("error") : null,
     values: {},
   };
 }
@@ -56,7 +56,7 @@ export const actions = {
     return Response.json({ url: signed.url, max_bytes: signed.max_bytes }, { headers: { "cache-control": "no-store" } });
   },
 
-  /** Step two: reads the stored file, checks it and keeps the report; the owner then sees it at /admin/import/<id>. */
+  /** Step two: makes the import `checking` and enqueues its check; the owner then waits for the report at /admin/import/<id>. The file is not read here. */
   async check(ctx: ActionContext) {
     const page = await shell(ctx);
     const kind = ctx.form.get("kind");
@@ -68,9 +68,8 @@ export const actions = {
     } catch {
       return invalid(page.locale, ctx.form, { file_key: "import.err.no_file" });
     }
-    const made = await checkImport(ctx, kind, key);
-    // A file that is no workbook has no report to keep: the transaction is over, and the page says why.
-    if ("fileError" in made) return redirect(`/admin/import?error=${made.fileError}`);
-    return redirect(`/admin/import/${made.id}`);
+    const id = await startImport(ctx, kind, key);
+    await ctx.jobs.enqueue("import-check", { import_id: id });
+    return redirect(`/admin/import/${id}`);
   },
 };

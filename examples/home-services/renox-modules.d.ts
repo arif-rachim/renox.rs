@@ -63,6 +63,8 @@ declare module "renox:modules" {
     isEnrolled(userId: string): Promise<boolean>;
     /** Resolves when this session verified a second factor recently; else throws STEP_UP_REQUIRED (403). */
     requireRecent(opts?: { within?: number; next?: string }): Promise<void>;
+    /** Resets another user's second factor (twofa.reset on that user, a recent second factor of the caller, never oneself); the next sign-in enrols again. */
+    reset(userId: string): Promise<{ reset: boolean }>;
   };
   export const org: {
     switcher(next?: string): Promise<{ current?: { id: string; locale?: string | null } | null } | null>;
@@ -90,7 +92,8 @@ declare module "renox:modules" {
   export const booking: {
     addService(s: { id: string; name: string; minutes: number; buffer?: number; deposit_fils?: number; cancel_hours?: number }): Promise<{ id: string }>;
     addStaff(s: { id: string; name: string; user_id?: string; services: string[] }): Promise<{ id: string }>;
-    setHours(staff: string, when: number | string, openMin: number, closeMin: number): Promise<true>;
+    /** `openMin` null deletes that weekday's hours (closed). */
+    setHours(staff: string, when: number | string, openMin: number | null, closeMin: number | null): Promise<true>;
     slots(service: string, day: string, opts?: { staff?: string }): Promise<Slot[]>;
     hold(service: string, staff: string, start: number, customer: string): Promise<{ id: string; expires_at: number; pay_url: string | null }>;
     confirm(id: string): Promise<{ id: string; status: string }>;

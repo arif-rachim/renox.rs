@@ -261,7 +261,9 @@
       "note": "A note is at most 200 characters.",
       "technician": "Choose a technician.",
       "status": "Choose a status."
-    }
+    },
+    "outside_hours": "Only the scheduled jobs outside the branch's working hours.",
+    "outside_clear": "Show all jobs"
   },
   "dispatch": {
     "title": "Dispatch board",
@@ -580,7 +582,8 @@
       "users": "People",
       "audit": "Audit trail",
       "menu": "Back office",
-      "label": "Back office"
+      "label": "Back office",
+      "whatsapp": "WhatsApp"
     },
     "tiles": {
       "jobs_today": "Jobs today",
@@ -648,12 +651,18 @@
       "role": "Role",
       "set_role": "Change role",
       "remove": "Remove from branch",
+      "reset_2fa": "Reset second factor",
+      "reset_title": "Reset second factor",
+      "reset_confirm": "Reset the second factor of {name}? They will set it up again at their next sign-in.",
+      "reset_confirm_button": "Yes, reset it",
+      "reset_cancel": "Cancel",
       "you": "You",
       "pending": "Waiting for an answer",
       "pending_none": "No pending invitations.",
       "invited": "Invitation sent.",
       "role_set": "Role changed.",
       "removed": "Removed from the branch.",
+      "twofa_reset": "Second factor reset.",
       "claimed": "Roles applied to people who joined.",
       "no_role": "No role",
       "role_names": {
@@ -685,7 +694,12 @@
       "role": "Choose one of the five roles.",
       "member": "Choose a member of this branch.",
       "self": "You cannot change or remove yourself.",
-      "remove": "The person could not be removed (the last owner stays)."
+      "no_twofa": "This person has no second factor to reset.",
+      "remove": "The person could not be removed (the last owner stays).",
+      "hours_time": "Enter an opening and a closing time, or tick Closed.",
+      "hours_step": "Times are on the half hour (for example 08:00 or 08:30).",
+      "hours_order": "The closing time must be after the opening time.",
+      "hours_none": "At least one day must be open."
     },
     "import": {
       "title": "Import from Excel",
@@ -709,9 +723,12 @@
       },
       "counts": "{rows} rows, {ok} to write, {skipped} already there, {errors} errors",
       "status": {
+        "checking": "Checking",
         "checked": "Checked",
+        "committing": "Importing",
         "committed": "Imported",
-        "discarded": "Discarded"
+        "discarded": "Discarded",
+        "failed": "Failed"
       },
       "kinds": {
         "customers": {
@@ -732,6 +749,9 @@
         }
       },
       "report": "Check report",
+      "working_check": "Checking the file…",
+      "working_commit": "Importing…",
+      "again": "Upload again",
       "committed": "Imported: {inserted} added, {updated} updated, {exists} already there.",
       "open": "See the result",
       "total": {
@@ -749,6 +769,50 @@
       "discard": "Discard this file",
       "fix": "Fix the file and check it again.",
       "back": "Back to the imports"
+    },
+    "whatsapp": {
+      "title": "WhatsApp messages",
+      "note": "The last 50 messages the app sent to customers, newest first. Only the last four digits of a number show. Nothing can be resent from here.",
+      "filter": "Filter",
+      "none": "No messages.",
+      "f": {
+        "status": "Status",
+        "phone": "Phone"
+      },
+      "col": {
+        "when": "When",
+        "to": "To",
+        "message": "Message",
+        "status": "Status"
+      },
+      "status": {
+        "queued": "Queued",
+        "sent": "Sent",
+        "delivered": "Delivered",
+        "read": "Read",
+        "failed": "Failed"
+      }
+    },
+    "hours": {
+      "title": "Working hours",
+      "for": "Working hours: {branch}",
+      "note": "Hours are per branch, from Monday. A closed day offers no slots. Jobs already scheduled outside new hours are not moved.",
+      "closed": "Closed",
+      "open": "Opens",
+      "close": "Closes",
+      "save": "Save hours",
+      "saved": "Working hours saved for {branch}.",
+      "outside_one": "1 scheduled job is outside the new hours",
+      "outside_many": "{n} scheduled jobs are outside the new hours",
+      "day": {
+        "1": "Monday",
+        "2": "Tuesday",
+        "3": "Wednesday",
+        "4": "Thursday",
+        "5": "Friday",
+        "6": "Saturday",
+        "0": "Sunday"
+      }
     }
   },
   "fields": {
@@ -811,7 +875,8 @@
     "role": "Role",
     "user_id": "Person",
     "branch": "Branch",
-    "file_key": "File"
+    "file_key": "File",
+    "hours": "Working hours"
   },
   "problem": {
     "title": "The form could not be saved",
@@ -846,7 +911,13 @@
       "too_long": "The value is too long.",
       "bad_email": "Not a valid email address.",
       "bad_number": "A contract number is 1 to 32 characters: letters, digits and . _ / -",
-      "no_file": "Choose an Excel file and wait until its name appears."
+      "no_file": "Choose an Excel file and wait until its name appears.",
+      "too_large": "The file is too large to check on the current plan. Split it into files of at most about 900 rows to check and 250 rows to import.",
+      "data_changed": "The data changed since the check, so nothing was imported. Upload the file again.",
+      "check_failed": "The file could not be checked. Upload it again."
     }
+  },
+  "people": {
+    "twofa_reset": "Your second factor was reset by {owner}. If this was not expected, tell your manager."
   }
 }

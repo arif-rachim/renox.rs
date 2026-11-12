@@ -31,6 +31,44 @@ export const DEFAULT_HOURS: readonly { weekday: number; open_min: number; close_
   { weekday: 6, open_min: 480, close_min: 1080 },
 ];
 
+/** Display order of the week (Monday first); storage keeps weekday 0 = Sunday. */
+export const WEEK_ORDER: readonly number[] = [1, 2, 3, 4, 5, 6, 0];
+
+export type HourRow = { weekday: number; open_min: number; close_min: number };
+
+/** The branch's weekly hours: its rows of app__branch_hours (a closed weekday has none), or the standard hours when it has no rows at all. */
+export async function hoursOf(db: DbStatements, branchId: string): Promise<HourRow[]> {
+  const rows = await db.query<HourRow>("select weekday, open_min, close_min from app__branch_hours where branch_id = ? order by weekday", [branchId]);
+  return rows.length > 0 ? rows : DEFAULT_HOURS.map((h) => ({ ...h }));
+}
+
+/** Whether a job that runs from `start` to `end` (unix seconds, null: one hour) falls outside `hours` (local time, UTC+4). */
+export function outsideHours(start: number, end: number | null, hours: readonly HourRow[]): boolean {
+  const local = new Date(start * 1000 + OFFSET_MS);
+  const open = hours.find((h) => h.weekday === local.getUTCDay());
+  if (open === undefined) return true;
+  const from = local.getUTCHours() * 60 + local.getUTCMinutes();
+  const to = from + Math.ceil(((end ?? start + 3600) - start) / 60);
+  return from < open.open_min || to > open.close_min;
+}
+
+/** The jobs of the branch still to come (status `scheduled`, from `nowSeconds` on) that fall outside its current hours. `sdb` is fenced to the branch. */
+export async function jobsOutsideHours(db: DbStatements, sdb: DbStatements, branchId: string, nowSeconds: number): Promise<string[]> {
+  const hours = await hoursOf(db, branchId);
+  const jobs = await sdb.query<{ id: string; scheduled_start: number; scheduled_end: number | null }>("select id, scheduled_start, scheduled_end from app__jobs where branch_id = ? and status = 'scheduled' and scheduled_start is not null and scheduled_start >= ? order by scheduled_start, id", [branchId, nowSeconds]);
+  return jobs.filter((j) => outsideHours(j.scheduled_start, j.scheduled_end, hours)).map((j) => j.id);
+}
+
+/**
+ * After app__branch_hours changed: hands the new hours to `booking` for each technician (`ensureSynced` sets the
+ * weekdays that have a row) and deletes the weekdays that have none (closed), so the slots follow at once.
+ */
+export async function syncHours(db: DbStatements, branch: Branch, technicians: readonly Technician[]): Promise<void> {
+  await ensureSynced(db, branch, technicians);
+  const open = new Set((await hoursOf(db, branch.id)).map((h) => h.weekday));
+  for (const t of technicians) for (const wd of WEEK_ORDER) if (!open.has(wd)) await booking.setHours(t.id, wd, null, null);
+}
+
 export type Slot = { start: number; end: number; staff: string };
 
 /** The booking service id of a catalogue code (booking ids are lower case). */

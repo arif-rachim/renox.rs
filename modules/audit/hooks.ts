@@ -1,4 +1,4 @@
-// The audit module's listeners (#288): events of auth, org, and the
+// The audit module's listeners (#288): events of auth, org, 2fa and the
 // platform become rows of audit__events. Events need no dependency: a
 // listener for a module that is not installed never runs. The payloads
 // are redacted like any other details (`auth.agent_token_revoked` carries
@@ -17,7 +17,7 @@ type Ctx = Parameters<typeof record>[0];
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
 /** The row of one event: who did it, to what. */
-function rowOf(e: Event): AuditInput | null {
+export function rowOf(e: Event): AuditInput | null {
   const p = e.payload ?? {};
   const user = str(p.user_id);
   switch (e.name) {
@@ -37,6 +37,11 @@ function rowOf(e: Event): AuditInput | null {
     case "org.member_removed": {
       const by = str(p.by) ?? user;
       return by ? { action: e.name, actor: { kind: "user", id: by }, resource: { type: "org:Org", id: str(p.org_id) }, details: p } : null;
+    }
+    case "twofa.reset": {
+      // An administrator reset a user's second factor (2fa 1.1.0, #735): the actor is `by`, the target the user.
+      const by = str(p.by);
+      return by && user ? { action: e.name, actor: { kind: "user", id: by }, resource: { type: "twofa:User", id: user }, details: p } : null;
     }
     case "mcp.tool_called":
       // An App MCP tools/call (#658): actor kind agent, the client, the outcome.
@@ -59,5 +64,6 @@ export const on = {
   "org.created": listen,
   "org.member_added": listen,
   "org.member_removed": listen,
+  "twofa.reset": listen,
   "mcp.tool_called": listen,
 };

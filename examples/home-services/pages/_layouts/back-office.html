@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/renox-ui.css">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/theme">
+  <meta r-if="refresh" http-equiv="refresh" :content="refresh">
 </head>
 <body>
   <a class="skip" href="#main"><r-t key="app.skip" /></a>
@@ -25,6 +26,7 @@
       <a href="/admin/settings"><r-t key="backoffice.nav.settings" /></a>
       <a href="/admin/branches"><r-t key="backoffice.nav.branches" /></a>
       <a href="/admin/import"><r-t key="backoffice.nav.import" /></a>
+      <a href="/admin/whatsapp"><r-t key="backoffice.nav.whatsapp" /></a>
       <a href="/admin/people"><r-t key="backoffice.nav.users" /></a>
       <a href="/admin/audit"><r-t key="backoffice.nav.audit" /></a>
       <a href="/"><r-t key="backoffice.open_work" /></a>

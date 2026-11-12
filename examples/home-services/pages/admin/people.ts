@@ -8,10 +8,17 @@
 // five roles, replacing the others in this branch) and ?/remove (out of the
 // branch): `user.manage`, sensitive (the owner with a recent second factor).
 // An owner and an accountant need a second factor before any sensitive action
-// (policies/app/base.cedar); the page shows who has none yet.
+// (policies/app/base.cedar); the page shows who has none yet. POST ?/reset_2fa
+// (#735): `twofa.reset`, the owner's only, on a person of this branch who has
+// a second factor and is not the caller; the first POST (no `confirm=1`) shows
+// the confirmation block, the confirmed one calls the `twofa` module's `reset`
+// (it checks the permission and a recent second factor itself, but a module call
+// that throws ends the transaction, so the page asks first), tells the person
+// through `notifications` and goes back with `?saved=twofa_reset`.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
+import { twofa } from "renox:modules";
 
-import { inviteStaff, isStaffRole, pendingInvites, removeStaff, sensitive, setStaffRole, staffOf, STAFF_ROLES } from "../../lib/admin";
+import { inviteStaff, isStaffRole, notifyTwofaReset, pendingInvites, removeStaff, sensitive, setStaffRole, staffOf, STAFF_ROLES } from "../../lib/admin";
 import { shell } from "../../lib/page";
 import { invalid } from "../../lib/invalid";
 import { day } from "../../lib/quotes";
@@ -34,6 +41,7 @@ export async function load(ctx: LoaderContext) {
   const saved = ctx.url.searchParams.get("saved");
   return {
     ...page,
+    confirm_reset: null as { user_id: string; name: string } | null,
     branch_name: page.locale === "ar" ? branch.name_ar : branch.name_en,
     values: {},
     saved,
@@ -44,6 +52,9 @@ export async function load(ctx: LoaderContext) {
 }
 
 const back = "/admin/people";
+
+/** The page rendered again (200) with the confirmation block of `target`; the loader's data comes with it, the action's keys win. */
+const confirming = (target: { user_id: string; name: string }) => ({ status: 200 as const, confirm_reset: { user_id: target.user_id, name: target.name } });
 
 export const actions = {
   async invite(ctx: ActionContext) {
@@ -92,5 +103,23 @@ export const actions = {
     if (!r.ok) return invalid(page.locale, ctx.form, { user_id: r.error });
     return redirect(`${back}?saved=removed`);
   },
-};
 
+  async reset_2fa(ctx: ActionContext) {
+    const target = String(ctx.form.get("user_id") ?? "");
+    // Both checks come before anything is written (and before the module is called).
+    const refused = await sensitive(ctx, "twofa.reset", back, { type: "twofa:User", id: target });
+    if (refused !== null) return refused;
+    const page = await shell(ctx);
+    const branch = await branchOf(ctx);
+    if (branch === null) return noBranch();
+    const staff = await staffOf(ctx, branch);
+    const member = staff.find((s) => s.user_id === target);
+    if (member === undefined) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.member" });
+    if (member.self) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.self" });
+    if (!member.twofa) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.no_twofa" });
+    if (ctx.form.get("confirm") !== "1") return confirming(member);
+    const done = await twofa.reset(target);
+    if (done.reset) await notifyTwofaReset(target, staff.find((s) => s.self)?.name ?? "");
+    return redirect(`${back}?saved=twofa_reset`);
+  },
+};

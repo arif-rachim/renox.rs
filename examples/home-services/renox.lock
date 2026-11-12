@@ -3,9 +3,10 @@ version = 1
 
 [[module]]
 name = "audit"
-version = "1.0.1"
+version = "1.1.0"
 source = "official"
-hash = "9d2949b2e0653d44845367a3db1ca2c27ab918a5c0f1cadd68f2cfce12ef18b3"
+hash = "bb348563d8e9abcbdbd94c2b0b5badc421a1b2a924d796a87b49abeed94713fb"
+approved_version = "1.1.0"
 isolation = "shared"
 mount = "/audit"
 dependencies = []
@@ -158,9 +159,10 @@ approved = { tables = "reports__*", network = [], secrets = [], slots = [], hook
 
 [[module]]
 name = "twofa"
-version = "1.0.1"
+version = "1.1.0"
 source = "official"
-hash = "97d9fcd761fb6d623fd4ac4225b62b122f893035613d49841f8de642c9e78003"
+hash = "2df3aa2e29a2207894d0ec50179b8f7e48b8246776cf6a39d6d0648c68f8f214"
+approved_version = "1.1.0"
 isolation = "shared"
 mount = "/2fa"
 dependencies = ["auth", "i18n"]

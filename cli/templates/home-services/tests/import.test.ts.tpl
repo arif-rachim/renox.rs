@@ -4,9 +4,11 @@
 // writes nothing but its report; the commit (second factor) writes the whole
 // file in one transaction, and only a file with no errors. Runs on the local
 // worker with the seed's users (password below); the files are made with the
-// `reports` module's `xlsx` service.
+// `reports` module's `xlsx` service. The check and the commit are background
+// jobs (#733): a test waits for the import to leave `checking` / `committing`.
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { totp } from "@renoxium/sdk";
+import { Database } from "bun:sqlite";
 import { app, snapshot, type TestApp } from "@renoxium/sdk/test";
 
 setDefaultTimeout(120_000);
@@ -121,17 +123,43 @@ async function upload(u: TestApp, name: string, bytes: Uint8Array): Promise<stri
   return put.json<{ key: string }>().key;
 }
 
-/** Uploads `cells` as one file of `kind` and checks it; answers the import's id. */
-async function checked(kind: string, cells: Cells, u: TestApp = owner): Promise<string> {
-  const key = await upload(u, `${kind}.xlsx`, await workbook(kind, cells));
+/**
+ * Waits for the background job of an import: until its row is no longer `checking` or `committing`
+ * (a job that fails once is retried 10 s later, so the wait is long), then answers the status.
+ */
+async function settled(id: string, timeoutMs = 60_000): Promise<string> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const status = String(rows("select status from app__imports where id = ?", [id])[0]?.status);
+    if (status !== "checking" && status !== "committing") return status;
+    if (Date.now() > until) throw new Error(`import ${id} is still ${status} after ${timeoutMs} ms`);
+    await Bun.sleep(100);
+  }
+}
+
+/** Posts the check of a stored file; answers the response and the import's id (the job has not run yet). */
+async function startCheck(kind: string, key: string, u: TestApp = owner): Promise<{ res: Awaited<ReturnType<TestApp["action"]>>; id: string }> {
   const res = await u.action("/admin/import", "check", { kind, file_key: key });
   expect(res.status).toBe(303);
   const id = /^\/admin\/import\/(im_[a-f0-9]{16})$/u.exec(res.headers.get("location") ?? "")?.[1];
   expect(id).toBeDefined();
-  return id as string;
+  return { res, id: id as string };
 }
 
-const commit = (id: string, u: TestApp = owner) => u.action(`/admin/import/${id}`, "commit", {});
+/** Uploads `cells` as one file of `kind` and checks it (the job has run when this answers); answers the import's id. */
+async function checked(kind: string, cells: Cells, u: TestApp = owner): Promise<string> {
+  const key = await upload(u, `${kind}.xlsx`, await workbook(kind, cells));
+  const { id } = await startCheck(kind, key, u);
+  await settled(id);
+  return id;
+}
+
+/** Posts the commit and, when it was accepted, waits for its job. */
+async function commit(id: string, u: TestApp = owner) {
+  const res = await u.action(`/admin/import/${id}`, "commit", {});
+  if (res.status === 303) await settled(id);
+  return res;
+}
 const strip = (s: string | undefined): string => (s ?? "").replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim();
 /** The report's error table as [row, column, message]. */
 const errorRows = (html: string): string[][] =>
@@ -324,10 +352,8 @@ describe("/admin/import", () => {
     // One column: on the free tier a request has 50 ms of CPU, and the cells cross from the module to the app.
     const big: Cells = [["branch"], ["Dubai"]];
     const key10k = await upload(owner, "big.xlsx", plainWorkbook(big as string[][], 10_002));
-    const manyRes = await owner.action("/admin/import", "check", { kind: "customers", file_key: key10k });
-    if (manyRes.status !== 303) console.log("BIG", manyRes.status, JSON.stringify(t.logs().slice(-2)).slice(0, 1500));
-    expect(manyRes.status).toBe(303);
-    const many = /(im_[a-f0-9]{16})$/u.exec(manyRes.headers.get("location") ?? "")?.[1] as string;
+    const many = (await startCheck("customers", key10k)).id;
+    expect(await settled(many)).toBe("checked");
     expect(importRow(many)).toMatchObject({ status: "checked", errors: 1 });
     expect(errorRows((await owner.page(`/admin/import/${many}`)).html)).toEqual([["—", "", "The file has too many rows: 10,000 at most."]]);
 
@@ -337,11 +363,11 @@ describe("/admin/import", () => {
     expect(refused.status).toBe(415);
     // A zip that is no workbook (here a cut-off one) is the check's not_xlsx.
     const key = await upload(owner, "notes.xlsx", plainWorkbook([["branch"], ["Dubai"]]).slice(0, 80));
-    const res = await owner.action("/admin/import", "check", { kind: "customers", file_key: key });
-    // No report is kept for it (a failed module service ends the transaction): the page says why.
-    expect(res.headers.get("location")).toBe("/admin/import?error=not_xlsx");
-    expect(res.status).toBe(303);
-    expect(strip(/<p class="problem"[^>]*id="file-error"[^>]*>([\s\S]*?)<\/p>/u.exec((await owner.page("/admin/import?error=not_xlsx")).html)?.[1])).toBe("This is not an Excel .xlsx file.");
+    const broken = (await startCheck("customers", key)).id;
+    // The job ends the import as failed (on the pinned worker a failed module service ends its transaction, so the retry writes it; with #734's savepoints the same attempt does); it stays in the history.
+    expect(await settled(broken)).toBe("failed");
+    expect(rows("select error from app__imports where id = ?", [broken])[0]?.error).toBe("import.err.not_xlsx");
+    expect(strip(/<p class="problem"[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec((await owner.page(`/admin/import/${broken}`)).html)?.[1])).toContain("This is not an Excel .xlsx file.");
 
     const missing = await checked("customers", [["branch", "kind", "name"], ["Dubai", "household", "No phone column"]]);
     expect(errorRows((await owner.page(`/admin/import/${missing}`)).html)).toEqual([["1", "phone", "The first row has no column with this name."]]);
@@ -389,4 +415,178 @@ describe("/admin/import", () => {
     snapshot(steady(report.html), { role: "import report, owner, ar" });
     expect((await owner.page("/admin/import?lang=en")).html).toContain('dir="ltr"');
   });
+});
+
+/** A writable connection to the tenant file, for the two things a test cannot do through the app: age a row, and queue a job run again. */
+function writable(): Database {
+  const db = new Database(t.dbFile);
+  db.run("pragma busy_timeout = 5000");
+  return db;
+}
+
+/**
+ * Queues one more run of a job of the app, as `ctx.jobs.enqueue` does (ops.md section 20: a row of renox__outbox named `job:<name>`), and waits until it has run.
+ * Test-only: `t.job` runs only a scheduled tick, without a payload; #770 gives it `{ payload }`, and then this helper goes.
+ */
+async function runAgain(job: string, payload: Record<string, unknown>): Promise<void> {
+  const id = `01TESTRUN${crypto.randomUUID().replace(/-/gu, "").slice(0, 17).toUpperCase()}`;
+  const db = writable();
+  const now = Date.now();
+  db.run("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, 'app', ?, ?, 'app', ?, 0, ?)", [id, `job:${job}`, JSON.stringify(payload), now, now]);
+  db.close();
+  const until = Date.now() + 30_000;
+  while (Number(rows("select count(*) as n from renox__outbox where id = ?", [id])[0]?.n) > 0) {
+    if (Date.now() > until) throw new Error(`the run of ${job} did not finish`);
+    await Bun.sleep(100);
+  }
+}
+
+const plainRows = (n: number, phoneBase: number): string[][] => [
+  HEADER,
+  ...Array.from({ length: n }, (_, i) => ["Dubai", "household", `Bulk Customer ${i}`, `+9715${String(phoneBase + i).padStart(8, "0")}`, `bulk${i}@import.example`, "", "en"]),
+];
+
+describe("/admin/import in the background (#733)", () => {
+  test("normal case: a valid file goes checking, checked, committing, committed; the page says what is going on and refreshes while it waits", async () => {
+    const key = await upload(owner, "customers.xlsx", await workbook("customers", [HEADER, ["Dubai", "household", "Background One", "050 333 0001", null, null, "en"], ["Sharjah", "company", "Background Two LLC", "050 333 0002", null, null, "ar"]]));
+    const before = count("app__customers");
+    const { res, id } = await startCheck("customers", key);
+    expect(res.headers.get("location")).toBe(`/admin/import/${id}`);
+    // The request wrote the row and nothing else; the job fills it in.
+    expect(["checking", "checked"]).toContain(importRow(id).status);
+    expect(await settled(id)).toBe("checked");
+    expect(importRow(id)).toMatchObject({ status: "checked", rows: 2, ok: 2, skipped: 0, errors: 0 });
+    expect(Number(rows("select checked_at from app__imports where id = ?", [id])[0]?.checked_at)).toBeGreaterThan(0);
+    expect(count("app__customers")).toBe(before);
+    const report = await owner.page(`/admin/import/${id}?lang=en`);
+    expect(report.html).not.toContain('http-equiv="refresh"');
+    expect(report.html).toContain('id="commit-form"');
+
+    const done = await commit(id);
+    expect(done.status).toBe(303);
+    expect(done.headers.get("location")).toBe(`/admin/import/${id}`);
+    expect(importRow(id)).toMatchObject({ status: "committed", ok: 2 });
+    expect(count("app__customers")).toBe(before + 2);
+    expect(rows("select count(*) as n from audit__events where action = 'import.committed' and resource_id = ?", [id])[0]?.n).toBe(1);
+    // The history shows the status with its label.
+    expect(strip(new RegExp(`<tr id="import-${id}"[\\s\\S]*?</tr>`, "u").exec((await owner.page("/admin/import?lang=en")).html)?.[0])).toContain("Imported");
+  });
+
+  test("normal case: a row that is checking shows 'Checking the file…' and refreshes by itself, in both languages; committing shows 'Importing…'", async () => {
+    const key = await upload(owner, "customers.xlsx", await workbook("customers", [HEADER, ["Dubai", "household", "Waiting", "050 333 0003", null, null, "en"]]));
+    const db = writable();
+    const at = Math.floor(Date.now() / 1000);
+    db.run(
+      "insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_aaaaaaaaaaaaaaaa', 'customers', ?, 'customers.xlsx', 'checking', '{\"errors\":[],\"insert\":0,\"update\":0,\"exists\":0}', 'u', ?), ('im_bbbbbbbbbbbbbbbb', 'customers', ?, 'customers.xlsx', 'committing', '{\"errors\":[],\"insert\":1,\"update\":0,\"exists\":0}', 'u', ?)",
+      [key, at, key, at],
+    );
+    db.close();
+    const checking = await owner.page("/admin/import/im_aaaaaaaaaaaaaaaa?lang=en");
+    expect(checking.status).toBe(200);
+    expect(checking.html).toContain('<meta http-equiv="refresh" content="3">');
+    expect(strip(/<p[^>]*id="import-working"[^>]*>([\s\S]*?)<\/p>/u.exec(checking.html)?.[1])).toBe("Checking the file…");
+    expect(checking.html).not.toContain('id="commit-form"');
+    const committing = await owner.page("/admin/import/im_bbbbbbbbbbbbbbbb?lang=en");
+    expect(committing.html).toContain('<meta http-equiv="refresh" content="3">');
+    expect(strip(/<p[^>]*id="import-working"[^>]*>([\s\S]*?)<\/p>/u.exec(committing.html)?.[1])).toBe("Importing…");
+    const ar = await owner.page("/admin/import/im_aaaaaaaaaaaaaaaa?lang=ar");
+    expect(ar.html).toContain('dir="rtl"');
+    expect(strip(/<p[^>]*id="import-working"[^>]*>([\s\S]*?)<\/p>/u.exec(ar.html)?.[1])).toBe("جارٍ فحص الملف…");
+    expect(strip((await owner.page("/admin/import?lang=en")).html)).toContain("Checking");
+    // A row that is checked or failed does not refresh.
+    const id = await checked("customers", [HEADER, ["Dubai", "household", "Not Waiting", "050 333 0004", null, null, "en"]]);
+    expect((await owner.page(`/admin/import/${id}?lang=en`)).html).not.toContain("http-equiv");
+  });
+
+  test("error case: a zip that is no workbook ends failed with not_xlsx and stays in the history, with an Upload again link", async () => {
+    const garbage = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, ...Array.from({ length: 200 }, (_, i) => (i * 37 + 11) & 255)]);
+    const key = await upload(owner, "corrupt.xlsx", garbage);
+    const { id } = await startCheck("customers", key);
+    expect(await settled(id)).toBe("failed");
+    expect(importRow(id)).toMatchObject({ status: "failed", rows: 0, errors: 0 });
+    expect(rows("select error from app__imports where id = ?", [id])[0]?.error).toBe("import.err.not_xlsx");
+    const page = await owner.page(`/admin/import/${id}?lang=en`);
+    expect(page.status).toBe(200);
+    expect(page.html).not.toContain("http-equiv");
+    expect(strip(/<p[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec(page.html)?.[1])).toBe("This is not an Excel .xlsx file. Upload again");
+    expect(page.html).toContain('href="/admin/import" id="import-again"');
+    expect((await owner.page("/admin/import?lang=en")).html).toContain(`id="import-${id}"`);
+    expect(strip(new RegExp(`<tr id="import-${id}"[\\s\\S]*?</tr>`, "u").exec((await owner.page("/admin/import?lang=en")).html)?.[0])).toContain("Failed");
+    // The marker the first attempt left is gone and the import cannot be committed.
+    expect((await commit(id)).status).toBe(409);
+    const ar = await owner.page(`/admin/import/${id}?lang=ar`);
+    expect(strip(/<p[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec(ar.html)?.[1])).toContain("هذا ليس ملف إكسل");
+  });
+
+  test("normal case: running the check job again for an import that is no longer checking changes nothing", async () => {
+    const id = await checked("customers", THREE);
+    const state = () => JSON.stringify(rows("select status, rows, ok, skipped, errors, report, checked_at from app__imports where id = ?", [id]));
+    const before = state();
+    expect(JSON.parse(before)[0]).toMatchObject({ status: "checked", rows: 3 });
+    await runAgain("import-check", { import_id: id });
+    await runAgain("import-check", { import_id: id });
+    expect(state()).toBe(before);
+    // A tick of the schedule has no payload and does nothing.
+    await t.job("import-check");
+    await t.job("import-commit");
+    expect(state()).toBe(before);
+    // The same for a commit that already happened.
+    expect((await commit(id)).status).toBe(303);
+    const committed = state();
+    const customers = count("app__customers");
+    await runAgain("import-commit", { import_id: id, by: "someone" });
+    expect(state()).toBe(committed);
+    expect(count("app__customers")).toBe(customers);
+  });
+
+  test("error case (the platform's limit until the jobs get a CPU budget of their own, #768): a 10,000-row customers file ends failed with too_large on the free tier, never stays checking, and the page says why", async () => {
+    const key = await upload(owner, "bulk.xlsx", plainWorkbook(plainRows(10_000, 1_000_000)));
+    const before = count("app__customers");
+    const { id } = await startCheck("customers", key);
+    // The first attempt runs out of CPU, the retry (10 s later) finds no marker and ends the import.
+    expect(await settled(id, 90_000)).toBe("failed");
+    expect(rows("select error from app__imports where id = ?", [id])[0]?.error).toBe("import.err.too_large");
+    expect(count("app__customers")).toBe(before);
+    const page = await owner.page(`/admin/import/${id}?lang=en`);
+    expect(page.status).toBe(200);
+    expect(strip(/<p[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec(page.html)?.[1])).toContain("too large to check on the current plan");
+    expect(page.html).not.toContain("http-equiv");
+    expect((await owner.page("/admin/import?lang=en")).html).toContain(`id="import-${id}"`);
+  });
+
+  // The commit of a file the check passed, but that is too large to write in one job attempt. The row is made
+  // `checked` directly (2,000 rows: its check would not fit one attempt either), so the test does not depend on how
+  // close a check of a few hundred rows comes to the 50 ms on the machine that runs it. Measured on the free tier,
+  // worker 0.8.0: about 900 rows is the most one check reads and about 250 the most one commit writes.
+  test("error case (the platform's limit until the jobs get a CPU budget of their own, #768): the commit of a checked file of 2,000 rows ends failed with too_large, the report kept, nothing written; a small file goes in", async () => {
+    const key = await upload(owner, "two-thousand.xlsx", plainWorkbook(plainRows(2_000, 2_000_000)));
+    const before = count("app__customers");
+    const id = "im_cccccccccccccccc";
+    const db = writable();
+    db.run(
+      "insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at, checked_at) values (?, 'customers', ?, 'two-thousand.xlsx', 'checked', 2000, 2000, 0, 0, '{\"errors\":[],\"insert\":2000,\"update\":0,\"exists\":0}', 'u_owner', ?, ?)",
+      [id, key, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    db.close();
+    const done = await commit(id);
+    expect(done.status).toBe(303);
+    expect(importRow(id)).toMatchObject({ status: "failed", rows: 2000, ok: 2000, errors: 0 });
+    expect(rows("select error from app__imports where id = ?", [id])[0]?.error).toBe("import.err.too_large");
+    // The stopped attempt's transaction rolled back: not one customer, no audit row.
+    expect(count("app__customers")).toBe(before);
+    expect(rows("select count(*) as n from audit__events where action = 'import.committed' and resource_id = ?", [id])[0]?.n).toBe(0);
+    const page = await owner.page(`/admin/import/${id}?lang=en`);
+    expect(page.status).toBe(200);
+    expect(total(page.html, "rows")).toBe(2000);
+    expect(strip(/<p[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec(page.html)?.[1])).toContain("Split it into files of at most about 900 rows to check and 250 rows to import.");
+    expect(page.html).not.toContain('id="commit-form"');
+    // Split in files that fit, the rows go in.
+    const small = await upload(owner, "thirty.xlsx", plainWorkbook(plainRows(30, 3_000_000)));
+    const part = (await startCheck("customers", small)).id;
+    expect(await settled(part, 90_000)).toBe("checked");
+    expect((await commit(part)).status).toBe(303);
+    expect(importRow(part).status).toBe("committed");
+    expect(count("app__customers")).toBe(before + 30);
+  });
+
 });

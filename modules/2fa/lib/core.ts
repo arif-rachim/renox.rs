@@ -23,6 +23,9 @@ export interface TwofaCtx {
   headers: Headers;
   url?: URL;
   secrets: Record<string, string | undefined>;
+  /** `authz.require` (the caller's principal); absent only outside the cell, where `reset` refuses. */
+  authz?: { require(action: string, resource?: unknown): Promise<void> };
+  events?: { emit(name: string, payload: Record<string, unknown>, options?: { durable?: boolean }): Promise<string> };
   config: { step_up_minutes?: number; allow_totp?: boolean; allow_passkeys?: boolean; recovery_codes?: number; issuer?: string; base_path?: string; passkey_rp_id?: string; passkey_origin?: string };
 }
 
@@ -44,6 +47,19 @@ export class StepUpError extends Error {
   constructor(readonly details: { verify_url: string }) {
     super("Confirm it is you with your second factor first.");
     this.name = "StepUpError";
+  }
+}
+
+/** Errors of `reset` (the message starts with the code): INVALID (400, not a user id), UNAUTHENTICATED (401, no signed-in caller), SELF_RESET (403, the target is the caller). */
+export class TwofaError extends Error {
+  constructor(
+    message: string,
+    readonly code: "INVALID" | "UNAUTHENTICATED" | "SELF_RESET",
+    readonly status: 400 | 401 | 403,
+  ) {
+    // The code leads the message: across modules the platform wraps a plain error as RENOX_MODULE_SERVICE (cause_code null) and keeps only the message.
+    super(`${code}: ${message}`);
+    this.name = "TwofaError";
   }
 }
 
@@ -377,4 +393,32 @@ export async function passed(ctx: TwofaCtx, p: Pending | null, method: "totp" | 
   if (s === null) return null;
   await markVerified(ctx, s.id, s.user.id, method);
   return { cookies: [], next: "/" };
+}
+
+/**
+ * An administrator resets a user's second factor (#735): their TOTP secret, passkeys, recovery
+ * codes, verified sessions, pending sign-in and challenges are deleted, so the next sign-in
+ * enrols again. Every check comes before the first write (a service that throws ends the caller's
+ * transaction on workers before #734): a signed-in caller, not the target (a user resets
+ * themselves through /2fa and their recovery codes), `twofa.reset` on that user, and a recent
+ * second factor of the caller's own session. Emits `twofa.reset { user_id, by }` once, only when
+ * something was deleted (a repeated reset leaves no second event); no secret in it.
+ */
+export async function reset(ctx: TwofaCtx, userId: unknown): Promise<{ reset: boolean }> {
+  if (typeof userId !== "string" || userId.length === 0 || userId.length > 200) throw new TwofaError("a user id", "INVALID", 400);
+  const s = await session();
+  if (s === null) throw new TwofaError("Sign in first.", "UNAUTHENTICATED", 401);
+  if (s.user.id === userId) throw new TwofaError("You cannot reset your own second factor here; use the two-step verification page and your recovery codes.", "SELF_RESET", 403);
+  if (ctx.authz === undefined) throw new Error("twofa.reset needs ctx.authz");
+  await ctx.authz.require("twofa.reset", { type: "User", id: userId });
+  await requireRecent(ctx);
+  let deleted = 0;
+  for (const table of ["twofa__totp", "twofa__webauthn", "twofa__recovery", "twofa__sessions", "twofa__pending", "twofa__challenges"]) {
+    deleted += (await ctx.db.execute(`delete from ${table} where user_id = ?`, [userId])).changes;
+  }
+  if (deleted === 0) return { reset: false };
+  await ctx.events?.emit("twofa.reset", { user_id: userId, by: s.user.id });
+  // The target's principal (`mfa_verified`) changed: the cell recomputes it.
+  await auth.refreshPrincipal(userId);
+  return { reset: true };
 }
