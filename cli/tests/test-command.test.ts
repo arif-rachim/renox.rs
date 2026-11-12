@@ -174,6 +174,17 @@ test("t.job runs the job once and resolves after its commit", async () => {
   await expect(t.job("nope")).rejects.toThrow("no scheduled job nope in the app");
 });
 
+test("t.job with a payload is a queued run: the job sees the payload, once per call", async () => {
+  await t.job("queued", { payload: { n: 7 } });
+  await t.job("queued", { payload: { n: 8 } });
+  await t.job("queued", { payload: { n: 7 } });
+  expect(t.db.query("select n, raw from app__queued order by rowid")).toEqual([{ n: 7, raw: '{"n":7}' }, { n: 8, raw: '{"n":8}' }, { n: 7, raw: '{"n":7}' }]);
+  expect(t.db.query("select count(*) as n from renox__outbox where name = 'job:queued'")).toEqual([{ n: 0 }]);
+  // A scheduled tick of the same job still has a null payload.
+  await t.job("queued");
+  expect(t.db.query("select count(*) as n from app__queued where n is null")).toEqual([{ n: 1 }]);
+});
+
 test("t.tool: preview then confirmed call; a token of another user is scoped", async () => {
   const alice = await user("alice");
   const bob = await user("bob");
@@ -247,8 +258,9 @@ async function helpersApp(): Promise<string> {
   }
   write(dir, {
     "renox.toml": `${readFileSync(join(dir, "renox.toml"), "utf8")}\n[authz]\nactions = ["echo.call"]\n`,
-    "migrations/001_app.sql": "create table app__pings (at integer not null);\ncreate table app__marks (n integer not null);\ncreate table app__echoes (user_id text not null, x integer not null);\n",
+    "migrations/001_app.sql": "create table app__pings (at integer not null);\ncreate table app__marks (n integer not null);\ncreate table app__echoes (user_id text not null, x integer not null);\ncreate table app__queued (n integer, raw text);\n",
     "jobs/ping.ts": `export const schedule = "0 0 1 1 *";\nexport async function run(ctx) {\n  await ctx.db.execute("insert into app__pings (at) values (?)", [Date.now()]);\n}\n`,
+    "jobs/queued.ts": `export const schedule = "0 0 1 1 *";\nexport async function run(ctx) {\n  await ctx.db.execute("insert into app__queued (n, raw) values (?, ?)", [ctx.job.payload === null ? null : ctx.job.payload.n, JSON.stringify(ctx.job.payload)]);\n}\n`,
     "jobs/boom.ts": `export const schedule = "0 0 1 1 *";\nexport async function run() {\n  throw new Error("boom: the job failed");\n}\n`,
     "functions/tools/echo.ts": ECHO_TS,
     "policies/app/echo.cedar": `permit (principal, action == Renox::Action::"echo.call", resource)\nwhen { principal has email_verified && principal.email_verified };\n`,
@@ -263,7 +275,7 @@ test.skipIf(!worker)(
     const dir = await helpersApp();
     const r = await runTests(dir, ["tests/helpers.test.ts"], "pipe");
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain("2 pass");
+    expect(r.out).toContain("3 pass");
   },
   120_000,
 );
