@@ -57,18 +57,19 @@ Others you may meet: `RENOX_DB_QUOTA` (the free tier's database is full: writes 
 
 ## WhatsApp messages do not arrive
 
-1. **The sandbox flag.** In `renox.toml` the `whatsapp` module's `config = { sandbox = true }` records every message as sent and calls no API. With it on, nothing reaches a phone by design. Going live is `sandbox = false` and `renox deploy`.
-2. **The secrets.** `renox secrets list` must show `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_APP_SECRET`. A missing one is set with `renox secrets set <NAME>` (the value comes from stdin); then deploy again.
-3. **What the app queued.** The app has no outbox page. The module's `outbox(limit?)` service lists the messages newest first with status and body (`modules/whatsapp/README.md`); in the logs, search around the time of the action: `renox logs --since 2h | grep -i whatsapp`. A 5xx or 429 from the provider is retried by the outbox with backoff; a 4xx is final and is logged.
-4. **The provider's template status.** In Meta's WhatsApp Manager, each of the six templates (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) must be approved in the customer's language. A template that is pending, rejected or has a different parameter count fails.
-5. **The customer.** A customer with no phone gets the email instead; a phone must be a valid UAE number (stored as `+971...`).
-6. **`public_url`** in `app__settings` must be the app's real address, or links in the messages are wrong.
+1. **The outbox page.** `/admin/whatsapp` (the owner) shows the last 50 messages the app sent: time, recipient (last four digits), template or text, status. Filter it with `?status=failed`, or with `?phone=` and the customer's number. A message that is not in the list was never queued (the customer has no phone, or the action did not send one); `queued` that stays queued points to the provider or the secrets (below); `failed` is final. The page does not show the provider's failure reason yet (#771): for that, use the logs as in step 4.
+2. **The sandbox flag.** In `renox.toml` the `whatsapp` module's `config = { sandbox = true }` records every message as sent and calls no API. With it on, nothing reaches a phone by design. Going live is `sandbox = false` and `renox deploy`.
+3. **The secrets.** `renox secrets list` must show `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_APP_SECRET`. A missing one is set with `renox secrets set <NAME>` (the value comes from stdin); then deploy again.
+4. **The logs.** Search around the time of the action: `renox logs --since 2h | grep -i whatsapp`. A 5xx or 429 from the provider is retried by the outbox with backoff; a 4xx is final and is logged with its reason.
+5. **The provider's template status.** In Meta's WhatsApp Manager, each of the six templates (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) must be approved in the customer's language. A template that is pending, rejected or has a different parameter count fails.
+6. **The customer.** A customer with no phone gets the email instead; a phone must be a valid UAE number (stored as `+971...`).
+7. **`public_url`** in `app__settings` must be the app's real address, or links in the messages are wrong.
 
 ## Someone cannot sign in
 
 1. **Invitation.** `/admin/people`, "Pending invitations": is the person's email there? An invitation expires after 7 days, works once and only for the address it was sent to. Send a new one with the right email. "The invitation was refused" means the person is already a member.
 2. **Role.** In the staff table the person must have a role. A member with no role signs in and sees nothing. Set one with "Set role".
-3. **Second factor.** The "Second factor" column shows whether it is on. A user who lost their device uses one of their recovery codes (each works once). `/admin/people` has no button that resets a second factor; if there is no device and no recovery code left, escalate, and do not guess at a database edit (see "Escalate").
+3. **Second factor.** The "Second factor" column shows whether it is on. A user who lost their device first uses one of their recovery codes (each works once). With no device and no recovery code left, the owner resets it: on `/admin/people`, "Reset second factor" on the person's row, then confirm. The owner needs a recent second factor of their own (an owner without one gets 403; sign in again with the code), and reaches only the people of the branch that is active (switch branch first for someone in another branch). The person's authenticator, passkeys and recovery codes are deleted, they get a notice ("Your second factor was reset by …") in the app, by WhatsApp when their number is linked, and by email, and their next sign-in asks them to set it up again. Each reset is a `twofa.reset` row on `/admin/audit` (who reset whom). An owner cannot reset their own second factor this way; an owner who lost both device and codes is an escalation (see "Escalate"), and never a database edit.
 4. **Password or email.** The sign-in page's reset link; check that the `email` module's `from` is set and the sending domain is verified, or the reset mail never leaves.
 
 ## Undo a mistake
@@ -87,6 +88,14 @@ A time that no backup generation covers is refused (`RENOX_RESTORE_POINT_UNKNOWN
 3. Open the new app and check the rows that were wrong. You can also download its database: `renox db export --app acme-fm-restore --out restore.db`.
 4. Decide with the owner: usually copy the few rows back by hand through the app's pages, because restoring replaces everything done after that time. If they want to switch to the restored copy as a whole, that is an escalation (domain and secrets move), not a command here.
 5. Remove the copy when done: `renox apps rm acme-fm-restore`.
+
+## An import stays "Checking" or ends "Failed"
+
+The check and the import run as background jobs; the import's page reloads itself until they are done.
+
+- **Failed, "This is not an Excel .xlsx file."** The file is not a workbook (a `.xls`, a renamed file, a broken download). Save it again from Excel as `.xlsx` and upload again.
+- **Failed, "too large to check on the current plan".** A job has the CPU of one request on the free tier (50 ms): about 900 customer rows to check and about 250 to import per file. Split the file and import the parts one after another. A larger job budget is an open decision (#768).
+- **Still "Checking" or "Importing" after a minute.** The job did not run: `renox logs --since 1h | grep -i import` shows its attempts. A first attempt that fails is retried about 10 seconds later, and the retry ends the import as failed; an import left working for longer is an escalation (see "Escalate").
 
 ## A wrong import
 
