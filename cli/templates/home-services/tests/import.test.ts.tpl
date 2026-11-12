@@ -364,7 +364,7 @@ describe("/admin/import", () => {
     // A zip that is no workbook (here a cut-off one) is the check's not_xlsx.
     const key = await upload(owner, "notes.xlsx", plainWorkbook([["branch"], ["Dubai"]]).slice(0, 80));
     const broken = (await startCheck("customers", key)).id;
-    // The job ends the import as failed (on the pinned worker a failed module service ends its transaction, so the retry writes it; with #734's savepoints the same attempt does); it stays in the history.
+    // The job catches the failed module service and ends the import as failed in the same attempt (#734's savepoints); it stays in the history.
     expect(await settled(broken)).toBe("failed");
     expect(rows("select error from app__imports where id = ?", [broken])[0]?.error).toBe("import.err.not_xlsx");
     expect(strip(/<p class="problem"[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec((await owner.page(`/admin/import/${broken}`)).html)?.[1])).toContain("This is not an Excel .xlsx file.");
@@ -512,10 +512,32 @@ describe("/admin/import in the background (#733)", () => {
     expect(page.html).toContain('href="/admin/import" id="import-again"');
     expect((await owner.page("/admin/import?lang=en")).html).toContain(`id="import-${id}"`);
     expect(strip(new RegExp(`<tr id="import-${id}"[\\s\\S]*?</tr>`, "u").exec((await owner.page("/admin/import?lang=en")).html)?.[0])).toContain("Failed");
-    // The marker the first attempt left is gone and the import cannot be committed.
+    // The import cannot be committed.
     expect((await commit(id)).status).toBe(409);
     const ar = await owner.page(`/admin/import/${id}?lang=ar`);
     expect(strip(/<p[^>]*id="import-failed"[^>]*>([\s\S]*?)<\/p>/u.exec(ar.html)?.[1])).toContain("هذا ليس ملف إكسل");
+  });
+
+  test("error case (#759): a corrupt file is written as failed with not_xlsx by the first attempt of the check, never by a retry, and is in the import history", async () => {
+    const garbage = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, ...Array.from({ length: 300 }, (_, i) => (i * 53 + 7) & 255)]);
+    const key = await upload(owner, "broken-again.xlsx", garbage);
+    const { id } = await startCheck("customers", key);
+    // An attempt that throws leaves its outbox row with attempts > 0 for the retry, 10 s later; polled every 50 ms, that is seen.
+    const until = Date.now() + 30_000;
+    let retried = 0;
+    for (;;) {
+      const run = rows("select attempts from renox__outbox where name = 'job:import-check' and payload like ?", [`%${id}%`]);
+      for (const r of run) retried = Math.max(retried, Number(r.attempts));
+      const status = String(rows("select status from app__imports where id = ?", [id])[0]?.status);
+      if (status !== "checking" && run.length === 0) break;
+      if (Date.now() > until) throw new Error(`import ${id} is still ${status}`);
+      await Bun.sleep(50);
+    }
+    expect(retried).toBe(0);
+    expect(importRow(id)).toMatchObject({ status: "failed", rows: 0, errors: 0 });
+    expect(rows("select error from app__imports where id = ?", [id])[0]?.error).toBe("import.err.not_xlsx");
+    const history = (await owner.page("/admin/import?lang=en")).html;
+    expect(strip(new RegExp(`<tr id="import-${id}"[\\s\\S]*?</tr>`, "u").exec(history)?.[0])).toContain("Failed");
   });
 
   test("normal case: running the check job again for an import that is no longer checking changes nothing", async () => {
@@ -543,7 +565,7 @@ describe("/admin/import in the background (#733)", () => {
     const key = await upload(owner, "bulk.xlsx", plainWorkbook(plainRows(10_000, 1_000_000)));
     const before = count("app__customers");
     const { id } = await startCheck("customers", key);
-    // The first attempt runs out of CPU, the retry (10 s later) finds no marker and ends the import.
+    // The first attempt runs out of CPU, the retry (10 s later) finds the row still checking and ends the import.
     expect(await settled(id, 90_000)).toBe("failed");
     expect(rows("select error from app__imports where id = ?", [id])[0]?.error).toBe("import.err.too_large");
     expect(count("app__customers")).toBe(before);

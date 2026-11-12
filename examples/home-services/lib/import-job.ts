@@ -3,7 +3,7 @@
 // that fails. The protocol is explained in jobs/import-check.ts.
 import type { JobContext } from "@renoxium/sdk";
 
-import { type Cell, cheapFileError, failImport, type FileErrorCode, type ImportRow, readCells, readErrorCode } from "./import";
+import { type Cell, cheapFileError, failImport, type ImportRow, readCells, readErrorCode } from "./import";
 
 export interface ImportPayload {
   import_id?: unknown;
@@ -11,28 +11,15 @@ export interface ImportPayload {
   by?: unknown;
 }
 
-/** The marker an attempt leaves for the next one when `reports.readXlsx` threw: the file-level code, as text. */
-export const markerKey = (id: string): string => `app/imports/${id}.error`;
-
-const isCode = (v: string): v is FileErrorCode => v === "not_xlsx" || v === "too_many_rows";
-
 /**
  * The cells of the import's stored file, or null when the import has been ended as `failed` (the caller
- * stops: there is nothing more to do). Throws, on purpose, only after a marker was written.
+ * stops: there is nothing more to do). It does not throw: a thrown `reports.readXlsx` is caught and written.
  */
 export async function readForJob(ctx: JobContext<ImportPayload>, row: ImportRow, from: "checking" | "committing"): Promise<Cell[][] | null> {
-  const marker = markerKey(row.id);
   if (ctx.job.attempt > 1) {
-    // The previous attempt ended without finishing. With a marker it caught the read's error; without one it was
-    // stopped before it could (the CPU or wall limit of the attempt). The service is never called again.
-    let code: string | null = null;
-    try {
-      code = new TextDecoder().decode(await ctx.storage.read(marker)).trim();
-      await ctx.storage.delete(marker);
-    } catch {
-      // No marker.
-    }
-    await failImport(ctx.db, row.id, from, code !== null && isCode(code) ? code : "too_large");
+    // The previous attempt ended without finishing, and nothing in here throws: it was stopped (the CPU or wall
+    // limit of the attempt), so the file is too large to read in one. The service is never called again.
+    await failImport(ctx.db, row.id, from, "too_large");
     return null;
   }
   let bytes: Uint8Array;
@@ -50,17 +37,9 @@ export async function readForJob(ctx: JobContext<ImportPayload>, row: ImportRow,
   try {
     return await readCells(bytes);
   } catch (e) {
-    const code = readErrorCode(e);
-    // Catch, then write. On a worker with savepoints around service calls (#734, ops.md 1.17.0) only the call was
-    // undone and the attempt's transaction goes on, so the failure is written now and the job ends normally.
-    try {
-      await failImport(ctx.db, row.id, from, code);
-      return null;
-    } catch {
-      // The pinned worker (0.8.0): the failed call ended the attempt's transaction (RENOX_DB_TX_STATE).
-    }
-    // Then the object store, which is outside the transaction, keeps the code for the next attempt.
-    await ctx.storage.put(marker, new TextEncoder().encode(code), { contentType: "text/plain" });
-    throw e;
+    // A module service call runs in a savepoint (#734, ops.md 1.17.0, renox-worker 0.9.0): its throw undid only
+    // the call, and the attempt's transaction goes on, so the failure is written now and the job ends normally.
+    await failImport(ctx.db, row.id, from, readErrorCode(e));
+    return null;
   }
 }
