@@ -247,6 +247,8 @@ npm install --prefix ~/.cache/renox-pw --no-save playwright@1.63.0
 RENOX_WORKER_PATH=$PWD/target/debug/renox-worker PLAYWRIGHT_PATH=~/.cache/renox-pw/node_modules/playwright make journey
 ```
 
+**The developer journey.** `cli/tests/journey.e2e.test.ts` (#587) is one test that walks a new developer through the platform against the real control API (a process, its mail in a file outbox), a controlled `renox-worker`, the real CLI as a process and Chromium: sign up in the dashboard and open the verification link from the mail; `renox login` approved on the dashboard's device page; `renox new journey --template hello` on this repository's SDK and `bun install`; `renox deploy` (live on its hostname); `renox export` (the directory has `worker.toml` and the database); a request's log line on the Logs page; a page whose script throws, grouped on the Client errors page; `renox add auth --yes` and a deploy (`/auth/login` answers); `renox apps rm` (not served, listed as restorable), Restore (served again), `renox apps rm` again; the owner's tenant erasure with the browser's session, after which the CLI's token is refused. The dashboard's server side cannot reach a local API (tenant `fetch` refuses loopback and private addresses, ADR D23), so the Logs, Client errors and Apps pages run their real loaders and the Restore action in the test against the same API, and Chromium checks what the real dashboard renders from that data. It runs in `make journey` and `journey.yml` only (under `RENOX_JOURNEY=1`), in about 15 seconds locally; its budget is 4 minutes.
+
 ### Expected numbers (targets, measured under B20)
 
 | Build | Cold | Warm (one leaf crate changed) |

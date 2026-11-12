@@ -28,6 +28,7 @@ export interface PwPage {
 }
 export interface PwContext {
   newPage(): Promise<PwPage>;
+  cookies(urls?: string[]): Promise<{ name: string; value: string }[]>;
   close(): Promise<void>;
 }
 export interface PwBrowser {
@@ -35,7 +36,7 @@ export interface PwBrowser {
   close(): Promise<void>;
 }
 export interface Pw {
-  chromium: { launch(): Promise<PwBrowser> };
+  chromium: { launch(opts?: { args?: string[] }): Promise<PwBrowser> };
 }
 
 export function loadPlaywright(): Pw | null {

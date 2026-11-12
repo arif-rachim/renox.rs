@@ -78,7 +78,7 @@ lighthouse:
 # The real-browser tests and the developer journey in Chromium (#586, #587):
 # what journey.yml runs on main and nightly. RENOX_JOURNEY=1 makes a browser
 # test fail instead of skip; not part of `make test`.
-JOURNEY_TESTS := control/dashboard/tests/account.browser.test.ts cli/tests/browser/client-events.test.ts
+JOURNEY_TESTS := control/dashboard/tests/account.browser.test.ts cli/tests/browser/client-events.test.ts cli/tests/journey.e2e.test.ts
 journey:
 ifeq ($(RENOX_WORKER_PATH),)
 	@echo "journey: RENOX_WORKER_PATH is not set (cargo build -p renox-cell --bin renox-worker, or bun cli/scripts/fetch-worker.ts)" >&2; exit 1
