@@ -66,7 +66,7 @@ export async function jobsOutsideHours(db: DbStatements, sdb: DbStatements, bran
 export async function syncHours(db: DbStatements, branch: Branch, technicians: readonly Technician[]): Promise<void> {
   await ensureSynced(db, branch, technicians);
   const open = new Set((await hoursOf(db, branch.id)).map((h) => h.weekday));
-  for (const t of technicians) for (const wd of WEEK_ORDER) if (!open.has(wd)) await booking.setHours(t.id, wd, null);
+  for (const t of technicians) for (const wd of WEEK_ORDER) if (!open.has(wd)) await booking.setHours(t.id, wd, null, null);
 }
 
 export type Slot = { start: number; end: number; staff: string };
