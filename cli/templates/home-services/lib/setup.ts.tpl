@@ -12,11 +12,12 @@
 // branch, then the branch rows with their working hours and, for each person,
 // the `app__staff_invites` row with their app role (applied when they accept,
 // lib/admin.ts `applyPendingRole`). A failure anywhere rolls all of it back.
-import type { Authz, DbStatements } from "@renoxium/sdk";
+import type { Authz, DbStatements, TxDb } from "@renoxium/sdk";
 import { audit, auth, org } from "renox:modules";
 
 import { STAFF_ROLES, type StaffRole } from "./admin";
 import { DEFAULT_HOURS } from "./booking-sync";
+import { branchDb } from "./scope";
 
 export const EMIRATES = ["abu_dhabi", "dubai", "sharjah", "ajman", "umm_al_quwain", "ras_al_khaimah", "fujairah"] as const;
 
@@ -119,7 +120,7 @@ export interface SetupAnswer {
 }
 
 interface SetupCtx {
-  readonly db: DbStatements & { transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> };
+  readonly db: DbStatements & { transaction<T>(fn: (tx: TxDb) => Promise<T>): Promise<T> };
   readonly authz: Pick<Authz, "roles">;
 }
 
@@ -201,17 +202,20 @@ export async function writeSetup(ctx: SetupCtx, input: SetupInput, hash: string)
       const o = boot.orgs[i];
       if (o === undefined) throw new Error("org.bootstrap created no organisation for a branch");
       const id = `br_${o.slug.replace(/-/gu, "_")}`;
-      // The transaction's own statements: a `db.scoped()` statement inside `db.transaction` answers "database is busy" on the worker.
+      // The transaction's own statements (app__branches is no owned table; the app's `ctx.db.scoped()` is refused inside a transaction).
       await tx.execute("insert into app__branches (id, org_id, name_en, name_ar, phone, address, emirate, area, slug, created_at) values (?, ?, ?, ?, '', '', ?, '', ?, ?)", [id, o.id, b.name, b.name, b.emirate, o.slug, at]);
       for (const h of DEFAULT_HOURS) await tx.execute("insert into app__branch_hours (branch_id, weekday, open_min, close_min) values (?, ?, ?, ?)", [id, h.weekday, h.open_min, h.close_min]);
       made.push(id);
     }
     const first = boot.orgs[0];
     if (first === undefined) throw new Error("org.bootstrap created no organisation");
-    // The transaction's own statements, as lib/admin.ts inviteStaff writes the same row (the app's tables are never refused unscoped, D16).
-    const sdb: DbStatements = tx;
+    const firstBranch = made[0];
+    if (firstBranch === undefined) throw new Error("setup made no branch");
+    // Fenced to the first branch, as lib/admin.ts inviteStaff writes the same row: `tx.scoped` runs in this
+    // transaction (ops.md 1.15.0; typed TxDb since 1.17.1, #756).
+    const sdb = branchDb(tx, firstBranch);
     for (const p of people) {
-      await sdb.execute("insert into app__staff_invites (branch_id, org_id, email, role, invited_by, created_at, applied_at) values (?, ?, ?, ?, ?, ?, null)", [made[0] ?? null, first.id, p.email, p.role, owner.id, at]);
+      await sdb.execute("insert into app__staff_invites (branch_id, org_id, email, role, invited_by, created_at, applied_at) values (?, ?, ?, ?, ?, ?, null)", [firstBranch, first.id, p.email, p.role, owner.id, at]);
     }
     await audit.record({ action: "setup.write", actor: { kind: "system", id: "platform" }, resource: { type: "Settings", id: "setup" }, details: { branches: made, services: input.services.length, invited: people.length } });
     return { invited: people.map((p) => ({ email: p.email, role: p.role })), skipped };
