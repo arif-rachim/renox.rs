@@ -108,7 +108,7 @@ Per-request limits (CPU per request, heap, wall-clock, concurrency) are enforced
 ### Setting up a node
 
 ```
-sudo ops/scripts/bootstrap-node.sh --worker-version 0.8.0 \
+sudo ops/scripts/bootstrap-node.sh --worker-version 0.9.0 \
   --node-id node-dxb-01 --control-url https://10.0.1.5:8788 --region me-central-1 \
   --blocked-addresses 203.0.113.10,10.0.1.5 --node-token-file ./node.token
 ```
