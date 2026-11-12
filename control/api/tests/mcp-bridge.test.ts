@@ -159,6 +159,19 @@ describe("the owner connector's bridge (#698)", () => {
     expect(cachedTokens(s.h.deps)).toBeGreaterThanOrEqual(3);
   });
 
+  test("a 404 not_active_on_this_node (an app in its own process) becomes a plain-words tool error, not a generic failure", async () => {
+    const s = await setup();
+    s.node.answer = () => ({ status: 404, body: { error: { code: "RENOX_NOT_FOUND", message: "Not found.", request_id: "r", details: [{ field: "app", reason: "not_active_on_this_node" }] } } });
+    const r = await s.bridge.callAppTool(s.agent, APP, "update_settings", {});
+    expect(r).toMatchObject({ ok: false, untrusted: true, status: 404, error: { code: "not_supported" } });
+    expect((r as { error: { message: string } }).error.message).toContain("runs in its own process");
+    expect(s.nodeCalls).toHaveLength(1);
+    expect(s.appCalls).toHaveLength(0);
+    // Any other 404 stays the generic unavailable error.
+    s.node.answer = () => ({ status: 404, body: { error: { code: "RENOX_NOT_FOUND", message: "Not found.", request_id: "r" } } });
+    expect(await s.bridge.callAppTool(s.agent, APP, "update_settings", {})).toMatchObject({ ok: false, status: 503, error: { code: "RENOX_UNAVAILABLE" } });
+  });
+
   test("a 404 not_an_app_user becomes a plain-words tool error, without a retry and without calling the app", async () => {
     const s = await setup();
     s.node.answer = () => ({ status: 404, body: { error: { code: "RENOX_NOT_FOUND", message: "Not found.", request_id: "r", details: [{ field: "email", reason: "not_an_app_user" }] } } });
