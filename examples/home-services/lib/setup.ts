@@ -3,25 +3,20 @@
 // (lib/setup-token.ts), when the owner creates the app from the dashboard or
 // the platform's MCP tool. The demo seed is never loaded.
 //
-// Two steps, because `org` creates organisations and sends invitations only
-// for a signed-in user, and the setup call has none:
-//
-// 1. `writeSetup` (the call, one transaction): the settings (brand name,
-//    phone, TRN, emirate, and `setup_hash`, the deployment hash the token
-//    names), the services, the owner's account (`auth.register`: its mail
-//    carries the sign-in link) with the global role `owner`, and the branches
-//    and people as `setup_pending`.
-// 2. `finishSetup` (the owner's first page after signing in, lib/page.ts, one
-//    transaction): one `org` organisation per branch with the owner as its
-//    owner, the branch rows and their working hours, and the invitations of
-//    the people through `org` (lib/admin.ts inviteStaff) to the first branch,
-//    each with their app role. `setup_pending` is then removed.
+// One step, one transaction (`writeSetup`): the settings (brand name, phone,
+// TRN, emirate, and `setup_hash`, the deployment hash the token names), the
+// services, the owner's account (`auth.register`: its mail carries the
+// sign-in link) with the global role `owner`, then `org.bootstrap` (the
+// system-only service of `org` 1.2.0, #747) for one organisation per branch
+// with the owner as its owner and the invitations of the people to the first
+// branch, then the branch rows with their working hours and, for each person,
+// the `app__staff_invites` row with their app role (applied when they accept,
+// lib/admin.ts `applyPendingRole`). A failure anywhere rolls all of it back.
 import type { Authz, DbStatements } from "@renoxium/sdk";
 import { audit, auth, org } from "renox:modules";
 
-import { inviteStaff, STAFF_ROLES, type StaffRole } from "./admin";
+import { STAFF_ROLES, type StaffRole } from "./admin";
 import { DEFAULT_HOURS } from "./booking-sync";
-import type { Branch } from "./scope";
 
 export const EMIRATES = ["abu_dhabi", "dubai", "sharjah", "ajman", "umm_al_quwain", "ras_al_khaimah", "fujairah"] as const;
 
@@ -123,15 +118,27 @@ export interface SetupAnswer {
   skipped: { email: string; reason: string }[];
 }
 
-/** The branches and people that wait for the owner's first sign-in (the setting `setup_pending`). */
-interface Pending {
-  branches: { name: string; emirate: string }[];
-  people: { email: string; role: StaffRole }[];
-}
-
 interface SetupCtx {
   readonly db: DbStatements & { transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> };
   readonly authz: Pick<Authz, "roles">;
+}
+
+const now = (): number => Math.floor(Date.now() / 1000);
+
+/** A slug of letters and digits for a branch's organisation (`branch-<n>` without any). */
+const slugOf = (name: string, i: number): string =>
+  name.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 40).replace(/-+$/u, "") || `branch-${i + 1}`;
+
+/** One unique slug per branch (`dubai`, `dubai-2`): `org.bootstrap` refuses an explicit slug used twice in the call. */
+function branchSlugs(branches: { name: string }[]): string[] {
+  const taken = new Set<string>();
+  return branches.map((b, i) => {
+    const base = slugOf(b.name, i);
+    let slug = base;
+    for (let n = 2; taken.has(slug); n++) slug = `${base.slice(0, 46)}-${n}`;
+    taken.add(slug);
+    return slug;
+  });
 }
 
 const randomHex = (bytes: number): string => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -146,10 +153,11 @@ export function serviceCode(name: string, i: number, taken: Set<string>): string
 }
 
 /**
- * Step 1, in one transaction: "taken" (409) when the app already holds its
- * setup or any user (a second call changes nothing); else the settings, the
- * services, the owner's account with the role `owner`, and the pending
- * branches and people.
+ * In one transaction: "taken" (409) when the app already holds its setup or
+ * any user (a second call changes nothing); else the settings, the services,
+ * the owner's account with the role `owner`, the branches as `org`
+ * organisations with the invitations of the people (`org.bootstrap`), the
+ * branch rows with their hours, and the people's app roles.
  */
 export async function writeSetup(ctx: SetupCtx, input: SetupInput, hash: string): Promise<SetupAnswer | "taken"> {
   return ctx.db.transaction(async (tx) => {
@@ -158,15 +166,12 @@ export async function writeSetup(ctx: SetupCtx, input: SetupInput, hash: string)
 
     const skipped = input.people.filter((p) => p.email === input.owner.email).map((p) => ({ email: p.email, reason: "the owner" }));
     const people = input.people.filter((p) => p.email !== input.owner.email);
-    const pending: Pending = { branches: input.branches, people };
     const settings: [string, string][] = [
       ["brand_name", input.company.name],
       ["company_phone", input.company.phone],
       ["company_trn", input.company.trn],
       ["company_emirate", input.company.emirate],
       ["setup_hash", hash],
-      ["setup_owner_email", input.owner.email],
-      ["setup_pending", JSON.stringify(pending)],
     ];
     for (const [key, value] of settings) await tx.execute("insert into app__settings (key, value) values (?, ?) on conflict (key) do update set value = excluded.value", [key, value]);
 
@@ -176,71 +181,39 @@ export async function writeSetup(ctx: SetupCtx, input: SetupInput, hash: string)
     }
 
     // The owner signs in with the link of the confirmation mail (or a reset); nobody knows this password.
-    const made = await auth.register({ email: input.owner.email, password: randomHex(32) });
-    if ("error" in made) throw new Error(`auth.register: ${made.error}`);
+    const registered = await auth.register({ email: input.owner.email, password: randomHex(32) });
+    if ("error" in registered) throw new Error(`auth.register: ${registered.error}`);
     const owner = await tx.queryOne<{ id: string }>("select id from auth__public_users_v1 where email = ?", [input.owner.email]);
     if (owner === null) throw new Error("auth.register created no user");
     await ctx.authz.roles.assign(owner.id, "owner");
-    await audit.record({ action: "setup.write", actor: { kind: "system", id: "platform" }, resource: { type: "Settings", id: "setup" }, details: { branches: input.branches.length, services: input.services.length, people: people.length } });
+
+    // The branches are organisations and the people are invited to the first one as members; their app
+    // role waits in app__staff_invites until they accept (the `org.member_added` handler, hooks.ts).
+    const slugs = branchSlugs(input.branches);
+    const boot = await org.bootstrap({
+      owner_user_id: owner.id,
+      orgs: input.branches.map((b, i) => ({ name: b.name, slug: slugs[i] as string })),
+      invites: people.map((p) => ({ email: p.email, org_index: 0, role: "member" })),
+    });
+    const at = now();
+    const made: string[] = [];
+    for (const [i, b] of input.branches.entries()) {
+      const o = boot.orgs[i];
+      if (o === undefined) throw new Error("org.bootstrap created no organisation for a branch");
+      const id = `br_${o.slug.replace(/-/gu, "_")}`;
+      // The transaction's own statements: a `db.scoped()` statement inside `db.transaction` answers "database is busy" on the worker.
+      await tx.execute("insert into app__branches (id, org_id, name_en, name_ar, phone, address, emirate, area, slug, created_at) values (?, ?, ?, ?, '', '', ?, '', ?, ?)", [id, o.id, b.name, b.name, b.emirate, o.slug, at]);
+      for (const h of DEFAULT_HOURS) await tx.execute("insert into app__branch_hours (branch_id, weekday, open_min, close_min) values (?, ?, ?, ?)", [id, h.weekday, h.open_min, h.close_min]);
+      made.push(id);
+    }
+    const first = boot.orgs[0];
+    if (first === undefined) throw new Error("org.bootstrap created no organisation");
+    // The transaction's own statements, as lib/admin.ts inviteStaff writes the same row (the app's tables are never refused unscoped, D16).
+    const sdb: DbStatements = tx;
+    for (const p of people) {
+      await sdb.execute("insert into app__staff_invites (branch_id, org_id, email, role, invited_by, created_at, applied_at) values (?, ?, ?, ?, ?, ?, null)", [made[0] ?? null, first.id, p.email, p.role, owner.id, at]);
+    }
+    await audit.record({ action: "setup.write", actor: { kind: "system", id: "platform" }, resource: { type: "Settings", id: "setup" }, details: { branches: made, services: input.services.length, invited: people.length } });
     return { invited: people.map((p) => ({ email: p.email, role: p.role })), skipped };
   });
-}
-
-interface FinishCtx {
-  readonly db: DbStatements & { transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> };
-  readonly authz: Pick<Authz, "roles">;
-  readonly principal: { readonly id: string } | null;
-}
-
-const now = (): number => Math.floor(Date.now() / 1000);
-
-/** A slug of letters and digits for a branch's organisation (`branch-<n>` without any). */
-const slugOf = (name: string, i: number): string =>
-  name.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 40).replace(/-+$/u, "") || `branch-${i + 1}`;
-
-/**
- * Step 2, for the signed-in owner named by the setup, while it is pending:
- * the branches as `org` organisations and the invitations. True when it ran.
- * In a transaction of its own (a loader's request).
- */
-export async function finishSetup(ctx: FinishCtx, user: { id: string; email: string }, settings: Record<string, string>): Promise<boolean> {
-  if (settings.setup_pending === undefined || (settings.setup_owner_email ?? "") !== user.email.toLowerCase() || ctx.principal?.id !== user.id) return false;
-  const run = async (tx: DbStatements): Promise<boolean> => {
-    const row = await tx.queryOne<{ value: string }>("select value from app__settings where key = 'setup_pending'", []);
-    if (row === null) return false;
-    const pending = JSON.parse(row.value) as Pending;
-    const made: Branch[] = [];
-    for (const [i, b] of pending.branches.entries()) {
-      const base = slugOf(b.name, i);
-      let created: { id: string; slug: string } | undefined;
-      for (let n = 1; created === undefined && n <= 20; n++) {
-        const slug = n === 1 ? base : `${base}-${n}`;
-        if ((await tx.queryOne("select 1 as x from app__branches where slug = ?", [slug])) !== null) continue;
-        const r = await org.createOrg({ name: b.name, slug });
-        if ("org" in r) created = r.org;
-      }
-      if (created === undefined) throw new Error(`setup: no free address for the branch ${b.name}`);
-      const id = `br_${created.slug.replace(/-/gu, "_")}`;
-      await tx.execute("insert into app__branches (id, org_id, name_en, name_ar, phone, address, emirate, area, slug, created_at) values (?, ?, ?, ?, '', '', ?, '', ?, ?)", [id, created.id, b.name, b.name, b.emirate, created.slug, now()]);
-      for (const h of DEFAULT_HOURS) await tx.execute("insert into app__branch_hours (branch_id, weekday, open_min, close_min) values (?, ?, ?, ?)", [id, h.weekday, h.open_min, h.close_min]);
-      made.push({ id, org_id: created.id, name_en: b.name, name_ar: b.name, slug: created.slug, emirate: b.emirate, area: "" });
-    }
-    const first = made[0];
-    if (first !== undefined) {
-      // The owner starts in the first branch, where the people are invited.
-      await org.switchOrg(first.org_id);
-      for (const p of pending.people) {
-        // The transaction's own statements: a `db.scoped()` statement inside `db.transaction` answers
-        // "database is busy" on the worker (0.7.1). The app's tables are never refused unscoped (D16),
-        // and every row written here carries the first branch's id.
-        const sent = await inviteStaff({ ...ctx, db: tx }, tx, first, p.email, p.role);
-        if (!sent.ok) throw new Error(`setup: the invitation of a person failed (${sent.error})`);
-      }
-    }
-    await tx.execute("delete from app__settings where key = 'setup_pending'", []);
-    await tx.execute("insert into app__settings (key, value) values ('setup_finished_at', ?) on conflict (key) do update set value = excluded.value", [String(now())]);
-    await audit.record({ action: "setup.finish", actor: { kind: "user", id: user.id }, resource: { type: "Settings", id: "setup" }, details: { branches: made.map((b) => b.id), invited: pending.people.length } });
-    return true;
-  };
-  return ctx.db.transaction(run);
 }

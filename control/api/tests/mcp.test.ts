@@ -1007,6 +1007,121 @@ describe("owner connector tools (#700)", () => {
     expect(stub.calls).toEqual([]);
   });
 
+  /** The stub of CoolAir with `invite_staff` in its tool list: the app's own tool answers `invited` and the branch it matched. */
+  function staffStub(branches = ["Dubai", "Sharjah"]): Stub & { listed: string[][] } {
+    const s = stubBridge() as Stub & { listed: string[][] };
+    s.listed = [];
+    const inner = s.bridge.callAppTool;
+    s.bridge = {
+      callAppTool: async (agent, app, tool, args, opts = {}) => {
+        if (tool === "list_branches") {
+          s.calls.push({ tool, args, opts });
+          return { ok: true, untrusted: true, result: { branches: branches.map((name, i) => ({ id: `org_${i + 1}`, name, emirate: "dubai" })) } };
+        }
+        if (tool === "invite_staff" && opts.confirmation !== undefined) {
+          s.calls.push({ tool, args, opts });
+          if (args.email === "taken@coolair.ae") return { ok: false, untrusted: true, status: 422, error: { code: "app_tool_error", message: "No branch \"Atlantis\". The branches are: Dubai, Sharjah." } };
+          return { ok: true, untrusted: true, result: { invited: true, email: args.email, role: args.role, branch: String(args.branch).replace(/^dubai$/iu, "Dubai") } };
+        }
+        return inner(agent, app, tool, args, opts);
+      },
+      listAppTools: async (_agent, _app, scopes) => {
+        s.listed.push(scopes);
+        return { ok: true, untrusted: true, tools: ["list_branches", "invite_staff"] };
+      },
+    };
+    return s;
+  }
+
+  test("invite_people (#751): an app with invite_staff gets one invite_staff call per person, the platform's roles mapped to the staff roles and the branch as given; an owner is skipped; the scopes are the two tools", async () => {
+    const h = await harness();
+    const owner = await signup(h, "owner@coolair.ae", "t-staff");
+    const stub = staffStub();
+    setBridge(h.deps, stub.bridge);
+    const { token } = await grant(h, owner, "owner");
+    const args = {
+      app: "coolair",
+      people: [
+        { email: "b@coolair.ae", role: "technician", branch: "dubai" },
+        { email: "m@coolair.ae", role: "manager", branch: "Sharjah" },
+        { email: "o@coolair.ae", role: "owner", branch: "Dubai" },
+        { email: "taken@coolair.ae", role: "dispatcher", branch: "Atlantis" },
+      ],
+    };
+    const first = await call(h, token, "invite_people", args);
+    expect(first.error).toMatchObject({ code: "confirmation_required" });
+    expect(first.plan).toBe("Invite 4 people to CoolAir: b@coolair.ae (technician, dubai), m@coolair.ae (manager, Sharjah), o@coolair.ae (owner: skipped, an owner cannot be invited here), taken@coolair.ae (dispatcher, Atlantis). Each gets an email.");
+    expect(stub.calls.every((c) => c.tool.startsWith("list_") || c.tool.startsWith("get_"))).toBe(true);
+    stub.calls.length = 0;
+    const done = await call(h, token, "invite_people", { ...args, confirmation_token: first.confirmation_token });
+    expect(done.isError).toBe(false);
+    expect(done).toMatchObject({
+      untrusted: true,
+      invited: [
+        { email: "b@coolair.ae", role: "technician", branch: "Dubai" },
+        { email: "m@coolair.ae", role: "manager", branch: "Sharjah" },
+      ],
+      skipped: [{ email: "o@coolair.ae", reason: expect.stringContaining("owner") }, { email: "taken@coolair.ae", reason: expect.stringContaining("Dubai, Sharjah") }],
+    });
+    const staff = stub.calls.filter((c) => c.tool === "invite_staff" && c.opts.confirmation !== undefined);
+    expect(staff.map((c) => c.args)).toEqual([
+      { email: "b@coolair.ae", role: "technician", branch: "dubai" },
+      { email: "m@coolair.ae", role: "branch_manager", branch: "Sharjah" },
+      { email: "taken@coolair.ae", role: "dispatcher", branch: "Atlantis" },
+    ]);
+    for (const c of stub.calls.filter((x) => x.tool === "invite_staff")) expect(c.opts.scopes?.slice().sort()).toEqual(["tools:invite_staff", "tools:list_branches"]);
+    expect(stub.calls.some((c) => c.tool === "invite_member")).toBe(false);
+    for (const scopes of stub.listed) expect(scopes.slice().sort()).toEqual(["tools:invite_staff", "tools:list_branches"]);
+  });
+
+  test("invite_people (#751): with one branch none need be named; with several and none named the call is an input error that names the branches, and nothing reaches invite_staff", async () => {
+    const h = await harness();
+    const owner = await signup(h, "owner@coolair.ae", "t-staff-branch");
+    const one = staffStub(["Dubai"]);
+    setBridge(h.deps, one.bridge);
+    const { token } = await grant(h, owner, "owner");
+    const args = { app: "coolair", people: [{ email: "b@coolair.ae", role: "accountant" }] };
+    const plan = await call(h, token, "invite_people", args);
+    expect(plan.plan).toBe("Invite 1 person to CoolAir: b@coolair.ae (accountant, Dubai). Each gets an email.");
+    const done = await call(h, token, "invite_people", { ...args, confirmation_token: plan.confirmation_token });
+    expect(done).toMatchObject({ invited: [{ email: "b@coolair.ae", role: "accountant", branch: "Dubai" }], skipped: [] });
+    expect(one.calls.filter((c) => c.tool === "invite_staff" && c.opts.confirmation !== undefined).map((c) => c.args)).toEqual([{ email: "b@coolair.ae", role: "accountant", branch: "Dubai" }]);
+
+    const two = staffStub();
+    setBridge(h.deps, two.bridge);
+    const ask = await call(h, token, "invite_people", { app: "coolair", people: [{ email: "b@coolair.ae", role: "technician" }, { email: "c@coolair.ae", role: "technician", branch: "Dubai" }] });
+    expect(ask.isError).toBe(true);
+    expect(ask.error).toMatchObject({ code: "invalid_input", message: expect.stringContaining("Dubai, Sharjah") });
+    expect(ask.confirmation_token).toBeUndefined();
+    expect(two.calls.some((c) => c.tool === "invite_staff")).toBe(false);
+  });
+
+  test("invite_people (#751): an app without invite_staff in its tool list, or a bridge that cannot list, still gets invite_member as before", async () => {
+    const h = await harness();
+    const owner = await signup(h, "owner@coolair.ae", "t-staff-fallback");
+    const stub = staffStub();
+    stub.bridge.listAppTools = async () => ({ ok: true, untrusted: true, tools: ["list_branches", "invite_member"] });
+    setBridge(h.deps, stub.bridge);
+    const { token } = await grant(h, owner, "owner");
+    const args = { app: "coolair", people: [{ email: "b@coolair.ae", role: "technician" }, { email: "m@coolair.ae", role: "manager" }] };
+    const plan = await call(h, token, "invite_people", args);
+    expect(plan.plan).toBe("Invite 2 people to CoolAir: b@coolair.ae (technician), m@coolair.ae (manager). Each gets an email.");
+    const done = await call(h, token, "invite_people", { ...args, confirmation_token: plan.confirmation_token });
+    expect(done).toMatchObject({ invited: [{ email: "b@coolair.ae", role: "technician" }, { email: "m@coolair.ae", role: "manager" }], skipped: [] });
+    expect(stub.calls.filter((c) => c.tool === "invite_member" && c.opts.confirmation !== undefined).map((c) => c.args)).toEqual([
+      { org: "org_1", email: "b@coolair.ae", role: "member" },
+      { org: "org_1", email: "m@coolair.ae", role: "admin" },
+    ]);
+    expect(stub.calls.some((c) => c.tool === "invite_staff")).toBe(false);
+    // A listing that fails is "no invite_staff" too.
+    stub.calls.length = 0;
+    stub.bridge.listAppTools = async () => ({ ok: false, untrusted: true, status: 503, error: { code: "RENOX_UNAVAILABLE", message: "down" } });
+    const again = await call(h, token, "invite_people", args);
+    const redo = await call(h, token, "invite_people", { ...args, confirmation_token: again.confirmation_token });
+    expect(redo).toMatchObject({ invited: [{ email: "b@coolair.ae" }, { email: "m@coolair.ae" }] });
+    expect(stub.calls.some((c) => c.tool === "invite_staff")).toBe(false);
+  });
+
   test("get_app_summary composes the app's read tools and the domains, untrusted; list_branches and list_services read through the bridge; a template without the tool answers not supported", async () => {
     const h = await harness();
     const owner = await signup(h, "owner@coolair.ae", "t-summary");

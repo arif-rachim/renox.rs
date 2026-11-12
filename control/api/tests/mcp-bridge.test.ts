@@ -244,6 +244,33 @@ describe("the owner connector's bridge (#698)", () => {
     expect(s.nodeCalls).toHaveLength(0);
   });
 
+  test("#751: listAppTools sends tools/list with a token of those scopes and answers the tool names; the token is not in the answer; a bad app or scopes are refused first", async () => {
+    const s = await setup();
+    const idOf = (rpc: unknown): number => (rpc as { id: number }).id;
+    s.app.answer = (token, rpc) => {
+      expect(s.tokens).toContain(token);
+      return { status: 200, body: { jsonrpc: "2.0", id: idOf(rpc), result: { tools: [{ name: "list_branches", description: token }, { name: "invite_staff" }, { nope: 1 }] } } };
+    };
+    const scopes = ["tools:invite_staff", "tools:list_branches"];
+    const r = await requestScope.run({ tenantId: TENANT, scoped: false }, () => (s.bridge.listAppTools as NonNullable<typeof s.bridge.listAppTools>)(s.agent, APP, scopes));
+    expect(r).toEqual({ ok: true, untrusted: true, tools: ["list_branches", "invite_staff"] });
+    expect(JSON.stringify(r)).not.toContain(s.tokens[0] as string);
+    expect(s.appCalls.map((c) => (c.body as { method: string }).method)).toEqual(["tools/list"]);
+    expect((s.nodeCalls[0]?.body as { scopes: string[] }).scopes.slice().sort()).toEqual(scopes);
+    // The same scopes share the token a call of one of the tools mints.
+    s.app.answer = undefined;
+    const sameToken = s.tokens[0];
+    s.app.answer = (token, rpc) => ({ status: 200, body: { jsonrpc: "2.0", id: idOf(rpc), result: { structuredContent: { token: token === sameToken }, content: [] } } });
+    const call = await requestScope.run({ tenantId: TENANT, scoped: false }, () => s.bridge.callAppTool(s.agent, APP, "invite_staff", {}, { scopes }));
+    expect(call).toMatchObject({ ok: true, result: { token: true } });
+    expect(s.tokens).toHaveLength(1);
+    for (const [app, bad] of [["Bad App", scopes], [APP, []], [APP, ["invite_staff"]]] as [string, string[]][]) {
+      const refused = await requestScope.run({ tenantId: TENANT, scoped: false }, () => (s.bridge.listAppTools as NonNullable<typeof s.bridge.listAppTools>)(s.agent, app, bad));
+      expect(refused).toMatchObject({ ok: false, status: 400, error: { code: "invalid_input" } });
+    }
+    expect(s.nodeCalls).toHaveLength(1);
+  });
+
   test("#700: a confirm app tool's own confirmation goes as _meta renox/confirmation with the same token; without it no _meta is sent", async () => {
     const s = await setup();
     const run = (opts: { confirmation?: string }) => requestScope.run({ tenantId: TENANT, scoped: false }, () => s.bridge.callAppTool(s.agent, APP, "update_settings", { settings: { brand_color: "#EE4400" } }, opts));

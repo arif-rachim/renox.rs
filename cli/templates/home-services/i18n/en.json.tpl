@@ -14,7 +14,19 @@
       "board": "Dispatch board"
     },
     "skip": "Skip to main content",
-    "actions": "Actions"
+    "actions": "Actions",
+    "err": {
+      "home": "Back to the home page",
+      "request": "Request id:",
+      "404": {
+        "title": "Page not found",
+        "body": "This page does not exist or has moved."
+      },
+      "500": {
+        "title": "Something went wrong ({status})",
+        "body": "We could not complete this request. Please try again in a moment."
+      }
+    }
   },
   "customers": {
     "title": "Customers",

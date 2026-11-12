@@ -313,6 +313,7 @@ describe("the audit trail of an agent's tool call (#683)", () => {
 // actions are `settings.update`, `branch.write` and `service.write` and not the pages' sensitive `settings.write`.
 // The owner belongs to two branches, so the consent must name one (t.tool cannot): this agent acts in Dubai.
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { agentToken, callTool, listTools } from "@renoxium/sdk/test";
 
 const ownerJar = await signIn("owner-tools", "owner@fixit.example");
@@ -693,5 +694,87 @@ describe("list_people", () => {
 
   test("a technician, a dispatcher and an accountant are forbidden the list (the page needs settings.read)", async () => {
     for (const user of [ali, dina, accountant]) expect((await t.tool("list_people", {}, { as: user })).error?.code).toBe("RENOX_FORBIDDEN");
+  });
+});
+
+describe("invite_staff (#751)", () => {
+  const EMAIL = "sara.tech@example.com";
+  const args = { email: EMAIL, role: "technician", branch: "dUbAi" };
+  const invitesOf = (email: string) => [rows("select count(*) as n from org__invites where email = ?", [email])[0]?.n, rows("select count(*) as n from app__staff_invites where email = ?", [email])[0]?.n];
+
+  test("only the owner's agent may call it: a technician, a dispatcher, a branch manager and an accountant are forbidden (403, no preview)", async () => {
+    const manager = await signIn("manager", "manager.dubai@fixit.example");
+    for (const user of [ali, dina, manager, accountant]) {
+      const r = await t.tool("invite_staff", args, { as: user });
+      expect(r.error?.code).toBe("RENOX_FORBIDDEN");
+      expect(r.preview).toBeUndefined();
+      expect(r.confirmation).toBeUndefined();
+    }
+    expect(invitesOf(EMAIL)).toEqual([0, 0]);
+    const list = await listTools(t, await ownerAgentToken(1));
+    expect(list.tools.find((x) => x.name === "invite_staff")?.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
+    expect(list.tools.find((x) => x.name === "invite_staff")?.inputSchema.required).toEqual(["email", "role", "branch"]);
+  });
+
+  test("an unknown branch names the branches; an unknown role, owner, a bad email and an extra property are refused; nothing is written", async () => {
+    const unknown = refusal(await own("invite_staff", { ...args, branch: "Atlantis" }));
+    // The names as they are now (an earlier test renamed Sharjah).
+    const names = rows("select name_en from app__branches order by created_at, id").map((b) => String(b.name_en));
+    expect(unknown).toMatchObject({ error: "bad_input", message: expect.stringContaining(names.join(", ")), branches: names });
+    expectInvalid(await own("invite_staff", { ...args, role: "janitor" }), "an unknown role");
+    expectInvalid(await own("invite_staff", { ...args, role: "owner" }), "owner");
+    expectInvalid(await own("invite_staff", { ...args, email: "not an email" }), "a bad email");
+    expectInvalid(await own("invite_staff", { ...args, extra: 1 }), "an extra property");
+    expectInvalid(await own("invite_staff", { email: EMAIL, role: "technician" }), "no branch");
+    expect(invitesOf(EMAIL)).toEqual([0, 0]);
+  });
+
+  test("the first call names the invitation in plain words and writes nothing", async () => {
+    const preview = await own("invite_staff", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.preview).toMatchObject({ would_invite: { email: EMAIL, role: "technician", branch: "Dubai" }, plan: `Invite ${EMAIL} as a technician in the Dubai branch.` });
+    expect(invitesOf(EMAIL)).toEqual([0, 0]);
+    expect(rows("select count(*) as n from email__messages where to_address = ?", [EMAIL])[0]?.n).toBe(0);
+  });
+
+  test("confirmed: an org invitation, a staff invitation with the role and an audit row; after accepting, the person holds the role in that branch only", async () => {
+    const done = await own("invite_staff", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    expect(done.result).toEqual({ invited: true, email: EMAIL, role: "technician", branch: "Dubai", joined: false });
+    expect(rows("select org_id, role, invited_by from org__invites where email = ?", [EMAIL])).toEqual([{ org_id: "org_dubai", role: "member", invited_by: "u_owner" }]);
+    expect(rows("select branch_id, role, invited_by, applied_at from app__staff_invites where email = ?", [EMAIL])).toEqual([{ branch_id: "br_dubai", role: "technician", invited_by: "u_owner", applied_at: null }]);
+    expect(Number(rows("select count(*) as n from audit__events where action = 'staff.invite'")[0]?.n)).toBeGreaterThanOrEqual(1);
+    // Only the token's hash is stored, and the mail's link is a path (a tool call has no request origin), so the
+    // test gives the invitation a token it knows, as the invitee's mail would carry.
+    const token = "75".repeat(32);
+    const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
+    db.query("update org__invites set token_hash = ? where email = ?").run(createHash("sha256").update(token).digest("hex"), EMAIL);
+    db.close();
+
+    const sara = t.as("sara");
+    expect((await sara.action("/auth/register", "default", { email: EMAIL, password: PASSWORD, display_name: "Sara Tech" })).status).toBe(200);
+    expect((await sara.action("/auth/login", "default", { email: EMAIL, password: PASSWORD })).status).toBe(303);
+    expect((await sara.action(`/org/accept/${token}`, "accept", {})).status).toBe(303);
+    let held: Record<string, unknown>[] = [];
+    for (let i = 0; i < 100 && held.length === 0; i++) {
+      held = rows("select role, scope_type, scope_id from renox__role_assignments where user_id = (select id from auth__users where email = ?)", [EMAIL]);
+      if (held.length === 0) await Bun.sleep(50);
+    }
+    expect(held).toEqual([{ role: "technician", scope_type: "org", scope_id: "org_dubai" }]);
+    expect(rows("select applied_at is not null as done from app__staff_invites where email = ?", [EMAIL])).toEqual([{ done: 1 }]);
+  });
+
+  test("a branch is found by its Arabic name too, and by its id", async () => {
+    const ar = String(rows("select name_ar from app__branches where id = 'br_sharjah'")[0]?.name_ar);
+    const by = await own("invite_staff", { email: "mona.mgr@example.com", role: "branch_manager", branch: ` ${ar} ` }, true);
+    expect(by.ok, JSON.stringify(by)).toBe(true);
+    expect(by.result).toMatchObject({ invited: true, role: "branch_manager", branch: String(rows("select name_en from app__branches where id = 'br_sharjah'")[0]?.name_en) });
+    const byId = await own("invite_staff", { email: "omar.acc@example.com", role: "accountant", branch: "br_sharjah" }, true);
+    expect(byId.ok, JSON.stringify(byId)).toBe(true);
+    expect(rows("select branch_id, role from app__staff_invites where email in ('mona.mgr@example.com', 'omar.acc@example.com') order by email")).toEqual([
+      { branch_id: "br_sharjah", role: "branch_manager" },
+      { branch_id: "br_sharjah", role: "accountant" },
+    ]);
   });
 });

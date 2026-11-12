@@ -77,6 +77,8 @@ declare module "renox:modules" {
     removeMember(input: { org: string; user: string }): Promise<{ ok: true } | { error: string }>;
     /** Renames an organisation (admin or owner; 1 to 80 characters); the slug stays. */
     rename(input: { org: string; name: string }): Promise<{ ok: true } | { error: string }>;
+    /** System only (org 1.2.0, #747): the setup call's organisations and invitations, in its transaction; throws RENOX_FORBIDDEN, RENOX_VALIDATION or ORG_INVITE_HALTED. */
+    bootstrap(input: { owner_user_id: string; orgs: { name: string; slug?: string }[]; invites?: { email: string; org_index: number; role: "member" | "admin" | "owner" }[] }): Promise<{ orgs: { id: string; name: string; slug: string }[]; invitations: { email: string; org_id: string }[] }>;
   };
   export const audit: {
     /** The trail, newest first (needs `audit.read`): the module's rows merged with the platform's decisions on sensitive actions. */

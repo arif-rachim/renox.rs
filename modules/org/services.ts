@@ -4,7 +4,7 @@
 // allow throws ORG_FORBIDDEN (the caller sees RENOX_MODULE_SERVICE).
 
 import * as core from "./lib/core.ts";
-import type { CurrentOrg, Member, Org, OrgCtx, Role, Switcher } from "./lib/core.ts";
+import type { BootstrapInput, BootstrapResult, CurrentOrg, Member, Org, OrgCtx, Role, Switcher } from "./lib/core.ts";
 
 /** Create an organisation; the signed-in user is its owner and it becomes the active one. */
 export async function createOrg(ctx: OrgCtx, input: { name: string; slug?: string }): Promise<{ org: Org } | { error: string }> {
@@ -77,4 +77,13 @@ export async function rename(ctx: OrgCtx, input: { org: string; name: string }):
 /** For a page's load: `org_switcher: await org.switcher(url.pathname)` feeds the switcher partial. */
 export async function switcher(ctx: OrgCtx, next?: string): Promise<Switcher | null> {
   return core.switcher(ctx, next);
+}
+
+/**
+ * System only (#747): the platform's one-time setup of a new app. Creates the organisations with `owner_user_id` as owner
+ * and the invitations, in the caller's transaction, with no session. Throws RENOX_FORBIDDEN unless the call is anonymous,
+ * the app has no organisation yet and `owner_user_id` is its only user; RENOX_VALIDATION for a malformed request.
+ */
+export async function bootstrap(ctx: OrgCtx, input: BootstrapInput): Promise<BootstrapResult> {
+  return core.bootstrap(ctx, input);
 }

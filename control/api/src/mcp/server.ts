@@ -228,6 +228,59 @@ async function appRead(ctx: ToolCtx, app: string, tool: string, args: Record<str
   }
 }
 
+/** An input problem found while a plan is made (the plan needs the app's data): the call answers `invalid_input` and asks for no confirmation. */
+class PlanInputError extends Error {}
+
+/** `invite_people` for an app that has `invite_staff` (#751): the app's tool gives the staff role in the branch; else `invite_member` (org roles only). */
+const STAFF_SCOPES = ["tools:invite_staff", "tools:list_branches"];
+/** The platform's roles as the app's staff roles; `owner` has none: an invitation never grants it. */
+const STAFF_ROLE: Record<Exclude<(typeof PEOPLE_ROLES)[number], "owner">, string> = { manager: "branch_manager", dispatcher: "dispatcher", technician: "technician", accountant: "accountant" };
+
+async function hasInviteStaff(ctx: ToolCtx, app: string): Promise<boolean> {
+  try {
+    const r = await ctx.bridge.listAppTools?.(ctx.agent, app, STAFF_SCOPES);
+    return r !== undefined && r.ok && r.tools.includes("invite_staff");
+  } catch {
+    return false;
+  }
+}
+
+const branchNamesOf = (r: Record<string, unknown> | null): string[] | null => (r === null ? null : listOf(r, "branches").flatMap((b) => (typeof b.name === "string" && b.name.trim() !== "" ? [b.name.trim()] : [])));
+
+/** The branch a person joins: the one named, else the app's only one; a problem (to say) when the app has several or none and none is named. `names` null: the branches could not be read, the app then decides. */
+function branchFor(p: { email: string; branch?: string }, names: string[] | null): { branch: string } | { problem: string } {
+  if (typeof p.branch === "string" && p.branch.trim() !== "") return { branch: p.branch.trim() };
+  if (names === null) return { branch: "" };
+  if (names.length === 1) return { branch: names[0] as string };
+  if (names.length === 0) return { problem: "The app has no branch to invite people to. Add a branch first." };
+  return { problem: `invalid argument people: name the branch ${trimmed(p.email)} joins (branch): ${names.join(", ")}` };
+}
+
+async function inviteStaff(ctx: ToolCtx, app: string, people: { email: string; role: (typeof PEOPLE_ROLES)[number]; branch?: string }[]): Promise<ToolResult> {
+  const read = await ctx.bridge.callAppTool(ctx.agent, app, "list_branches", {}, { scopes: STAFF_SCOPES });
+  if (!read.ok) return fromApp(read);
+  const names = branchNamesOf(isObj(read.result) ? read.result : null) ?? [];
+  const invited: { email: string; role: string; branch: string }[] = [];
+  const skipped: { email: string; reason: string }[] = [];
+  for (const p of people) {
+    const email = trimmed(p.email).toLowerCase();
+    if (p.role === "owner") {
+      skipped.push({ email, reason: "An owner cannot be invited here. Invite them as a manager." });
+      continue;
+    }
+    const at = branchFor(p, names);
+    if ("problem" in at) {
+      if (names.length === 0) return { status: 409, body: { untrusted: true, error: { code: "no_branch", message: at.problem } } };
+      return { status: 400, body: { error: { code: "invalid_input", message: at.problem } } };
+    }
+    const r = await appChange(ctx, app, "invite_staff", { email, role: STAFF_ROLE[p.role], branch: at.branch }, STAFF_SCOPES);
+    if (unsupported(r)) return fromApp(r);
+    if (r.ok && isObj(r.result) && r.result.invited === true) invited.push({ email, role: p.role, branch: typeof r.result.branch === "string" ? r.result.branch : at.branch });
+    else skipped.push({ email, reason: short(r.ok ? (isObj(r.result) ? (r.result.message ?? r.result.error ?? "not invited") : "not invited") : r.error.message, 200) });
+  }
+  return { status: 200, body: { untrusted: true, invited, skipped } };
+}
+
 /** The app's settings object, wherever the app tool put it (`{ settings }` or flat). */
 const settingsOf = (r: Record<string, unknown> | null): Record<string, unknown> => (r === null ? {} : isObj(r.settings) ? r.settings : r);
 const listOf = (r: Record<string, unknown> | null, key: string): Record<string, unknown>[] => (r !== null && Array.isArray(r[key]) ? (r[key] as unknown[]).filter(isObj) : []);
@@ -295,7 +348,7 @@ const OWNER_TOOLS: Tool[] = [
     name: "invite_people",
     title: "Invite people to your app",
     description:
-      "Invite 1 to 20 people to the app by email, each with a role (owner, manager, dispatcher, technician, accountant); each gets an email with a sign-in link. They join the app's first branch. This creates accounts in the app, not mailboxes. Needs confirmation and the app:people scope.",
+      "Invite 1 to 20 people to the app by email, each with a role (owner, manager, dispatcher, technician, accountant); each gets an email with a sign-in link. They join the branch named for them (branch, the branch's name; optional when the app has one branch), with that role in it. This creates accounts in the app, not mailboxes. Needs confirmation and the app:people scope.",
     scope: "app:people",
     mutating: true,
     bridged: true,
@@ -307,7 +360,12 @@ const OWNER_TOOLS: Tool[] = [
           type: "array",
           minItems: 1,
           maxItems: 20,
-          items: { type: "object", properties: { email: { type: "string", maxLength: 254 }, role: { type: "string", enum: [...PEOPLE_ROLES] } }, required: ["email", "role"], additionalProperties: false },
+          items: {
+            type: "object",
+            properties: { email: { type: "string", maxLength: 254 }, role: { type: "string", enum: [...PEOPLE_ROLES] }, branch: { type: "string", minLength: 1, maxLength: 80, description: "The branch's name (list_branches); optional when the app has one branch" } },
+            required: ["email", "role"],
+            additionalProperties: false,
+          },
         },
         confirmation_token: CONFIRMATION,
       },
@@ -320,8 +378,9 @@ const OWNER_TOOLS: Tool[] = [
       const seen = new Set<string>();
       for (const [i, p] of people.entries()) {
         if (!isObj(p)) return `invalid argument people[${i}]`;
-        const extra = onlyKeys(p, ["email", "role"], `people[${i}]`);
+        const extra = onlyKeys(p, ["email", "role", "branch"], `people[${i}]`);
         if (extra !== null) return extra;
+        if (p.branch !== undefined && !lenOk(p.branch, 1, 80)) return `invalid argument people[${i}].branch: 1 to 80 characters`;
         const email = trimmed(p.email).toLowerCase();
         if (email.length > 254 || !EMAIL.test(email)) return `invalid argument people[${i}].email: an email address`;
         if (!(PEOPLE_ROLES as readonly unknown[]).includes(p.role)) return `invalid argument people[${i}].role: one of ${PEOPLE_ROLES.join(", ")}`;
@@ -331,12 +390,22 @@ const OWNER_TOOLS: Tool[] = [
       return null;
     },
     plan: async (a, _deps, ctx) => {
-      const people = a.people as { email: string; role: string }[];
+      const people = a.people as { email: string; role: string; branch?: string }[];
+      const app = String(a.app);
+      if (await hasInviteStaff(ctx, app)) {
+        const names = branchNamesOf(await appRead(ctx, app, "list_branches"));
+        const targets = people.map((p) => ({ p, at: branchFor(p, names) }));
+        const unclear = targets.find((x) => "problem" in x.at);
+        if (unclear !== undefined && "problem" in unclear.at) throw new PlanInputError(unclear.at.problem);
+        const who = targets.map(({ p, at }) => (p.role === "owner" ? `${trimmed(p.email)} (owner: skipped, an owner cannot be invited here)` : `${trimmed(p.email)} (${p.role}${"branch" in at && at.branch !== "" ? `, ${at.branch}` : ""})`)).join(", ");
+        return `Invite ${count(people.length, "person", "people")} to ${await brandOf(ctx, app)}: ${who}. Each gets an email.`;
+      }
       const who = people.map((p) => `${trimmed(p.email)} (${p.role})`).join(", ");
-      return `Invite ${count(people.length, "person", "people")} to ${await brandOf(ctx, String(a.app))}: ${who}. Each gets an email.`;
+      return `Invite ${count(people.length, "person", "people")} to ${await brandOf(ctx, app)}: ${who}. Each gets an email.`;
     },
     run: async (_call, a, _agent, _deps, ctx) => {
       const app = String(a.app);
+      if (await hasInviteStaff(ctx, app)) return inviteStaff(ctx, app, a.people as { email: string; role: (typeof PEOPLE_ROLES)[number]; branch?: string }[]);
       const scopes = ["tools:invite_member", "tools:list_branches"];
       // `org.invite_member` invites to one organisation: the app's first branch, where the setup invites people too.
       const branches = await ctx.bridge.callAppTool(ctx.agent, app, "list_branches", {}, { scopes: ["tools:list_branches", "tools:invite_member"] });
@@ -1043,9 +1112,16 @@ export function registerMcp(app: Hono<Env>, deps: Deps): void {
       const valid = conf !== null && conf.k === agent.tokenId && conf.t === tool.name && conf.a === canonical(rest) && conf.e >= deps.now();
       if (!valid) {
         const expires = deps.now() + CONFIRM_TTL_MS;
+        let plan: string;
+        try {
+          plan = await (tool.plan as NonNullable<Tool["plan"]>)(rest, deps, ctx);
+        } catch (e) {
+          if (!(e instanceof PlanInputError)) throw e;
+          await audit("invalid_input", 400);
+          return toolResult({ error: { code: "invalid_input", message: e.message } }, true);
+        }
         const token = seal(deps, "confirm", "rnxconf_", { k: agent.tokenId, t: tool.name, a: canonical(rest), e: expires } satisfies Confirmation);
         await audit(confirmation === undefined ? "confirmation_required" : "confirmation_invalid", 403);
-        const plan = await (tool.plan as NonNullable<Tool["plan"]>)(rest, deps, ctx);
         return toolResult(
           {
             error: { code: "confirmation_required", message: "This tool changes the team's apps. Show the plan to the user; call again with confirmation_token and the same arguments only if they agree." },

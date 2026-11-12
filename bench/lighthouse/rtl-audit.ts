@@ -32,15 +32,13 @@ export interface Route {
   note?: string;
   /** A key page: a screenshot per width. */
   key?: string;
-  /** Not translated: the platform's own error page. */
-  en?: true;
 }
 
 /** Every route under pages/, with the role that opens it (the same list as the accessibility test). */
 export const ROUTES: Route[] = [
   { path: "/", as: "anonymous" },
   { path: "/", as: "dispatcher", note: "signed in" },
-  { path: "/nothing-here", as: "anonymous", note: "404", en: true },
+  { path: "/nothing-here", as: "anonymous", note: "404" },
   { path: "/l/approve/demo-q000002-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", as: "anonymous" },
   { path: "/l/approve/demo-q000004-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", as: "anonymous" },
   { path: `/l/invoice/${INVOICE_TOKEN}`, as: "anonymous" },
@@ -129,13 +127,11 @@ const shotName = (key: string, width: number): string => `${key}-${String(width)
 export function problems(r: Route, width: number, status: number, p: Probe): string[] {
   const bad: string[] = [];
   if (status !== (r.note === "404" ? 404 : 200)) bad.push(`status ${String(status)}`);
-  // The error pages are rendered by the platform with the default locale (no ?lang, no loader): English, left to right.
-  const [lang, dir] = r.en ? ["en", "ltr"] : ["ar", "rtl"];
-  if (p.lang !== lang || p.dir !== dir) bad.push(`html lang/dir are ${p.lang}/${p.dir}, expected ${lang}/${dir}`);
+  if (p.lang !== "ar" || p.dir !== "rtl") bad.push(`html lang/dir are ${p.lang}/${p.dir}, expected ar/rtl`);
   if (r.path !== "/dispatch" && p.scrollWidth > p.innerWidth) bad.push(`scrolls horizontally (${String(p.scrollWidth)} > ${String(p.innerWidth)})`);
   if (r.path === "/dispatch" && p.scrollWidth > p.innerWidth) bad.push(`the board overflows the page (${String(p.scrollWidth)} > ${String(p.innerWidth)}): it must scroll in its own container`);
   if (p.wide.length > 0 && !(r.path === "/dispatch" && p.boardScrolls)) bad.push(`outside the viewport at ${String(width)} px: ${p.wide.join(", ")}`);
-  if (!r.en && !p.arabicFace) bad.push("Noto Sans Arabic did not load");
+  if (!p.arabicFace) bad.push("Noto Sans Arabic did not load");
   return bad;
 }
 
