@@ -12,7 +12,7 @@ import en from "../i18n/en.json";
 import { valuesOf } from "./forms";
 
 /** Fields that name no visible control: their message is listed without a link. */
-const NO_CONTROL = new Set(["form", "items", "lines", "phase", "quote_id", "signature", "to", "user_id"]);
+const NO_CONTROL = new Set(["form", "hours", "items", "lines", "phase", "quote_id", "signature", "to", "user_id"]);
 
 type Tree = { [key: string]: string | Tree };
 const TEXTS: Record<"en" | "ar", Tree> = { en: en as Tree, ar: ar as Tree };
@@ -26,6 +26,8 @@ function lookup(lang: "en" | "ar", key: string): string | undefined {
 
 /** The label of a field; a line's field is `<name>_<row>` (`qty_2`): the label of the name, with the line number. */
 function label(lang: "en" | "ar", field: string): string {
+  const day = /^hours_([0-6])$/u.exec(field);
+  if (day !== null) return `${lookup(lang, "backoffice.hours.title") ?? "hours"}: ${lookup(lang, `backoffice.hours.day.${day[1]}`) ?? day[1]}`;
   const m = /^(service|desc|desc_ar|qty|price|site_id|visits)_(\d+)$/u.exec(field);
   if (m === null) return lookup(lang, `fields.${field}`) ?? field;
   const base = lookup(lang, `fields.${m[1] === "desc_ar" ? "desc" : (m[1] as string)}`) ?? field;

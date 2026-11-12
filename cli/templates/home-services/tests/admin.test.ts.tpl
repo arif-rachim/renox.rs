@@ -533,3 +533,140 @@ describe("the audit trail", () => {
     expect((await owner.page("/admin/audit?action=drop%20table")).status).toBe(200);
   });
 });
+
+describe("weekly working hours (/admin/branches)", () => {
+  const ALI = "u_dxb_ali";
+  const DAYS_EN = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  /** The Dubai form's seven rows: Monday to Thursday and Saturday 08:00 to 18:00, Friday 14:00 to 18:00, Sunday closed (the seed's hours). */
+  const week = (over: Record<string, string> = {}): Record<string, string> => ({
+    branch_id: "br_dubai",
+    ...Object.fromEntries([1, 2, 3, 4, 6].flatMap((d) => [[`open_${d}`, "08:00"], [`close_${d}`, "18:00"]])),
+    open_5: "14:00",
+    close_5: "18:00",
+    closed_0: "on",
+    open_0: "08:00",
+    close_0: "18:00",
+    ...over,
+  });
+  /** A Friday (Dubai) between 5 and 11 days ahead: `YYYY-MM-DD` and the unix seconds of 15:00 that day. */
+  const friday = (() => {
+    const d = new Date(Date.now() + 4 * 3_600_000 + 5 * 86_400_000);
+    while (d.getUTCDay() !== 5) d.setUTCDate(d.getUTCDate() + 1);
+    const day = d.toISOString().slice(0, 10);
+    return { day, at15: Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) - 4 * 3600 + 15 * 3600 };
+  })();
+  const hoursRows = () => rows("select weekday, open_min, close_min from app__branch_hours where branch_id = 'br_dubai' order by weekday");
+  const form = (html: string) => (/<form[^>]*id="hours-form-br_dubai"[\s\S]*?<\/form>/u.exec(html)?.[0] ?? "").replace(/name="_csrf" value="[^"]*"/gu, 'name="_csrf" value="<csrf>"');
+  const job = String(rows("select id from app__jobs where branch_id = 'br_dubai' and status = 'new' order by number limit 1")[0]?.id);
+  const pickerStarts = async (): Promise<number[]> => {
+    const res = await dispatcher.page(`/jobs/${job}?day=${friday.day}&technician=${ALI}`);
+    expect(res.status).toBe(200);
+    return [...res.html.matchAll(new RegExp(`value="${ALI}@(\\d+)"`, "gu"))].map((m) => Number(m[1]));
+  };
+  const toolDays = async (): Promise<string[]> => {
+    const r = await t.tool("next_free_slot", { service: "AC-SERVICE", from: friday.day }, { as: dispatcher });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    return ((r.result as { slots: { day: string }[] }).slots ?? []).map((s) => s.day);
+  };
+
+  test("normal case: the page shows each branch's seven days, Monday first, with the current hours", async () => {
+    const res = await owner.page("/admin/branches");
+    expect(res.status).toBe(200);
+    const f = form(res.html);
+    const at = DAYS_EN.map((d) => f.indexOf(`<strong dir="auto">${d}</strong>`));
+    expect(at.every((n) => n >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(f.match(/type="time" step="1800"/gu)?.length).toBe(14);
+    expect(f).toMatch(/name="open_5"[^>]*value="14:00"/u);
+    expect(f).toMatch(/name="closed_0"[^>]*checked/u);
+    expect(f).not.toMatch(/name="closed_1"[^>]*checked/u);
+  });
+
+  test("before: Friday has slots from 14:00 in the picker and in next_free_slot", async () => {
+    const starts = await pickerStarts();
+    expect(starts.length).toBeGreaterThan(0);
+    expect(Math.min(...starts)).toBe(Date.parse(`${friday.day}T00:00:00Z`) - 4 * 3_600_000 + 14 * 3_600_000);
+    expect(await toolDays()).toContain(friday.day);
+  });
+
+  test("error cases: a close before the open, a time off the half hour, and no open day are 422s naming the row; nothing changes", async () => {
+    const before = hoursRows();
+    const order = await owner.action("/admin/branches", "hours", week({ open_5: "15:00", close_5: "14:30" }));
+    expect(order.status).toBe(422);
+    expect(order.html).toContain('id="err-hours_5"');
+    expect(order.html).toContain("Working hours: Friday");
+    expect(order.html).toMatch(/name="open_5"[^>]*value="15:00"/u);
+    expect(order.html).toMatch(/name="open_5"[^>]*aria-invalid="true"/u);
+    const step = await owner.action("/admin/branches", "hours", week({ open_2: "08:15" }));
+    expect(step.status).toBe(422);
+    expect(step.html).toContain('id="err-hours_2"');
+    expect(step.html).toContain("Working hours: Tuesday");
+    const none = await owner.action("/admin/branches", "hours", { branch_id: "br_dubai", ...Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [`closed_${d}`, "on"])) });
+    expect(none.status).toBe(422);
+    expect(none.html).toContain('id="err-hours"');
+    expect((await owner.action("/admin/branches", "hours", week({ close_3: "" }))).status).toBe(422);
+    expect((await owner.action("/admin/branches", "hours", { ...week(), branch_id: "br_nowhere" })).status).toBe(404);
+    expect(hoursRows()).toEqual(before);
+    expect(rows("select count(*) as n from audit__events where action = 'branch.hours'")[0]?.n).toBe(0);
+    snapshot(form(order.html), { role: "branch hours form, a 422 on Friday, owner, en" });
+  });
+
+  test("error cases: a branch manager, a dispatcher and an owner without a second factor change nothing", async () => {
+    const before = hoursRows();
+    for (const who of [manager, dispatcher, accountantDxb]) expect((await who.action("/admin/branches", "hours", week({ closed_5: "on" }))).status).toBe(403);
+    expect((await manager.page("/admin/branches")).status).toBe(403);
+    expect((await ownerNoFactor.action("/admin/branches", "hours", week({ closed_5: "on" }))).status).toBe(403);
+    expect(hoursRows()).toEqual(before);
+  });
+
+  test("normal case: Friday closed is saved at once: the audit row, five rows, no Friday slots, and the jobs outside the hours are counted, not moved", async () => {
+    // One job is already scheduled on that Friday at 15:00.
+    rw((db) => db.run("update app__jobs set status = 'scheduled', technician_user_id = ?, scheduled_start = ?, scheduled_end = ? where id = ?", [ALI, friday.at15, friday.at15 + 3600, job]));
+    const number = String(rows("select number from app__jobs where id = ?", [job])[0]?.number);
+    const res = await owner.action("/admin/branches", "hours", week({ closed_5: "on" }));
+    expect(res.status).toBe(303);
+    expect(located(res)).toBe("/admin/branches?saved=hours&for=br_dubai");
+    expect(hoursRows().map((r) => r.weekday)).toEqual([1, 2, 3, 4, 6]);
+    expect(rows("select count(*) as n from audit__events where action = 'branch.hours'")[0]?.n).toBe(1);
+    // The slots follow: none on Friday in the picker, none in next_free_slot.
+    expect(await pickerStarts()).toEqual([]);
+    expect(await toolDays()).not.toContain(friday.day);
+    // The page says how many jobs are outside (the seed's own jobs near this Friday may be too), with the link that lists them.
+    const page = await owner.page(located(res));
+    expect(page.html).toContain('id="hours-saved"');
+    const said = /(\d+) scheduled jobs are outside the new hours/u.exec(page.html);
+    expect(said).not.toBeNull();
+    expect(page.html).toContain('href="/jobs?branch=br_dubai&amp;outside_hours=1"');
+    const list = await owner.page("/jobs?branch=br_dubai&outside_hours=1");
+    expect(list.status).toBe(200);
+    expect(list.html).toContain(number);
+    expect(list.html.match(/<tr id="job-/gu)?.length).toBe(Number(said?.[1]));
+    expect((await owner.page("/jobs?branch=br_dubai")).html.match(/<tr id="job-/gu)?.length).toBeGreaterThan(Number(said?.[1]));
+    // The jobs are where they were.
+    expect(rows("select scheduled_start, status from app__jobs where id = ?", [job])).toEqual([{ scheduled_start: friday.at15, status: "scheduled" }]);
+  });
+
+  test("the same week again changes nothing more, and opening Friday brings its slots back", async () => {
+    expect((await owner.action("/admin/branches", "hours", week({ closed_5: "on" }))).status).toBe(303);
+    expect(hoursRows().length).toBe(5);
+    expect((await owner.action("/admin/branches", "hours", week())).status).toBe(303);
+    expect(hoursRows().length).toBe(6);
+    expect((await pickerStarts()).length).toBeGreaterThan(0);
+    expect(await toolDays()).toContain(friday.day);
+    // The 15:00 job is inside Friday's 14:00 to 18:00 again.
+    const list = await owner.page("/jobs?branch=br_dubai&outside_hours=1");
+    expect(list.html).not.toContain(String(rows("select number from app__jobs where id = ?", [job])[0]?.number));
+  });
+
+  test("in Arabic: the hours form", async () => {
+    expect((await owner.page("/admin/branches?lang=ar")).status).toBe(200);
+    const ar = await owner.page("/admin/branches");
+    const bad = await owner.action("/admin/branches", "hours", week({ open_5: "15:00", close_5: "14:30" }));
+    expect((await owner.page("/admin/branches?lang=en")).status).toBe(200);
+    expect(ar.html).toContain("الجمعة");
+    expect(bad.status).toBe(422);
+    expect(bad.html).toContain("ساعات العمل: الجمعة");
+    snapshot(form(ar.html), { role: "branch hours form, owner, ar" });
+    snapshot(form(bad.html), { role: "branch hours form, a 422 on Friday, owner, ar" });
+  });
+});

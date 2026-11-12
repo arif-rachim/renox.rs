@@ -1,6 +1,6 @@
 <r-layout use="main">
   <r-group slot="title"><r-t key="jobs.title" /> · {{ brand.name }}</r-group>
-  <h1><r-group r-if="all"><r-t key="jobs.title" /></r-group><r-group r-else><r-t key="jobs.mine" /></r-group></h1>
+  <h1><r-group r-if="all"><r-t key="jobs.title" /></r-group><r-group r-else><r-t key="jobs.mine" /></r-group></h1><p class="notice" id="outside-hours-filter" r-if="outside_hours"><r-t key="jobs.outside_hours" /> <a href="/jobs"><r-t key="jobs.outside_clear" /></a></p>
   <form class="search" action="/jobs" method="get">
     <label><r-t key="jobs.f.status" />
       <select name="status">
@@ -13,7 +13,7 @@
         <option r-for="t in technicians" :value="t.id" :selected="t.current">{{ t.name }}</option>
       </select></label>
     <label><r-t key="jobs.f.day" /> <input type="date" name="day" :value="day" dir="ltr"></label>
-    <button type="submit"><r-t key="jobs.filter" /></button>
+    <input type="hidden" name="outside_hours" value="1" r-if="outside_hours"><input type="hidden" name="branch" :value="branch_id" r-if="outside_hours"><button type="submit"><r-t key="jobs.filter" /></button>
     <a class="btn-brand" href="/jobs/new" r-can="job.write"><r-t key="jobs.new" /></a>
     <a href="/dispatch" r-can="job.dispatch"><r-t key="jobs.board" /></a>
   </form>

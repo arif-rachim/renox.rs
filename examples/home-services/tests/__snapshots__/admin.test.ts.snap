@@ -7,6 +7,7 @@ exports[`/admin per role normal case: the owner sees the module's dashboard with
     <a href="/admin/audit">Audit trail</a>
     <a href="/billing/invoices" class="renox-admin-link">All invoices</a><a href="/jobs" class="renox-admin-link">Jobs</a><a href="/notifications/prefs" class="renox-admin-link">Notifications</a><a class="renox-org-admin" href="/org/members">Members and invitations</a><a href="/files" class="renox-admin-link">Files</a><a href="/admin/branches" id="nav-branches">Branches</a>
 <a href="/admin/import" id="nav-import">Import</a>
+<a href="/admin/whatsapp" id="nav-whatsapp">WhatsApp</a>
 <a href="/admin/people" id="nav-people">People</a>
 <a href="/admin/settings" id="nav-branding">Branding</a>
 <a href="/admin/audit" id="nav-audit">Audit trail</a>
@@ -33,6 +34,7 @@ exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin 
     <a href="/admin/audit">سجل التدقيق</a>
     <a href="/billing/invoices" class="renox-admin-link">كل الفواتير</a><a href="/jobs" class="renox-admin-link">المهام</a><a href="/notifications/prefs" class="renox-admin-link">الإشعارات</a><a class="renox-org-admin" href="/org/members">الأعضاء والدعوات</a><a href="/files" class="renox-admin-link">الملفات</a><a href="/admin/branches" id="nav-branches">الفروع</a>
 <a href="/admin/import" id="nav-import">الاستيراد</a>
+<a href="/admin/whatsapp" id="nav-whatsapp">واتساب</a>
 <a href="/admin/people" id="nav-people">الأشخاص</a>
 <a href="/admin/settings" id="nav-branding">الهوية</a>
 <a href="/admin/audit" id="nav-audit">سجل التدقيق</a>
@@ -150,4 +152,145 @@ exports[`reset second factor the first POST asks for a confirmation and changes 
       <button type="submit" class="btn-brand" aria-label="نعم، أعد التعيين: Hamad Saeed">نعم، أعد التعيين</button>
       <a href="/admin/people">إلغاء</a></form>
   </section>"
+`;
+
+exports[`weekly working hours (/admin/branches) error cases: a close before the open, a time off the half hour, and no open day are 422s naming the row; nothing changes: role: branch hours form, a 422 on Friday, owner, en 1`] = `
+"<form method="post" action="?/hours" hx-post="?/hours" class="stack narrow" id="hours-form-br_dubai"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch_id" value="br_dubai">
+      <fieldset>
+        <legend>Working hours: Dubai</legend>
+        
+        <p class="row" id="hours-br_dubai-1">
+          <strong dir="auto">Monday</strong>
+          <label><input type="checkbox" name="closed_1" value="on"> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_1" value="08:00" id="f-hours-br_dubai-hours_1" aria-invalid="false" aria-describedby=""></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_1" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-2">
+          <strong dir="auto">Tuesday</strong>
+          <label><input type="checkbox" name="closed_2" value="on"> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_2" value="08:00" id="f-hours-br_dubai-hours_2" aria-invalid="false" aria-describedby=""></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_2" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-3">
+          <strong dir="auto">Wednesday</strong>
+          <label><input type="checkbox" name="closed_3" value="on"> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_3" value="08:00" id="f-hours-br_dubai-hours_3" aria-invalid="false" aria-describedby=""></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_3" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-4">
+          <strong dir="auto">Thursday</strong>
+          <label><input type="checkbox" name="closed_4" value="on"> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_4" value="08:00" id="f-hours-br_dubai-hours_4" aria-invalid="false" aria-describedby=""></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_4" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-5">
+          <strong dir="auto">Friday</strong>
+          <label><input type="checkbox" name="closed_5" value="on"> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_5" value="15:00" id="f-hours-br_dubai-hours_5" aria-invalid="true" aria-describedby="err-hours_5"></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_5" value="14:30" aria-invalid="true"></label>
+        </p><p class="row" id="hours-br_dubai-6">
+          <strong dir="auto">Saturday</strong>
+          <label><input type="checkbox" name="closed_6" value="on"> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_6" value="08:00" id="f-hours-br_dubai-hours_6" aria-invalid="false" aria-describedby=""></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_6" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-0">
+          <strong dir="auto">Sunday</strong>
+          <label><input type="checkbox" name="closed_0" value="on" checked> Closed</label>
+          <label>Opens <input type="time" step="1800" dir="ltr" name="open_0" value="08:00" id="f-hours-br_dubai-hours_0" aria-invalid="false" aria-describedby=""></label>
+          <label>Closes <input type="time" step="1800" dir="ltr" name="close_0" value="18:00" aria-invalid="false"></label>
+        </p>
+      </fieldset>
+      <p><button type="submit">Save hours</button></p>
+    </form>"
+`;
+
+exports[`weekly working hours (/admin/branches) in Arabic: the hours form: role: branch hours form, owner, ar 1`] = `
+"<form method="post" action="?/hours" hx-post="?/hours" class="stack narrow" id="hours-form-br_dubai"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch_id" value="br_dubai">
+      <fieldset>
+        <legend>ساعات العمل: ⁨دبي⁩</legend>
+        
+        <p class="row" id="hours-br_dubai-1">
+          <strong dir="auto">الاثنين</strong>
+          <label><input type="checkbox" name="closed_1" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_1" value="08:00" id="f-hours-br_dubai-hours_1" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_1" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-2">
+          <strong dir="auto">الثلاثاء</strong>
+          <label><input type="checkbox" name="closed_2" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_2" value="08:00" id="f-hours-br_dubai-hours_2" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_2" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-3">
+          <strong dir="auto">الأربعاء</strong>
+          <label><input type="checkbox" name="closed_3" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_3" value="08:00" id="f-hours-br_dubai-hours_3" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_3" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-4">
+          <strong dir="auto">الخميس</strong>
+          <label><input type="checkbox" name="closed_4" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_4" value="08:00" id="f-hours-br_dubai-hours_4" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_4" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-5">
+          <strong dir="auto">الجمعة</strong>
+          <label><input type="checkbox" name="closed_5" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_5" value="14:00" id="f-hours-br_dubai-hours_5" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_5" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-6">
+          <strong dir="auto">السبت</strong>
+          <label><input type="checkbox" name="closed_6" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_6" value="08:00" id="f-hours-br_dubai-hours_6" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_6" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-0">
+          <strong dir="auto">الأحد</strong>
+          <label><input type="checkbox" name="closed_0" value="on" checked> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_0" value="08:00" id="f-hours-br_dubai-hours_0" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_0" value="18:00" aria-invalid="false"></label>
+        </p>
+      </fieldset>
+      <p><button type="submit">حفظ الساعات</button></p>
+    </form>"
+`;
+
+exports[`weekly working hours (/admin/branches) in Arabic: the hours form: role: branch hours form, a 422 on Friday, owner, ar 1`] = `
+"<form method="post" action="?/hours" hx-post="?/hours" class="stack narrow" id="hours-form-br_dubai"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch_id" value="br_dubai">
+      <fieldset>
+        <legend>ساعات العمل: ⁨دبي⁩</legend>
+        
+        <p class="row" id="hours-br_dubai-1">
+          <strong dir="auto">الاثنين</strong>
+          <label><input type="checkbox" name="closed_1" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_1" value="08:00" id="f-hours-br_dubai-hours_1" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_1" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-2">
+          <strong dir="auto">الثلاثاء</strong>
+          <label><input type="checkbox" name="closed_2" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_2" value="08:00" id="f-hours-br_dubai-hours_2" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_2" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-3">
+          <strong dir="auto">الأربعاء</strong>
+          <label><input type="checkbox" name="closed_3" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_3" value="08:00" id="f-hours-br_dubai-hours_3" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_3" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-4">
+          <strong dir="auto">الخميس</strong>
+          <label><input type="checkbox" name="closed_4" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_4" value="08:00" id="f-hours-br_dubai-hours_4" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_4" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-5">
+          <strong dir="auto">الجمعة</strong>
+          <label><input type="checkbox" name="closed_5" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_5" value="15:00" id="f-hours-br_dubai-hours_5" aria-invalid="true" aria-describedby="err-hours_5"></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_5" value="14:30" aria-invalid="true"></label>
+        </p><p class="row" id="hours-br_dubai-6">
+          <strong dir="auto">السبت</strong>
+          <label><input type="checkbox" name="closed_6" value="on"> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_6" value="08:00" id="f-hours-br_dubai-hours_6" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_6" value="18:00" aria-invalid="false"></label>
+        </p><p class="row" id="hours-br_dubai-0">
+          <strong dir="auto">الأحد</strong>
+          <label><input type="checkbox" name="closed_0" value="on" checked> مغلق</label>
+          <label>يفتح <input type="time" step="1800" dir="ltr" name="open_0" value="08:00" id="f-hours-br_dubai-hours_0" aria-invalid="false" aria-describedby=""></label>
+          <label>يغلق <input type="time" step="1800" dir="ltr" name="close_0" value="18:00" aria-invalid="false"></label>
+        </p>
+      </fieldset>
+      <p><button type="submit">حفظ الساعات</button></p>
+    </form>"
 `;

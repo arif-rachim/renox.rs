@@ -1,0 +1,31 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the owner's WhatsApp page (/admin/whatsapp) in Arabic: the page and its table: role: whatsapp outbox, failed, owner, en 1`] = `
+"<table id="whatsapp-outbox">
+    <caption class="visually-hidden">WhatsApp messages</caption>
+    <thead><tr><th scope="col">When</th><th scope="col">To</th><th scope="col">Message</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+      <tr id="wa-<id>">
+        <td dir="ltr"><time></td>
+        <td><span dir="ltr">+••••••••0044</span></td>
+        <td>Failed message body</td>
+        <td><span class="status status-failed" dir="auto">Failed</span></td>
+      </tr>
+    </tbody>
+  </table>"
+`;
+
+exports[`the owner's WhatsApp page (/admin/whatsapp) in Arabic: the page and its table: role: whatsapp outbox, failed, owner, ar 1`] = `
+"<table id="whatsapp-outbox">
+    <caption class="visually-hidden">رسائل واتساب</caption>
+    <thead><tr><th scope="col">الوقت</th><th scope="col">إلى</th><th scope="col">الرسالة</th><th scope="col">الحالة</th></tr></thead>
+    <tbody>
+      <tr id="wa-<id>">
+        <td dir="ltr"><time></td>
+        <td><span dir="ltr">+••••••••0044</span></td>
+        <td>Failed message body</td>
+        <td><span class="status status-failed" dir="auto">فشلت</span></td>
+      </tr>
+    </tbody>
+  </table>"
+`;

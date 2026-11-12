@@ -230,6 +230,8 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/admin/tile", as: () => owner },
   { path: "/admin/settings", as: () => owner },
   { path: "/admin/branches", as: () => owner },
+  { path: "/admin/whatsapp", as: () => owner },
+  { path: "/admin/whatsapp?status=failed", as: () => owner, note: "a filter" },
   { path: "/admin/people", as: () => owner },
   { path: "/admin/import", as: () => owner },
   { path: "/admin/import/im_00000000000a11b0", as: () => owner, note: "a file with errors" },

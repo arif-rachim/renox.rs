@@ -92,7 +92,8 @@ declare module "renox:modules" {
   export const booking: {
     addService(s: { id: string; name: string; minutes: number; buffer?: number; deposit_fils?: number; cancel_hours?: number }): Promise<{ id: string }>;
     addStaff(s: { id: string; name: string; user_id?: string; services: string[] }): Promise<{ id: string }>;
-    setHours(staff: string, when: number | string, openMin: number, closeMin: number): Promise<true>;
+    /** `openMin` null deletes that weekday's hours (closed). */
+    setHours(staff: string, when: number | string, openMin: number | null, closeMin?: number): Promise<true>;
     slots(service: string, day: string, opts?: { staff?: string }): Promise<Slot[]>;
     hold(service: string, staff: string, start: number, customer: string): Promise<{ id: string; expires_at: number; pay_url: string | null }>;
     confirm(id: string): Promise<{ id: string; status: string }>;

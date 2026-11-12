@@ -261,7 +261,9 @@
       "note": "A note is at most 200 characters.",
       "technician": "Choose a technician.",
       "status": "Choose a status."
-    }
+    },
+    "outside_hours": "Only the scheduled jobs outside the branch's working hours.",
+    "outside_clear": "Show all jobs"
   },
   "dispatch": {
     "title": "Dispatch board",
@@ -580,7 +582,8 @@
       "users": "People",
       "audit": "Audit trail",
       "menu": "Back office",
-      "label": "Back office"
+      "label": "Back office",
+      "whatsapp": "WhatsApp"
     },
     "tiles": {
       "jobs_today": "Jobs today",
@@ -692,7 +695,11 @@
       "member": "Choose a member of this branch.",
       "self": "You cannot change or remove yourself.",
       "no_twofa": "This person has no second factor to reset.",
-      "remove": "The person could not be removed (the last owner stays)."
+      "remove": "The person could not be removed (the last owner stays).",
+      "hours_time": "Enter an opening and a closing time, or tick Closed.",
+      "hours_step": "Times are on the half hour (for example 08:00 or 08:30).",
+      "hours_order": "The closing time must be after the opening time.",
+      "hours_none": "At least one day must be open."
     },
     "import": {
       "title": "Import from Excel",
@@ -762,6 +769,50 @@
       "discard": "Discard this file",
       "fix": "Fix the file and check it again.",
       "back": "Back to the imports"
+    },
+    "whatsapp": {
+      "title": "WhatsApp messages",
+      "note": "The last 50 messages the app sent to customers, newest first. Only the last four digits of a number show. Nothing can be resent from here.",
+      "filter": "Filter",
+      "none": "No messages.",
+      "f": {
+        "status": "Status",
+        "phone": "Phone"
+      },
+      "col": {
+        "when": "When",
+        "to": "To",
+        "message": "Message",
+        "status": "Status"
+      },
+      "status": {
+        "queued": "Queued",
+        "sent": "Sent",
+        "delivered": "Delivered",
+        "read": "Read",
+        "failed": "Failed"
+      }
+    },
+    "hours": {
+      "title": "Working hours",
+      "for": "Working hours: {branch}",
+      "note": "Hours are per branch, from Monday. A closed day offers no slots. Jobs already scheduled outside new hours are not moved.",
+      "closed": "Closed",
+      "open": "Opens",
+      "close": "Closes",
+      "save": "Save hours",
+      "saved": "Working hours saved for {branch}.",
+      "outside_one": "1 scheduled job is outside the new hours",
+      "outside_many": "{n} scheduled jobs are outside the new hours",
+      "day": {
+        "1": "Monday",
+        "2": "Tuesday",
+        "3": "Wednesday",
+        "4": "Thursday",
+        "5": "Friday",
+        "6": "Saturday",
+        "0": "Sunday"
+      }
     }
   },
   "fields": {
@@ -824,7 +875,8 @@
     "role": "Role",
     "user_id": "Person",
     "branch": "Branch",
-    "file_key": "File"
+    "file_key": "File",
+    "hours": "Working hours"
   },
   "problem": {
     "title": "The form could not be saved",

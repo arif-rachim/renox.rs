@@ -3,6 +3,8 @@
   <h1><r-t key="backoffice.branches.title" /></h1>
   <p class="notice" id="created" r-if="created"><r-t key="backoffice.branches.created" /></p>
   <p class="notice" id="updated" r-if="updated"><r-t key="backoffice.branches.updated" /></p>
+  <p class="notice" id="hours-saved" r-if="hours_saved"><r-t key="backoffice.hours.saved" :branch="hours_branch" /></p>
+  <p class="notice" id="outside-hours" r-if="outside_count"><a :href="'/jobs?branch=' ~ outside_branch ~ '&outside_hours=1'"><r-group r-if="outside_count == 1"><r-t key="backoffice.hours.outside_one" /></r-group><r-group r-else><r-t key="backoffice.hours.outside_many" :n="outside_count" /></r-group></a></p>
   <div class="table-scroll" tabindex="0"><table id="branches">
     <caption class="visually-hidden"><r-t key="backoffice.branches.title" /></caption>
     <thead><tr><th scope="col"><r-t key="backoffice.branches.f.name_en" /></th><th scope="col"><r-t key="backoffice.branches.f.name_ar" /></th><th scope="col"><r-t key="backoffice.branches.slug" /></th><th scope="col"><r-t key="backoffice.branches.f.area" /></th><th scope="col"><r-t key="backoffice.branches.f.phone" /></th></tr></thead>
@@ -23,6 +25,22 @@
       <label><r-t key="backoffice.branches.f.area" /> <input name="area" maxlength="80" :value="values.area if values.branch_id == b.id else b.area" :id="'f-area' if values.branch_id == b.id else 'f-area-' ~ b.id" :aria-invalid="'true' if values.branch_id == b.id and errors.area else 'false'" :aria-describedby="'err-area' if values.branch_id == b.id and errors.area else ''"></label>
       <label><r-t key="backoffice.branches.f.address" /> <input name="address" maxlength="200" :value="values.address if values.branch_id == b.id else b.address" :id="'f-address' if values.branch_id == b.id else 'f-address-' ~ b.id" :aria-invalid="'true' if values.branch_id == b.id and errors.address else 'false'" :aria-describedby="'err-address' if values.branch_id == b.id and errors.address else ''"></label>
       <button type="submit"><r-t key="backoffice.branches.save" /></button>
+    </x-form>
+    <h2><r-t key="backoffice.hours.title" /></h2>
+    <p><small class="muted"><r-t key="backoffice.hours.note" /></small></p>
+    <x-form action="hours" class="stack narrow" r-for="b in branches" :id="'hours-form-' ~ b.id">
+      <input type="hidden" name="branch_id" :value="b.id">
+      <fieldset>
+        <legend><r-t key="backoffice.hours.for" :branch="b.name" /></legend>
+        <p r-if="week_for == b.id and week_error" :id="'err-hours-' ~ b.id"><strong>{{ week_error }}</strong></p>
+        <p class="row" r-for="d in (week_echo if week_for == b.id else b.week)" :id="'hours-' ~ b.id ~ '-' ~ d.weekday">
+          <strong>{{ d.name_key | t }}</strong>
+          <label><input type="checkbox" :name="'closed_' ~ d.weekday" value="on" :checked="d.closed"> <r-t key="backoffice.hours.closed" /></label>
+          <label><r-t key="backoffice.hours.open" /> <input type="time" step="1800" dir="ltr" :name="'open_' ~ d.weekday" :value="d.open" :id="'f-hours-' ~ b.id ~ '-hours_' ~ d.weekday" :aria-invalid="'true' if d.error else 'false'" :aria-describedby="'err-hours_' ~ d.weekday if d.error else ''"></label>
+          <label><r-t key="backoffice.hours.close" /> <input type="time" step="1800" dir="ltr" :name="'close_' ~ d.weekday" :value="d.close" :aria-invalid="'true' if d.error else 'false'"></label>
+        </p>
+      </fieldset>
+      <p><button type="submit"><r-t key="backoffice.hours.save" /></button></p>
     </x-form>
     <h2><r-t key="backoffice.branches.create" /></h2>
     <x-form action="create" class="stack narrow">
