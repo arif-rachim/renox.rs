@@ -37,6 +37,24 @@ const plant = (sql: string, params: (string | number | null)[]) => {
   }
 };
 expect((await phoneSignIn(customer, (sql, params) => t.db.query(sql, params), plant, "+971551110003", "/my")).status).toBe(303);
+// An open tax invoice of hers (#777), with its tax_gcc document as the module writes it, for /my/invoices.
+plant(
+  "insert into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values ('INV-000960', 'invoice', null, ?, 12000, 0, 0, 600, ?)",
+  [
+    JSON.stringify({
+      kind: "invoice",
+      title: { en: "Tax Invoice", ar: "فاتورة ضريبية" },
+      number: "INV-000960",
+      issued_at: Date.now(),
+      seller: { name: "FixIt Services LLC", trn: "100000000000003", address: "Dubai" },
+      buyer: { name: "Fatima Al Suwaidi", trn: null, address: "Dubai" },
+      lines: [{ description: "Handyman", quantity: 1, unit_fils: 12000, rate: "standard", net_fils: 12000, vat_fils: 600 }],
+      totals: { standard: 12000, zero: 0, exempt: 0, vat: 600, total: 12600, vat_rate: 5, currency: "AED", display: { standard: "120.00", zero: "0.00", exempt: "0.00", vat: "6.00", total: "126.00" } },
+    }),
+    Date.now(),
+  ],
+);
+plant("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_03', 'INV-000960', 12600, ?, null, 'u_dxb_accountant', ?)", [Math.floor(Date.now() / 1000) + 30 * 86_400, Math.floor(Date.now() / 1000)]);
 
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 
@@ -122,6 +140,8 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/my", who: customer, values: ["+971551110003", "J-000008", "J-000012"] },
     { page: "/my/visits/jb_seed_08", who: customer, values: ["J-000008", "+97140000001"] },
     { page: "/my/visits/jb_seed_12", who: customer, values: ["J-000012", "+97140000001"] },
+    { page: "/my/invoices", who: customer, values: ["INV-000960", "126.00"] },
+    { page: "/my/invoices/INV-000960", who: customer, values: ["INV-000960", "120.00", "6.00"] },
   ];
   for (const c of cases) {
     test(`${c.page}`, async () => {

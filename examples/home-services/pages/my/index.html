@@ -9,6 +9,10 @@
   <p r-else><r-t key="portal.none_linked" /></p>
   <p><a href="/book" class="btn-brand" id="book-link"><r-t key="portal.book_link" /></a></p>
 
+  <div class="tiles" id="my-tiles">
+    <a class="tile" href="/my/invoices" id="tile-invoices"><r-t key="my.invoices.title" /> <strong dir="ltr">{{ invoices.count }}</strong> <r-t key="my.invoices.tile_open" /><r-group r-if="invoices.count"> · <span dir="ltr">{{ invoices.sum | money }}</span></r-group></a>
+  </div>
+
   <section aria-labelledby="upcoming-title" id="upcoming">
     <h2 id="upcoming-title"><r-t key="my.upcoming.title" /></h2>
     <ul class="my-list" r-if="upcoming">

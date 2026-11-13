@@ -246,3 +246,120 @@ export async function visitOf(cdb: CustomerDb, jobId: string, lang: Lang) {
     timeline,
   };
 }
+
+// ---------------------------------------------------------------- invoices and visit reports (#777)
+
+/** Whether an invoice still asks for money: issued or part-paid (a paid or credited one does not). */
+export const isOpen = (status: string): boolean => status === "issued" || status === "part-paid";
+
+/** What is still to pay on an invoice, in fils (nothing on a paid or credited one). */
+const owed = (r: { status: string; total_fils: number; paid_fils: number }): number => (isOpen(r.status) ? Math.max(0, r.total_fils - r.paid_fils) : 0);
+
+/** The open invoices of the customer: how many, and what is left to pay on them in AED. */
+export async function openInvoicesOf(cdb: CustomerDb) {
+  const open = (await cdb.invoiceStates()).filter((r) => isOpen(r.status));
+  return { count: open.length, sum: open.reduce((n, r) => n + owed(r), 0) / 100 };
+}
+
+/**
+ * `/my/invoices`: one page (1-based, PAGE_SIZE a page) of the customer's
+ * invoices, newest first. Every invoice there is issued: tax_gcc numbers an
+ * invoice when it issues it, and the app keeps no draft invoice. Each line:
+ * the number, the day, what it is for (the job's service, or the contract's
+ * number), the total with VAT in AED, and the state: paid (on the day of the
+ * last payment), open (with its due day) or credited. On top: how many are
+ * open and what is left to pay on them.
+ */
+export async function invoicesOf(cdb: CustomerDb, l: Lookups, page: number) {
+  const states = await cdb.invoiceStates();
+  const maps = new Map((await cdb.invoices()).map((i) => [str(i.invoice_id), i]));
+  const jobs = new Map((await cdb.jobs()).map((j) => [str(j.id), j]));
+  const contracts = new Map((await cdb.contracts()).map((c) => [str(c.id), c]));
+  const pages = Math.max(1, Math.ceil(states.length / PAGE_SIZE));
+  const current = Math.min(Math.max(1, page), pages);
+  const items = [];
+  for (const r of states.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE)) {
+    const contract = contracts.get(str(maps.get(r.invoice_id)?.contract_id));
+    const job = r.job_id === null ? undefined : jobs.get(r.job_id);
+    let paidOn = "";
+    if (r.status === "paid") {
+      const last = (await cdb.payments(r.invoice_id)).map((p) => num(p.received_at) ?? 0).sort((a, b) => b - a)[0];
+      paidOn = last === undefined ? "" : dayOf(last);
+    }
+    items.push({
+      id: r.invoice_id,
+      day: dayOf(r.created_at),
+      service: job === undefined ? "" : named(l.services.get(str(job.service_id)), l.lang),
+      contract: contract === undefined ? "" : str(contract.number),
+      total: r.total_fils / 100,
+      state: r.status === "paid" ? "paid" : r.status === "credited" ? "credited" : "open",
+      paid_on: paidOn,
+      due: dayOf(r.due_at),
+      href: `/my/invoices/${r.invoice_id}`,
+    });
+  }
+  const open = states.filter((r) => isOpen(r.status));
+  return {
+    items,
+    page: current,
+    pages,
+    total: states.length,
+    open_count: open.length,
+    open_sum: open.reduce((n, r) => n + owed(r), 0) / 100,
+    prev: current > 1 ? `/my/invoices?page=${current - 1}` : "",
+    next: current < pages ? `/my/invoices?page=${current + 1}` : "",
+  };
+}
+
+/** The payment instructions in the page's language as lines (the other language's when that one is empty, as the brand name falls back); none hides the block. */
+export function instructionsIn(texts: { en: string; ar: string }, lang: Lang): string[] {
+  const own = (lang === "ar" ? texts.ar : texts.en).trim();
+  const text = own !== "" ? own : (lang === "ar" ? texts.en : texts.ar).trim();
+  return text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+/** What `<x-image>` takes for one stored photo (the page signs it: lib/visit-data.ts imageOf). */
+export type PhotoSigner = (photo: { file_key: string; width: number; height: number }) => Promise<unknown>;
+
+/**
+ * The report of a done visit on `/my/visits/<id>` (#777): what was done (the
+ * summary in the page's language), the parts used with their quantities (no
+ * prices), the photos before and after (a thumbnail through `<x-image>` and
+ * the ownership-checked link `/my/visits/<job>/photo/<n>`, n from 1 in the
+ * order taken), and who signed, when (the signature is taken at check-out).
+ * Null when the job is another customer's or its visit is not checked out.
+ * The technician's notes are never read.
+ */
+export async function reportOf(cdb: CustomerDb, jobId: string, lang: Lang, sign: PhotoSigner) {
+  const visit = await cdb.visitOfJob(jobId);
+  const out = visit === null ? null : num(visit.checkout_at);
+  if (visit === null || out === null) return null;
+  const own = str(lang === "ar" ? visit.summary_ar : visit.summary_en);
+  const summary = own !== "" ? own : str(lang === "ar" ? visit.summary_en : visit.summary_ar);
+  const shown = [];
+  for (const [i, p] of (await cdb.visitPhotos(jobId)).entries()) {
+    const width = num(p.width);
+    const height = num(p.height);
+    shown.push({
+      phase: str(p.phase),
+      caption: str(p.caption),
+      href: `/my/visits/${jobId}/photo/${i + 1}`,
+      image: width !== null && height !== null ? await sign({ file_key: str(p.file_key), width, height }) : null,
+    });
+  }
+  const parts = (await cdb.visitParts(jobId)).map((p) => ({ description: str(p.description), qty: num(p.qty) ?? 0 }));
+  return {
+    summary,
+    parts,
+    has_parts: parts.length > 0,
+    before: shown.filter((p) => p.phase === "before"),
+    after: shown.filter((p) => p.phase === "after"),
+    signed_by: str(visit.signed_by_name),
+    signed_day: dayOf(out),
+    signed_time: clockOf(out),
+    pdf: `/my/visits/${jobId}/report`,
+  };
+}

@@ -32,6 +32,10 @@ exports[`/my Arabic: right to left, the words in Arabic, numbers and times left 
   <p>سجلاتك لدينا كعميل: ⁨2⁩.</p>
   <p><a href="/book" class="btn-brand" id="book-link">احجز خدمة</a></p>
 
+  <div class="tiles" id="my-tiles">
+    <a class="tile" href="/my/invoices" id="tile-invoices">الفواتير <strong dir="ltr">0</strong> مفتوحة</a>
+  </div>
+
   <section aria-labelledby="upcoming-title" id="upcoming">
     <h2 id="upcoming-title">الزيارات القادمة</h2>
     <ul class="my-list">
@@ -187,6 +191,8 @@ exports[`/my/visits/<id> Arabic: right to left, the timeline in Arabic: role: my
       <li dir="auto">تم الطلب · <span dir="ltr"><day> <time></span></li><li dir="auto">تم التأكيد · <span dir="ltr"><day> <time></span></li><li dir="auto">تم التأكيد · <span dir="ltr"><day> <time></span></li>
     </ol>
   </section>
+
+  
 
   </main>
   <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>

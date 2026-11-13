@@ -270,14 +270,14 @@ describe("/my/visits/<id>", () => {
     expect(res.html).not.toContain("self-booked: requested");
   });
 
-  test("a done visit: Finished, and neither the technician's notes nor the parts and their prices", async () => {
+  test("a done visit: Finished, and neither the technician's notes nor the parts' prices", async () => {
     const res = await peter.page("/my/visits/jb_seed_11?lang=en");
     expect(res.status).toBe(200);
     expect(res.html).toContain("Finished");
     expect(res.html).toContain('id="visit-technician" dir="auto">Bilal</dd>');
-    for (const hidden of ["Customer asked for a cable cover", "Wall bracket", "45.00", "Raza", "Mount a TV"]) expect([hidden, res.html.includes(hidden)]).toEqual([hidden, false]);
-    // The visit report link comes with its page (#777); no route, no link.
-    expect(res.html).not.toContain("/report");
+    for (const hidden of ["Customer asked for a cable cover", "45.00", "Raza", "Mount a TV"]) expect([hidden, res.html.includes(hidden)]).toEqual([hidden, false]);
+    // The visit report (#777, tests/my-documents.test.ts) names the parts used with their quantities, never their prices.
+    expect(res.html).toContain('href="/my/visits/jb_seed_11/report"');
   });
 
   test("the Sharjah visit names the Sharjah branch and its phone", async () => {

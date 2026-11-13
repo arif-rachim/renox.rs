@@ -45,6 +45,33 @@ export function pdfBrand(settings: Settings, lang: Lang) {
  */
 export const portalAutoConfirm = (settings: Settings): boolean => settings.portal_auto_confirm === "1";
 
+/**
+ * How a customer pays an open invoice (#777: no online payment, D31): plain
+ * text in English and in Arabic, at most PAYMENT_INSTRUCTIONS_MAX characters
+ * each, shown on /my/invoices/<number> while the invoice is open; empty hides
+ * the block.
+ */
+export const PAYMENT_INSTRUCTION_KEYS = ["payment_instructions_en", "payment_instructions_ar"] as const;
+export const PAYMENT_INSTRUCTIONS_MAX = 500;
+
+/**
+ * The payment instructions a settings form sends: each field the form holds,
+ * trimmed, with Windows line ends made plain (a field the form does not send
+ * is left as it is); a text over the limit is an error keyed by its field.
+ */
+export function paymentInstructionsOf(form: FormData): { value: Partial<Record<(typeof PAYMENT_INSTRUCTION_KEYS)[number], string>> } | { errors: Record<string, string> } {
+  const value: Partial<Record<(typeof PAYMENT_INSTRUCTION_KEYS)[number], string>> = {};
+  const errors: Record<string, string> = {};
+  for (const key of PAYMENT_INSTRUCTION_KEYS) {
+    const raw = form.get(key);
+    if (typeof raw !== "string") continue;
+    const text = raw.replace(/\r\n?/gu, "\n").trim();
+    if (text.length > PAYMENT_INSTRUCTIONS_MAX) errors[key] = "backoffice.err.payment_instructions";
+    else value[key] = text;
+  }
+  return Object.keys(errors).length > 0 ? { errors } : { value };
+}
+
 /** Where the layout loads the logo from: the image path of the platform (`/_img`, a public key needs no signature), or null without a logo. */
 export function logoSrc(settings: Settings): string | null {
   const key = settings.brand_logo_key ?? "";

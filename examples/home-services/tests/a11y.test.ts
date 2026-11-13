@@ -100,6 +100,19 @@ rw((db) => {
   const empty = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_00000000000a11d0', 'customers', 'k3', 'waiting.xlsx', 'checking', ?, 'u_owner', ?)", [empty, now]);
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at, error) values ('im_00000000000a11e0', 'customers', 'k4', 'broken.xlsx', 'failed', ?, 'u_owner', ?, 'import.err.not_xlsx')", [empty, now]);
+  // An open tax invoice of Peter's (#777), with its tax_gcc document as the module writes it (no job: a page of /my/invoices).
+  const body = JSON.stringify({
+    kind: "invoice",
+    title: { en: "Tax Invoice", ar: "فاتورة ضريبية" },
+    number: "INV-000950",
+    issued_at: now * 1000,
+    seller: { name: "FixIt Services LLC", trn: "100000000000003", address: "Dubai" },
+    buyer: { name: "Peter Nowak", trn: null, address: "Villa, Al Barsha" },
+    lines: [{ description: "Handyman", quantity: 1, unit_fils: 12000, rate: "standard", net_fils: 12000, vat_fils: 600 }],
+    totals: { standard: 12000, zero: 0, exempt: 0, vat: 600, total: 12600, vat_rate: 5, currency: "AED", display: { standard: "120.00", zero: "0.00", exempt: "0.00", vat: "6.00", total: "126.00" } },
+  });
+  db.run("insert into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values ('INV-000950', 'invoice', null, ?, 12000, 0, 0, 600, ?)", [body, now * 1000]);
+  db.run("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_02', 'INV-000950', 12600, ?, null, 'u_dxb_accountant', ?)", [now + 30 * 86_400, now]);
 });
 
 // Ali checks in to his job J-000006 and records a part: its visit page then holds every form (J-000010 is still before check-in).
@@ -276,6 +289,8 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/my/visits/jb_seed_06", as: () => customer, note: "a visit in progress" },
   { path: "/my/visits/jb_seed_02", as: () => customer, note: "a visit waiting for confirmation" },
   { path: "/my/visits/jb_seed_11", as: () => customer, note: "a visit done" },
+  { path: "/my/invoices", as: () => customer, note: "the customer's invoices" },
+  { path: "/my/invoices/INV-000950", as: () => customer, note: "an open invoice" },
   { path: "/book", as: () => anonymous, note: "step 1, signed out" },
   { path: `/book?${BOOK_PLACE}&address=x&step=2`, as: () => anonymous, note: "step 1 with an error" },
   { path: `/book?service=${BOOK_SERVICE}&emirate=AE-FU&area=${BOOK_FU_AREA}&address=Fujairah+corniche&step=2`, as: () => anonymous, note: "an emirate with no branch" },

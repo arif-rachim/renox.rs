@@ -24,4 +24,32 @@
     </ol>
     <p r-else class="muted"><r-t key="my.visit.no_timeline" /></p>
   </section>
+
+  <section r-if="report" aria-labelledby="report-title" id="visit-report">
+    <h2 id="report-title"><r-t key="my.report.title" /></h2>
+    <r-group r-if="report.summary">
+      <h3><r-t key="my.report.done" /></h3>
+      <p dir="auto" id="report-summary">{{ report.summary }}</p>
+    </r-group>
+    <r-group r-if="report.has_parts">
+      <h3><r-t key="report_page.parts" /></h3>
+      <ul id="report-parts">
+        <li r-for="p in report.parts">{{ p.description }} × <span dir="ltr">{{ p.qty }}</span></li>
+      </ul>
+    </r-group>
+    <r-group r-if="report.before">
+      <h3><r-t key="visits.photos.before" /></h3>
+      <ul class="photos" id="photos-before">
+        <li r-for="p in report.before"><a :href="p.href"><x-image r-if="p.image" :src="p.image" width="160" loading="lazy" :alt="p.caption or ('visits.photos.alt' | t)" class="thumb"></x-image><r-group r-else><r-t key="my.report.open_photo" /></r-group></a><small r-if="p.caption">{{ p.caption }}</small></li>
+      </ul>
+    </r-group>
+    <r-group r-if="report.after">
+      <h3><r-t key="visits.photos.after" /></h3>
+      <ul class="photos" id="photos-after">
+        <li r-for="p in report.after"><a :href="p.href"><x-image r-if="p.image" :src="p.image" width="160" loading="lazy" :alt="p.caption or ('visits.photos.alt' | t)" class="thumb"></x-image><r-group r-else><r-t key="my.report.open_photo" /></r-group></a><small r-if="p.caption">{{ p.caption }}</small></li>
+      </ul>
+    </r-group>
+    <p r-if="report.signed_by" id="report-signed"><r-t key="my.report.signed_by" /> {{ report.signed_by }} · <span dir="ltr">{{ report.signed_day }} {{ report.signed_time }}</span></p>
+    <p><a :href="report.pdf" class="btn-brand" id="report-pdf"><r-t key="my.report.pdf" /></a></p>
+  </section>
 </r-layout>

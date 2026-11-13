@@ -1,0 +1,408 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Arabic the list: right to left, numbers and amounts left to right: role: my invoices, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>الفواتير · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my/invoices?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">العودة إلى حسابي</a></p>
+  <h1>الفواتير</h1>
+  <p class="notice" id="open-sum">المبلغ المستحق على فواتيرك المفتوحة: <strong dir="ltr">207.00 د.إ.</strong> (<span dir="ltr">1</span> مفتوحة)</p>
+  <div class="table-scroll" tabindex="0"><table id="my-invoices">
+    <caption class="visually-hidden">الفواتير</caption>
+    <thead><tr><th scope="col">الفاتورة</th><th scope="col">التاريخ</th><th scope="col">مقابل</th><th scope="col">الإجمالي شامل الضريبة</th><th scope="col">الحالة</th></tr></thead>
+    <tbody>
+      <tr id="invoice-INV-000001">
+        <td dir="ltr"><a href="/my/invoices/INV-000001" dir="auto">INV-000001</a></td>
+        <td dir="ltr"><day></td>
+        <td>سباكة</td>
+        <td dir="ltr">357.00 د.إ.</td>
+        <td>
+          <span class="status status-open">مفتوحة، تستحق في</span> <span dir="ltr"><day></span>
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`Arabic one invoice: role: my invoice, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>INV-000001 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my/invoices/INV-000001?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my/invoices">العودة إلى فواتيرك</a></p>
+  <h1>الفاتورة الضريبية <span dir="ltr">INV-000001</span></h1>
+  <p><span class="status status-part-paid" id="invoice-status" dir="auto">مدفوعة جزئياً</span> · تاريخ الإصدار: <span dir="ltr"><day></span></p>
+  <div class="table-scroll" tabindex="0"><table id="invoice-lines">
+    <caption class="visually-hidden">البنود</caption>
+    <thead><tr><th scope="col">الوصف</th><th scope="col">الكمية</th><th scope="col">الصافي</th><th scope="col">الضريبة</th></tr></thead>
+    <tbody>
+      <tr>
+        <td dir="auto">Plumbing</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">160.00 د.إ.</td>
+        <td dir="ltr">8.00 د.إ. <bdi dir="ltr">(5 %)</bdi></td>
+      </tr><tr>
+        <td dir="auto">Kitchen mixer tap</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">180.00 د.إ.</td>
+        <td dir="ltr">9.00 د.إ. <bdi dir="ltr">(5 %)</bdi></td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="3">الضريبة</th><td dir="ltr">17.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="3">الإجمالي</th><td dir="ltr"><strong dir="auto">357.00 د.إ.</strong></td></tr>
+      <tr><th scope="row" colspan="3">الرصيد</th><td dir="ltr" id="invoice-balance">207.00 د.إ.</td></tr>
+    </tfoot>
+  </table></div>
+  <p>الاستحقاق: <span dir="ltr" id="invoice-due"><day></span></p>
+  <p id="invoice-pdf"><a href="/my/invoices/INV-000001/pdf" class="btn-brand">تنزيل ملف PDF</a></p>
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`Arabic the visit report: role: my visit report, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>زيارتك · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my/visits/jb_seed_13?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">العودة إلى حسابي</a></p>
+  <h1 dir="auto">سباكة <span dir="ltr">J-000013</span></h1>
+  <p><span class="status status-invoiced" id="visit-status" dir="auto">تمت</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>الموعد</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>المكان</dt>
+    <dd dir="auto">Apartment · Marina Crown, flat 1203, Dubai Marina</dd>
+    <dt>الفني:</dt>
+    <dd id="visit-technician" dir="auto">Bilal</dd>
+    
+    
+    <dt>لديك سؤال؟ اتصل بنا</dt>
+    <dd dir="auto">دبي · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">ما تم حتى الآن</h2>
+    <ol class="my-timeline" id="timeline">
+      <li dir="auto">تم الطلب · <span dir="ltr"><day> <time></span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="report-title" id="visit-report">
+    <h2 id="report-title">تقرير الزيارة</h2>
+    
+      <h3>ما تم إنجازه</h3>
+      <p dir="auto" id="report-summary">تم استبدال صنبور المطبخ بخلاط جديد. كان الصنبور القديم يحتوي على حشية متآكلة.</p>
+    
+    
+      <h3>القطع المستخدمة</h3>
+      <ul id="report-parts">
+        <li dir="auto">Kitchen mixer tap × <span dir="ltr">1</span></li>
+      </ul>
+    
+    
+      <h3>قبل</h3>
+      <ul class="photos" id="photos-before">
+        <li><a href="/my/visits/jb_seed_13/photo/1">فتح الصورة</a><small dir="auto">The old tap</small></li>
+      </ul>
+    
+    
+      <h3>بعد</h3>
+      <ul class="photos" id="photos-after">
+        <li><a href="/my/visits/jb_seed_13/photo/2">فتح الصورة</a><small dir="auto">The new mixer</small></li>
+      </ul>
+    
+    <p id="report-signed" dir="auto">وقّع Customer · <span dir="ltr"><day> <time></span></p>
+    <p><a href="/my/visits/jb_seed_13/report" class="btn-brand" id="report-pdf">تنزيل التقرير (PDF)</a></p>
+  </section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`Arabic English snapshots of the list and the report: role: my invoices, portal customer, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Invoices · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/my/invoices?lang=ar" lang="ar">العربية</a>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">Back to my account</a></p>
+  <h1>Invoices</h1>
+  <p class="notice" id="open-sum">To pay on your open invoices: <strong dir="ltr">AED 1,260.00</strong> (<span dir="ltr">1</span> open)</p>
+  <div class="table-scroll" tabindex="0"><table id="my-invoices">
+    <caption class="visually-hidden">Invoices</caption>
+    <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">For</th><th scope="col">Total with VAT</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+      <tr id="invoice-INV-000902">
+        <td dir="ltr"><a href="/my/invoices/INV-000902" dir="auto">INV-000902</a></td>
+        <td dir="ltr"><day></td>
+        <td>Contract <span dir="ltr">AMC-000911</span></td>
+        <td dir="ltr">AED 1,260.00</td>
+        <td>
+          <span class="status status-open">Open, due</span> <span dir="ltr"><day></span>
+        </td>
+      </tr><tr id="invoice-INV-000901">
+        <td dir="ltr"><a href="/my/invoices/INV-000901" dir="auto">INV-000901</a></td>
+        <td dir="ltr"><day></td>
+        <td>Handyman</td>
+        <td dir="ltr">AED 472.50</td>
+        <td>
+          <span class="status status-paid">Paid on</span> <span dir="ltr"><day></span>
+        </td>
+      </tr><tr id="invoice-INV-000910">
+        <td dir="ltr"><a href="/my/invoices/INV-000910" dir="auto">INV-000910</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000911">
+        <td dir="ltr"><a href="/my/invoices/INV-000911" dir="auto">INV-000911</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000912">
+        <td dir="ltr"><a href="/my/invoices/INV-000912" dir="auto">INV-000912</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000913">
+        <td dir="ltr"><a href="/my/invoices/INV-000913" dir="auto">INV-000913</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000914">
+        <td dir="ltr"><a href="/my/invoices/INV-000914" dir="auto">INV-000914</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000915">
+        <td dir="ltr"><a href="/my/invoices/INV-000915" dir="auto">INV-000915</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000916">
+        <td dir="ltr"><a href="/my/invoices/INV-000916" dir="auto">INV-000916</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr><tr id="invoice-INV-000917">
+        <td dir="ltr"><a href="/my/invoices/INV-000917" dir="auto">INV-000917</a></td>
+        <td dir="ltr"><day></td>
+        <td>Plumbing</td>
+        <td dir="ltr">AED 105.00</td>
+        <td>
+          <span class="status status-credited">Credited</span>
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  <nav class="pager" aria-label="Pages of invoices">
+    
+    <span>Page <span dir="ltr">1 / 2</span></span>
+    <a href="/my/invoices?page=2" rel="next" id="invoices-next">Older invoices</a>
+  </nav>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`Arabic English snapshots of the list and the report: role: my visit report, portal customer, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Your visit · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/my/visits/jb_seed_11?lang=ar" lang="ar">العربية</a>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">Back to my account</a></p>
+  <h1 dir="auto">Handyman <span dir="ltr">J-000011</span></h1>
+  <p><span class="status status-done" id="visit-status" dir="auto">Done</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>When</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>Where</dt>
+    <dd dir="auto">Villa · Street 14, villa 22, Al Barsha</dd>
+    <dt>Technician:</dt>
+    <dd id="visit-technician" dir="auto">Bilal</dd>
+    
+    
+    <dt>Questions? Call us</dt>
+    <dd dir="auto">Dubai · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">What happened so far</h2>
+    <ol class="my-timeline" id="timeline">
+      <li dir="auto">Requested · <span dir="ltr"><day> <time></span></li><li dir="auto">Finished · <span dir="ltr"><day> <time></span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="report-title" id="visit-report">
+    <h2 id="report-title">Visit report</h2>
+    
+      <h3>What was done</h3>
+      <p dir="auto" id="report-summary">The TV was mounted on the living-room wall and the curtain rail was fixed. A cable cover can be added at the next visit.</p>
+    
+    
+      <h3>Parts used</h3>
+      <ul id="report-parts">
+        <li dir="auto">Wall bracket × <span dir="ltr">1</span></li>
+      </ul>
+    
+    
+      <h3>Before</h3>
+      <ul class="photos" id="photos-before">
+        <li><a href="/my/visits/jb_seed_11/photo/1">Open the photo</a><small dir="auto">The bare wall</small></li>
+      </ul>
+    
+    
+      <h3>After</h3>
+      <ul class="photos" id="photos-after">
+        <li><a href="/my/visits/jb_seed_11/photo/2">Open the photo</a><small dir="auto">The mounted TV</small></li>
+      </ul>
+    
+    <p id="report-signed" dir="auto">Signed by Customer · <span dir="ltr"><day> <time></span></p>
+    <p><a href="/my/visits/jb_seed_11/report" class="btn-brand" id="report-pdf">Download report (PDF)</a></p>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;

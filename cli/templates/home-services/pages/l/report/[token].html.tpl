@@ -25,4 +25,5 @@
     </table></div>
   </section>
   <p id="report-pdf"><a :href="'/l/report/' ~ token ~ '/pdf'"><r-t key="report_page.pdf" /></a></p>
+  <p id="see-all-invoices"><a href="/my/invoices"><r-t key="my.invoices.see_all" /></a></p>
 </r-layout>

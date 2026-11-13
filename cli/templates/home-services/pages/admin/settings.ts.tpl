@@ -4,6 +4,9 @@
 // else is a 422), the footers, the sender name, the accounts email, and the logo (multipart `logo`: a PNG, JPEG or WebP up to
 // 512 KB, stored public under app/brand/ and loaded through /_img). The layout,
 // the PDFs, the mails and the WhatsApp texts read these settings (lib/settings.ts).
+// The payment instructions in English and Arabic (#777, plain text up to 500
+// characters each; over that is a 422 naming the field) are shown to a
+// customer on an open invoice of /my/invoices; empty hides them.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { brandingSchema, saveSettings, sensitive, storeLogo } from "../../lib/admin";
@@ -11,7 +14,7 @@ import { check, valuesOf } from "../../lib/forms";
 import { bytesOfDataUrl } from "../../lib/visit-data";
 import { shell } from "../../lib/page";
 import { invalid } from "../../lib/invalid";
-import { getSettings, logoSrc } from "../../lib/settings";
+import { getSettings, logoSrc, paymentInstructionsOf } from "../../lib/settings";
 
 export const guard = { action: "settings.read" };
 
@@ -34,6 +37,8 @@ export async function load(ctx: LoaderContext) {
       brand_footer_ar: s.brand_footer_ar ?? "",
       sender_name: s.sender_name ?? "",
       accounts_email: s.accounts_email ?? "",
+      payment_instructions_en: s.payment_instructions_en ?? "",
+      payment_instructions_ar: s.payment_instructions_ar ?? "",
     },
   };
 }
@@ -44,9 +49,13 @@ export const actions = {
     if (refused !== null) return refused;
     const page = await shell(ctx);
     const input = await check(ctx.form, brandingSchema);
-    if ("errors" in input) return { ...invalid(page.locale, ctx.form, input.errors), f: valuesOf(ctx.form) };
+    const payment = paymentInstructionsOf(ctx.form);
+    if ("errors" in input || "errors" in payment) {
+      const errors = { ...("errors" in input ? input.errors : {}), ...("errors" in payment ? payment.errors : {}) };
+      return { ...invalid(page.locale, ctx.form, errors), f: valuesOf(ctx.form) };
+    }
     const current = await getSettings(ctx.db);
-    const next: Record<string, string> = { ...input.value };
+    const next: Record<string, string> = { ...input.value, ...payment.value };
     // The logo is optional: no file leaves the current one.
     let logo = false;
     const file = ctx.form.get("logo");

@@ -612,6 +612,12 @@
       "logo_none": "No logo yet.",
       "sender_hint": "Signs the emails to customers.",
       "accounts_hint": "The nightly report module reads its own address from renox.toml; this one is the invoices' contact.",
+      "payment": {
+        "title": "Payment instructions",
+        "hint": "Shown to a customer on an open invoice in their account. Plain text, up to 500 characters; leave it empty to show nothing.",
+        "en": "Payment instructions (English)",
+        "ar": "Payment instructions (Arabic)"
+      },
       "save": "Save settings"
     },
     "branches": {
@@ -700,7 +706,8 @@
       "hours_time": "Enter an opening and a closing time, or tick Closed.",
       "hours_step": "Times are on the half hour (for example 08:00 or 08:30).",
       "hours_order": "The closing time must be after the opening time.",
-      "hours_none": "At least one day must be open."
+      "hours_none": "At least one day must be open.",
+      "payment_instructions": "The payment instructions are at most 500 characters."
     },
     "import": {
       "title": "Import from Excel",
@@ -880,7 +887,9 @@
     "branch": "Branch",
     "file_key": "File",
     "hours": "Working hours",
-    "display_name": "Your name"
+    "display_name": "Your name",
+    "payment_instructions_en": "Payment instructions (English)",
+    "payment_instructions_ar": "Payment instructions (Arabic)"
   },
   "problem": {
     "title": "The form could not be saved",
@@ -1056,6 +1065,39 @@
       "contact": "Questions? Call us",
       "timeline": "What happened so far",
       "no_timeline": "Nothing has happened yet."
+    },
+    "invoices": {
+      "title": "Invoices",
+      "open_sum": "To pay on your open invoices:",
+      "open_count": "open",
+      "nothing_open": "Nothing to pay: every invoice is settled.",
+      "empty": "You have no invoices yet.",
+      "number": "Invoice",
+      "date": "Date",
+      "for": "For",
+      "total": "Total with VAT",
+      "status": "Status",
+      "contract": "Contract",
+      "paid_on": "Paid on",
+      "open_due": "Open, due",
+      "pages": "Pages of invoices",
+      "prev": "Newer invoices",
+      "next": "Older invoices",
+      "tile_open": "open",
+      "see_all": "See all your invoices in your account"
+    },
+    "invoice": {
+      "title": "Tax invoice",
+      "back": "Back to your invoices",
+      "pdf": "Download PDF",
+      "how_to_pay": "How to pay"
+    },
+    "report": {
+      "title": "Visit report",
+      "done": "What was done",
+      "signed_by": "Signed by",
+      "pdf": "Download report (PDF)",
+      "open_photo": "Open the photo"
     }
   }
 }

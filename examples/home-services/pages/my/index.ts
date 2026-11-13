@@ -9,7 +9,8 @@
 //
 // The lists (#776, lib/portal-view.ts): Upcoming (at most 10, soonest first),
 // Past visits (10 a page, `?page=`) and the active Contracts, each with its
-// empty state; a customer of two branches sees each item marked with its
+// empty state; the tile "Invoices" (#777: how many are open and what is left
+// to pay on them) links to /my/invoices; a customer of two branches sees each item marked with its
 // branch. While a visit is on its way or in progress the page reloads itself
 // every minute (the portal layout's <meta http-equiv="refresh">). Everything
 // the page reads of the company's data comes from `customerDb`.
@@ -19,7 +20,7 @@ import { auth } from "renox:modules";
 import { invalid } from "../../lib/invalid";
 import { shell } from "../../lib/page";
 import { requirePortal, signOut } from "../../lib/portal";
-import { contractsOf, isLive, lookupsOf, pageOf, pastOf, upcomingOf } from "../../lib/portal-view";
+import { contractsOf, isLive, lookupsOf, openInvoicesOf, pageOf, pastOf, upcomingOf } from "../../lib/portal-view";
 
 const seeOther = (to: string): Response => new Response(null, { status: 303, headers: { location: to, "cache-control": "no-store" } });
 
@@ -45,6 +46,7 @@ export async function load(ctx: LoaderContext) {
     upcoming,
     past: pastOf(jobs, l, pageOf(ctx.url.searchParams.get("page"))),
     contracts: await contractsOf(gate.cdb, jobs, l),
+    invoices: await openInvoicesOf(gate.cdb),
     refresh: isLive(upcoming.map((u) => u.status)) ? "60" : null,
     values: {},
     errors: {},

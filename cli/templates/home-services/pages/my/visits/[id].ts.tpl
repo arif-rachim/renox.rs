@@ -6,13 +6,20 @@
 // technician's first name and the branch's phone (lib/portal-view.ts
 // visitOf, through `customerDb` only). Internal notes, costs, other
 // customers' names and the technician's last name or phone are never read.
-// The "Visit report" link of a done visit comes with the report page of the
-// next issue of #772 (#777); there is no such route yet, so no link.
+// A done visit also shows its report (#777, lib/portal-view.ts reportOf):
+// what was done, the parts used with their quantities (no prices), the photos
+// before and after, who signed and when, and "Download report (PDF)"
+// (/my/visits/<id>/report). A thumbnail goes through `<x-image>`, whose URL
+// is the platform's image path with a link signed for an hour, made here only
+// for a photo customerDb found on this customer's visit; each thumbnail links
+// to /my/visits/<id>/photo/<n>, which checks the session on every request.
 import type { LoaderContext } from "@renoxium/sdk";
+import { storage } from "renox:modules";
 
 import { shell } from "../../../lib/page";
 import { requirePortal, signOut } from "../../../lib/portal";
-import { visitOf } from "../../../lib/portal-view";
+import { reportOf, visitOf } from "../../../lib/portal-view";
+import { imageOf } from "../../../lib/visit-data";
 
 const notFound = (): Response => new Response("Not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
 
@@ -22,9 +29,13 @@ export async function load(ctx: LoaderContext) {
   const id = typeof ctx.params.id === "string" && /^[A-Za-z0-9_-]{1,64}$/u.test(ctx.params.id) ? ctx.params.id : null;
   if (id === null) return notFound();
   const page = await shell(ctx);
-  const visit = await visitOf(gate.cdb, id, page.locale === "ar" ? "ar" : "en");
+  const lang = page.locale === "ar" ? "ar" : "en";
+  const visit = await visitOf(gate.cdb, id, lang);
   if (visit === null) return notFound();
-  return { ...page, visit };
+  // A photo row whose file is not stored (yet) has no thumbnail, only its link: signing it would throw.
+  const sign = (p: { file_key: string; width: number; height: number }) => imageOf(ctx.storage, p, 3600, storage).catch(() => null);
+  const report = visit.done ? await reportOf(gate.cdb, id, lang, sign) : null;
+  return { ...page, visit, report };
 }
 
 export const actions = {

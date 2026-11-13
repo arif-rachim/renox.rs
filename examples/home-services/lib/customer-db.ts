@@ -9,6 +9,8 @@
 // `customerDb` on the test app's database file.
 import type { DbStatements, Row } from "@renoxium/sdk";
 
+import type { InvoiceRow } from "./invoices";
+
 import { branchDb, type Scopable } from "./scope";
 
 /** One customer row the portal user is linked to: its id and its branch. */
@@ -86,6 +88,24 @@ export interface CustomerDb {
    * never the rest of it or their phone; "" when no technician is set or the job is another customer's.
    */
   technicianFirstName(jobId: string): Promise<string>;
+  /**
+   * The state of their invoices (#777), newest first: the view app__invoice_status (paid so far and the
+   * status) on each customer's branch, with `branch_id` and `customer_id` bound.
+   */
+  invoiceStates(): Promise<InvoiceRow[]>;
+  /** The state of one of their invoices by its number, or null (another customer's, or no such invoice). */
+  invoiceState(invoiceId: string): Promise<InvoiceRow | null>;
+  /**
+   * The visit of one of their jobs (#777): when, the summary in both languages and who signed. The
+   * technician's notes, the GPS position and the storage keys are not read. Null for another customer's job.
+   */
+  visitOfJob(jobId: string): Promise<Row | null>;
+  /** The parts used on the visit of one of their jobs: what and how many, never the price. Empty for another's. */
+  visitParts(jobId: string): Promise<Row[]>;
+  /** The photos of the visit of one of their jobs, in the order taken (id): phase, caption, key and size. Empty for another's. */
+  visitPhotos(jobId: string): Promise<Row[]>;
+  /** The company's payment instructions (app__settings, company-wide): the English and the Arabic text, "" when unset. */
+  paymentInstructions(): Promise<{ en: string; ar: string }>;
 }
 
 /** The first word of a display name ("Ali Hassan" → "Ali"). */
@@ -185,8 +205,45 @@ export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
       }
       return "";
     },
+    // The view is not ownable: each statement names the branch and the customer itself, on the fenced database.
+    invoiceStates: async () => {
+      const out: InvoiceRow[] = [];
+      for (const f of fenced) out.push(...(await f.sdb.query<InvoiceRow>(`select ${INVOICE_STATE} from app__invoice_status where branch_id = ? and customer_id = ?`, [f.branch_id, f.id])));
+      return out.sort((a, b) => b.created_at - a.created_at || b.invoice_id.localeCompare(a.invoice_id));
+    },
+    invoiceState: async (invoiceId) => {
+      for (const f of fenced) {
+        const row = await f.sdb.queryOne<InvoiceRow>(`select ${INVOICE_STATE} from app__invoice_status where branch_id = ? and customer_id = ? and invoice_id = ?`, [f.branch_id, f.id, invoiceId]);
+        if (row !== null) return row;
+      }
+      return null;
+    },
+    // Visits, parts and photos carry no customer_id: the customer's job is checked first, on the same branch.
+    visitOfJob: async (jobId) => (await each(async (sdb, id) => ((await mine(sdb, id, jobId)) ? sdb.query(`select ${VISIT_PUBLIC} from app__visits where job_id = ?`, [jobId]) : [])))[0] ?? null,
+    visitParts: (jobId) =>
+      each(async (sdb, id) => {
+        const visit = (await mine(sdb, id, jobId)) ? await sdb.queryOne<{ id: string }>("select id from app__visits where job_id = ?", [jobId]) : null;
+        return visit === null ? [] : sdb.query("select id, description, qty from app__visit_parts where visit_id = ? order by id", [visit.id]);
+      }),
+    visitPhotos: (jobId) =>
+      each(async (sdb, id) => {
+        const visit = (await mine(sdb, id, jobId)) ? await sdb.queryOne<{ id: string }>("select id from app__visits where job_id = ?", [jobId]) : null;
+        return visit === null ? [] : sdb.query("select id, phase, file_key, caption, width, height from app__visit_photos where visit_id = ? order by id", [visit.id]);
+      }),
+    paymentInstructions: async () => {
+      const rows = await db.query<{ key: string; value: string }>("select key, value from app__settings where key in ('payment_instructions_en', 'payment_instructions_ar')", []);
+      const of = (key: string) => rows.find((r) => r.key === key)?.value ?? "";
+      return { en: of("payment_instructions_en"), ar: of("payment_instructions_ar") };
+    },
   };
 }
+
+const INVOICE_STATE = "invoice_id, job_id, branch_id, customer_id, total_fils, due_at, credit_note_id, created_at, paid_fils, status";
+/** The columns of a visit the customer may see (#777): not the technician's notes, the position, or the keys. */
+const VISIT_PUBLIC = "id, job_id, checkin_at, checkout_at, summary_en, summary_ar, signed_by_name";
+
+/** Whether `jobId` is a job of the customer `customerId`, on the branch's fenced database. */
+const mine = async (sdb: DbStatements, customerId: string, jobId: string): Promise<boolean> => (await sdb.queryOne("select id from app__jobs where customer_id = ? and id = ?", [customerId, jobId])) !== null;
 
 /** Where a self-booking (/book, #775) is done, and who books it. */
 export interface BookingPlace {

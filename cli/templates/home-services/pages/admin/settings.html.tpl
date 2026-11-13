@@ -10,6 +10,12 @@
     <p><label><r-t key="backoffice.settings.f.footer_ar" /> <input name="brand_footer_ar" maxlength="200" dir="rtl" :value="f.brand_footer_ar" id="f-brand_footer_ar" :aria-invalid="true if errors.brand_footer_ar else false" :aria-describedby="'err-brand_footer_ar' if errors.brand_footer_ar else none"></label></p>
     <p><label><r-t key="backoffice.settings.f.sender" /> <input name="sender_name" maxlength="80" :value="f.sender_name" id="f-sender_name" :aria-invalid="true if errors.sender_name else false" :aria-describedby="'err-sender_name' if errors.sender_name else none"></label> <small class="muted"><r-t key="backoffice.settings.sender_hint" /></small></p>
     <p><label><r-t key="backoffice.settings.f.accounts_email" /> <input name="accounts_email" type="email" dir="ltr" maxlength="254" :value="f.accounts_email" id="f-accounts_email" :aria-invalid="true if errors.accounts_email else false" :aria-describedby="'err-accounts_email' if errors.accounts_email else none"></label> <small class="muted"><r-t key="backoffice.settings.accounts_hint" /></small></p>
+    <fieldset id="payment-instructions">
+      <legend><r-t key="backoffice.settings.payment.title" /></legend>
+      <p class="muted"><r-t key="backoffice.settings.payment.hint" /></p>
+      <p><label><r-t key="backoffice.settings.payment.en" /> <textarea name="payment_instructions_en" maxlength="500" rows="4" id="f-payment_instructions_en" :aria-invalid="true if errors.payment_instructions_en else false" :aria-describedby="'err-payment_instructions_en' if errors.payment_instructions_en else none">{{ f.payment_instructions_en }}</textarea></label></p>
+      <p><label><r-t key="backoffice.settings.payment.ar" /> <textarea name="payment_instructions_ar" maxlength="500" rows="4" dir="rtl" id="f-payment_instructions_ar" :aria-invalid="true if errors.payment_instructions_ar else false" :aria-describedby="'err-payment_instructions_ar' if errors.payment_instructions_ar else none">{{ f.payment_instructions_ar }}</textarea></label></p>
+    </fieldset>
     <p><label><r-t key="backoffice.settings.f.logo" /> <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" id="f-logo" :aria-invalid="true if errors.logo else false" :aria-describedby="'err-logo' if errors.logo else none"></label>
       <small class="muted"><r-t key="backoffice.settings.logo_limit" /></small>
       <img r-if="logo_src" id="current-logo" :src="logo_src" alt="" class="brand-logo"><small r-else><r-t key="backoffice.settings.logo_none" /></small></p>
