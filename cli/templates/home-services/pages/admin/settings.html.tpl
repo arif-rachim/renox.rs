@@ -13,6 +13,21 @@
     <p><label><r-t key="backoffice.settings.f.logo" /> <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" id="f-logo" :aria-invalid="true if errors.logo else false" :aria-describedby="'err-logo' if errors.logo else none"></label>
       <small class="muted"><r-t key="backoffice.settings.logo_limit" /></small>
       <img r-if="logo_src" id="current-logo" :src="logo_src" alt="" class="brand-logo"><small r-else><r-t key="backoffice.settings.logo_none" /></small></p>
+    <section id="portal" aria-labelledby="portal-title">
+      <h2 id="portal-title"><r-t key="backoffice.settings.portal.title" /></h2>
+      <p class="muted"><r-t key="backoffice.settings.portal.hint" /></p>
+      <input type="hidden" name="portal_section" value="1">
+      <p><label><input type="checkbox" name="portal_auto_confirm" value="1" :checked="f.portal_auto_confirm" id="f-portal_auto_confirm"> <r-t key="backoffice.settings.portal.auto_confirm" /></label> <small class="muted"><r-t key="backoffice.settings.portal.auto_confirm_hint" /></small></p>
+      <p><label><r-t key="backoffice.settings.portal.cutoff" /> <input type="number" name="portal_cutoff_hours" dir="ltr" inputmode="numeric" step="1" :min="cutoff.min" :max="cutoff.max" :value="f.portal_cutoff_hours" required id="f-portal_cutoff_hours" :aria-invalid="true if errors.portal_cutoff_hours else false" :aria-describedby="'err-portal_cutoff_hours' if errors.portal_cutoff_hours else none" aria-required="true"></label> <small class="muted"><r-t key="backoffice.settings.portal.cutoff_hint" /></small></p>
+      <p><label><r-t key="backoffice.settings.portal.reschedules" /> <input type="number" name="portal_max_reschedules" dir="ltr" inputmode="numeric" step="1" :min="reschedules.min" :max="reschedules.max" :value="f.portal_max_reschedules" required id="f-portal_max_reschedules" :aria-invalid="true if errors.portal_max_reschedules else false" :aria-describedby="'err-portal_max_reschedules' if errors.portal_max_reschedules else none" aria-required="true"></label> <small class="muted"><r-t key="backoffice.settings.portal.reschedules_hint" /></small></p>
+      <fieldset id="payment-instructions">
+        <legend><r-t key="backoffice.settings.payment.title" /></legend>
+        <p class="muted"><r-t key="backoffice.settings.payment.hint" /></p>
+        <p><label><r-t key="backoffice.settings.payment.en" /> <textarea name="payment_instructions_en" maxlength="500" rows="4" id="f-payment_instructions_en" :aria-invalid="true if errors.payment_instructions_en else false" :aria-describedby="'err-payment_instructions_en' if errors.payment_instructions_en else none">{{ f.payment_instructions_en }}</textarea></label></p>
+        <p><label><r-t key="backoffice.settings.payment.ar" /> <textarea name="payment_instructions_ar" maxlength="500" rows="4" dir="rtl" id="f-payment_instructions_ar" :aria-invalid="true if errors.payment_instructions_ar else false" :aria-describedby="'err-payment_instructions_ar' if errors.payment_instructions_ar else none">{{ f.payment_instructions_ar }}</textarea></label></p>
+      </fieldset>
+      <p><label><r-t key="backoffice.settings.portal.link" /> <input type="url" readonly dir="ltr" :value="book_link" id="book-link"></label> <small class="muted"><r-t key="backoffice.settings.portal.link_hint" /></small></p>
+    </section>
     <p><button type="submit" class="btn-brand"><r-t key="backoffice.settings.save" /></button></p>
   </x-form>
 </r-layout>

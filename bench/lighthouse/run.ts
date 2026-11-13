@@ -1,6 +1,7 @@
 // `make lighthouse` (#725): Lighthouse accessibility and performance of the
-// home-services dispatch board and technician visit page, English and Arabic,
-// on the phone profile. Usage:
+// home-services dispatch board, technician visit page and, signed out, step 1
+// of the customer's booking page `/book` (#779), English and Arabic, on the
+// phone profile. Usage:
 //   RENOX_WORKER_PATH=<renox-worker> bun bench/lighthouse/run.ts [--assert] [--busy] [--seed <sql>]... [--runs <n>] [--out <dir>]
 //
 // Starts the app under `renox dev` with the demo seed, signs in through the real
@@ -87,7 +88,8 @@ export function firstScheduledVisit(db: string, technicianId: string = TECHNICIA
 
 /** One Lighthouse run in a Node child process; returns the parsed report. */
 export async function lighthouseRun(url: string, port: number, cookie: string, out: string): Promise<LhrLike> {
-  const args = JSON.stringify({ url, port, headers: { Cookie: cookie }, out, categories: ["accessibility", "performance"] });
+  // A signed-out target (the booking page) sends no cookie.
+  const args = JSON.stringify({ url, port, headers: cookie === "" ? {} : { Cookie: cookie }, out, categories: ["accessibility", "performance"] });
   const p = Bun.spawn(["node", join(import.meta.dir, "lh-node.mjs"), args], { stdout: "pipe", stderr: "pipe", cwd: REPO });
   const [err, code] = await Promise.all([new Response(p.stderr).text(), p.exited]);
   if (code !== 0) throw new Error(`lighthouse failed for ${url} (exit ${code}): ${err.trim().split("\n").slice(-5).join("\n")}`);
@@ -132,6 +134,9 @@ export async function main(argv: string[]): Promise<number> {
       { path: "/dispatch?lang=ar", role: "dispatcher", cookie: dispatcher },
       { path: `/me/visits/${visit}`, role: "technician", cookie: technician },
       { path: `/me/visits/${visit}?lang=ar`, role: "technician", cookie: technician },
+      // The customer's way in (#779): /book step 1, signed out.
+      { path: "/book", role: "visitor", cookie: "" },
+      { path: "/book?lang=ar", role: "visitor", cookie: "" },
     ];
     const results: TargetResult[] = [];
     for (const t of targets) {

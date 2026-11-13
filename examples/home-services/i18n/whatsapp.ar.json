@@ -28,5 +28,25 @@
     "template": "amc_renewal",
     "subject": "ينتهي عقد الصيانة {number} في {ends}",
     "body": "مرحباً {name}، ينتهي عقد الصيانة {number} في {ends}. أرسل لنا رداً وسنجدده لك."
+  },
+  "booking_received": {
+    "template": "booking_received",
+    "subject": "استلمنا حجزك {job}",
+    "body": "مرحباً {name}، استلمنا حجزك {job} في {when}. سنؤكده لك قريباً."
+  },
+  "visit_moved": {
+    "template": "visit_moved",
+    "subject": "تم تغيير موعد زيارتك {job}",
+    "body": "مرحباً {name}، أصبح موعد زيارتك {job} في {when}."
+  },
+  "visit_cancelled": {
+    "template": "visit_cancelled",
+    "subject": "تم إلغاء زيارتك {job}",
+    "body": "مرحباً {name}، تم إلغاء زيارتك {job}."
+  },
+  "booking_moved": {
+    "template": "booking_moved",
+    "subject": "نقلنا حجزك {job}",
+    "body": "مرحباً {name}، نقلنا حجزك {job} إلى {when}. أرسل لنا رداً إذا لم يناسبك هذا الموعد."
   }
 }

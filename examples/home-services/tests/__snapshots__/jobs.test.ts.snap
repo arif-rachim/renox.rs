@@ -52,6 +52,7 @@ exports[`the job list is the branch's own filters by status, technician and day:
         <option value="u_dxb_ali" dir="auto">Ali Hassan</option><option value="u_dxb_bilal" dir="auto">Bilal Raza</option>
       </select></label>
     <label>Day <input type="date" name="day" value="" dir="ltr"></label>
+    <label><input type="checkbox" name="source" value="self_booking"> Booked online</label>
     <button type="submit">Filter</button>
     <a class="btn-brand" href="/jobs/new">New job</a>
     <a href="/dispatch">Dispatch board</a>

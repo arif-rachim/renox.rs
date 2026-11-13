@@ -1,0 +1,313 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`reschedule a confirmed visit ?change=1 shows the day row and the free slots of the job's branch and service, without its current slot; EN and AR: role: my visit change, portal customer, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Your visit · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/my/visits/<job>?change=1&amp;day=<day>&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">Back to my account</a></p>
+  <h1 dir="auto">AC service <span dir="ltr"><number></span></h1>
+  <p><span class="status status-scheduled" id="visit-status" dir="auto">Confirmed</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>When</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>Where</dt>
+    <dd dir="auto">Home · Marina Gate 2, flat 3301, Al Barsha</dd>
+    <dt>Technician:</dt>
+    <dd id="visit-technician" dir="auto">Ali</dd>
+    
+    
+    <dt>Questions? Call us</dt>
+    <dd dir="auto">Dubai · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+
+  
+  
+
+  <section aria-labelledby="change-title" id="visit-change-time">
+    <h2 id="change-title">Choose a new time</h2>
+    
+    <days />
+    <form method="post" action="?/reschedule" hx-post="?/reschedule" class="stack narrow" id="change-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="day" value="<day>">
+      <fieldset id="f-slot">
+        <legend dir="auto">Time · <weekday> <span dir="ltr"><day></span></legend>
+        <p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p>
+      </fieldset>
+      <p><button type="submit" class="btn-brand">Move my visit</button> <a href="/my/visits/<job>">Keep the visit as it is</a></p>
+    </form>
+  </section>
+
+  
+
+  
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">What happened so far</h2>
+    <ol class="my-timeline" id="timeline">
+      <li dir="auto">Confirmed · <span dir="ltr"><day> <time></span></li>
+    </ol>
+  </section>
+
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`reschedule a confirmed visit ?change=1 shows the day row and the free slots of the job's branch and service, without its current slot; EN and AR: role: my visit change, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>زيارتك · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my/visits/<job>?change=1&amp;day=<day>&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">العودة إلى حسابي</a></p>
+  <h1 dir="auto">صيانة المكيف <span dir="ltr"><number></span></h1>
+  <p><span class="status status-scheduled" id="visit-status" dir="auto">مؤكدة</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>الموعد</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>المكان</dt>
+    <dd dir="auto">Home · Marina Gate 2, flat 3301, Al Barsha</dd>
+    <dt>الفني:</dt>
+    <dd id="visit-technician" dir="auto">Ali</dd>
+    
+    
+    <dt>لديك سؤال؟ اتصل بنا</dt>
+    <dd dir="auto">دبي · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+
+  
+  
+
+  <section aria-labelledby="change-title" id="visit-change-time">
+    <h2 id="change-title">اختر موعداً جديداً</h2>
+    
+    <days />
+    <form method="post" action="?/reschedule" hx-post="?/reschedule" class="stack narrow" id="change-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="day" value="<day>">
+      <fieldset id="f-slot">
+        <legend dir="auto">الوقت · <weekday> <span dir="ltr"><day></span></legend>
+        <p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><time>–<time></span></label></p>
+      </fieldset>
+      <p><button type="submit" class="btn-brand">تغيير موعد زيارتي</button> <a href="/my/visits/<job>">إبقاء الزيارة كما هي</a></p>
+    </form>
+  </section>
+
+  
+
+  
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">ما تم حتى الآن</h2>
+    <ol class="my-timeline" id="timeline">
+      <li dir="auto">تم التأكيد · <span dir="ltr"><day> <time></span></li>
+    </ol>
+  </section>
+
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`cancel within the cut-off ?cancel=1 asks for confirmation with an optional reason; EN and AR: role: my visit cancel, portal customer, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Your visit · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/my/visits/jb_chg_13h?cancel=1&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">Back to my account</a></p>
+  <h1 dir="auto">Handyman <span dir="ltr"><number></span></h1>
+  <p><span class="status status-scheduled" id="visit-status" dir="auto">Confirmed</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>When</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>Where</dt>
+    <dd dir="auto">Villa · Street 14, villa 22, Al Barsha</dd>
+    <dt>Technician:</dt>
+    <dd id="visit-technician" dir="auto">Ali</dd>
+    
+    
+    <dt>Questions? Call us</dt>
+    <dd dir="auto">Dubai · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+
+  
+  
+
+  
+
+  <section aria-labelledby="cancel-title" id="visit-cancel">
+    <h2 id="cancel-title">Cancel this visit?</h2>
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="stack narrow" id="cancel-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>Why are you cancelling? (optional) <select name="reason" id="f-reason">
+        <option value="">I prefer not to say</option>
+        <option value="no_longer_needed">No longer needed</option>
+        <option value="found_other_time">Found another time by phone</option>
+        <option value="other">Other</option>
+      </select></label></p>
+      <p><label>More about the reason (optional, 200 characters) <textarea name="reason_other" maxlength="200" dir="auto" id="f-reason_other"></textarea></label></p>
+      <p><button type="submit" class="btn-brand" id="cancel-submit">Yes, cancel the visit</button> <a href="/my/visits/jb_chg_13h">Keep the visit as it is</a></p>
+    </form>
+  </section>
+
+  
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">What happened so far</h2>
+    <p class="muted">Nothing has happened yet.</p>
+  </section>
+
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`cancel within the cut-off ?cancel=1 asks for confirmation with an optional reason; EN and AR: role: my visit cancel, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>زيارتك · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my/visits/jb_chg_13h?cancel=1&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">العودة إلى حسابي</a></p>
+  <h1 dir="auto">أعمال صيانة عامة <span dir="ltr"><number></span></h1>
+  <p><span class="status status-scheduled" id="visit-status" dir="auto">مؤكدة</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>الموعد</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>المكان</dt>
+    <dd dir="auto">Villa · Street 14, villa 22, Al Barsha</dd>
+    <dt>الفني:</dt>
+    <dd id="visit-technician" dir="auto">Ali</dd>
+    
+    
+    <dt>لديك سؤال؟ اتصل بنا</dt>
+    <dd dir="auto">دبي · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+
+  
+  
+
+  
+
+  <section aria-labelledby="cancel-title" id="visit-cancel">
+    <h2 id="cancel-title">هل تريد إلغاء هذه الزيارة؟</h2>
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="stack narrow" id="cancel-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>لماذا تلغي الزيارة؟ (اختياري) <select name="reason" id="f-reason">
+        <option value="">أفضّل عدم الذكر</option>
+        <option value="no_longer_needed">لم أعد بحاجة إليها</option>
+        <option value="found_other_time">اتفقت على موعد آخر بالهاتف</option>
+        <option value="other">سبب آخر</option>
+      </select></label></p>
+      <p><label>تفاصيل السبب (اختياري، 200 حرف) <textarea name="reason_other" maxlength="200" dir="auto" id="f-reason_other"></textarea></label></p>
+      <p><button type="submit" class="btn-brand" id="cancel-submit">نعم، ألغِ الزيارة</button> <a href="/my/visits/jb_chg_13h">إبقاء الزيارة كما هي</a></p>
+    </form>
+  </section>
+
+  
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">ما تم حتى الآن</h2>
+    <p class="muted">لم يحدث شيء بعد.</p>
+  </section>
+
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;

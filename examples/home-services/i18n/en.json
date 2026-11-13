@@ -96,7 +96,8 @@
       "unit": "Per",
       "price": "Price",
       "vat": "VAT",
-      "active": "Active"
+      "active": "Active",
+      "self_booking": "Bookable online"
     },
     "unit": {
       "visit": "visit",
@@ -263,7 +264,18 @@
       "status": "Choose a status."
     },
     "outside_hours": "Only the scheduled jobs outside the branch's working hours.",
-    "outside_clear": "Show all jobs"
+    "outside_clear": "Show all jobs",
+    "badge": {
+      "self_booking": "Booked online"
+    },
+    "requested": {
+      "title": "Requested time",
+      "intro": "The customer booked online and asked for",
+      "technician": "Technician free at that time",
+      "confirm": "Confirm",
+      "propose": "Propose another time",
+      "none": "No technician of this branch is free at that time. Propose another time below."
+    }
   },
   "dispatch": {
     "title": "Dispatch board",
@@ -276,7 +288,9 @@
       "new": "New job {number} in {column}.",
       "moved": "Job {number} moved to {column}.",
       "updated": "Job {number} updated in {column}."
-    }
+    },
+    "wants": "Wants",
+    "to_confirm": "Online bookings to confirm: {n}"
   },
   "visits": {
     "title": "My visits",
@@ -591,7 +605,8 @@
       "amc_renewals": "Contracts ending this month",
       "branch": "Branch: {branch}",
       "title": "Today in this branch",
-      "open": "Open"
+      "open": "Open",
+      "online_to_confirm": "Online bookings to confirm"
     },
     "settings": {
       "title": "Branding and settings",
@@ -611,7 +626,25 @@
       "logo_none": "No logo yet.",
       "sender_hint": "Signs the emails to customers.",
       "accounts_hint": "The nightly report module reads its own address from renox.toml; this one is the invoices' contact.",
-      "save": "Save settings"
+      "payment": {
+        "title": "Payment instructions",
+        "hint": "Shown to a customer on an open invoice in their account. Plain text, up to 500 characters; leave it empty to show nothing.",
+        "en": "Payment instructions (English)",
+        "ar": "Payment instructions (Arabic)"
+      },
+      "save": "Save settings",
+      "portal": {
+        "title": "Customer portal",
+        "hint": "What your customers may do on /book and in their account.",
+        "auto_confirm": "Confirm online bookings automatically",
+        "auto_confirm_hint": "On: a booking is scheduled at once with the technician of the chosen time. Off: it waits for a dispatcher to confirm it.",
+        "cutoff": "Customers may change a visit until (hours before)",
+        "cutoff_hint": "From 0 to 168 hours. After that the customer calls the branch.",
+        "reschedules": "Reschedules allowed per visit",
+        "reschedules_hint": "From 0 to 5.",
+        "link": "The booking link to share",
+        "link_hint": "Send it to your customers or put it on your website."
+      }
     },
     "branches": {
       "title": "Branches",
@@ -699,7 +732,10 @@
       "hours_time": "Enter an opening and a closing time, or tick Closed.",
       "hours_step": "Times are on the half hour (for example 08:00 or 08:30).",
       "hours_order": "The closing time must be after the opening time.",
-      "hours_none": "At least one day must be open."
+      "hours_none": "At least one day must be open.",
+      "payment_instructions": "The payment instructions are at most 500 characters.",
+      "portal_cutoff_hours": "Enter a whole number of hours from 0 to 168.",
+      "portal_max_reschedules": "Enter a whole number from 0 to 5."
     },
     "import": {
       "title": "Import from Excel",
@@ -878,7 +914,13 @@
     "user_id": "Person",
     "branch": "Branch",
     "file_key": "File",
-    "hours": "Working hours"
+    "hours": "Working hours",
+    "display_name": "Your name",
+    "payment_instructions_en": "Payment instructions (English)",
+    "payment_instructions_ar": "Payment instructions (Arabic)",
+    "reason_other": "More about the reason",
+    "portal_cutoff_hours": "Customers may change a visit until (hours before)",
+    "portal_max_reschedules": "Reschedules allowed per visit"
   },
   "problem": {
     "title": "The form could not be saved",
@@ -921,5 +963,217 @@
   },
   "people": {
     "twofa_reset": "Your second factor was reset by {owner}. If this was not expected, tell your manager."
+  },
+  "portal": {
+    "title": "My account",
+    "nav_label": "My account",
+    "greeting": "Hello, {name}",
+    "greeting_anon": "Welcome",
+    "signed_in_as": "Signed in with",
+    "sign_out": "Sign out",
+    "linked": "Your customer records with us: {count}.",
+    "none_linked": "We do not have a customer record with this phone number yet.",
+    "name": {
+      "title": "Your name",
+      "hint": "Tell us your name so our team knows who you are.",
+      "save": "Save",
+      "saved": "Thank you, your name is saved.",
+      "err": "Enter a name of 1 to 80 characters."
+    },
+    "staff_phone": {
+      "title": "Sign in with your email and password",
+      "body": "Staff accounts cannot sign in with a phone code. Please sign in with your email and password.",
+      "signin": "Sign in with email"
+    },
+    "book_link": "Book a service",
+    "booked": "We received your booking {number}. We will confirm it shortly."
+  },
+  "book": {
+    "title": "Book a service",
+    "step": "Step {n} of 3",
+    "from": "from",
+    "no_services": "No service can be booked online at the moment.",
+    "choose": "Choose",
+    "show_areas": "Show the areas",
+    "area_hint": "Choose your emirate, then Show the areas.",
+    "next": "Next",
+    "back": "Back",
+    "no_branch": "We do not serve this emirate yet",
+    "call_us": "Call us:",
+    "branch": "Served by our {branch} branch.",
+    "taken": "That time was just taken, please pick another.",
+    "days": "Days",
+    "no_slots": "No free time on this day.",
+    "summary": "Your booking",
+    "your_phone": "Your WhatsApp number:",
+    "code_hint": "We send a code to this number on WhatsApp to confirm it is yours.",
+    "send": "Send me the code",
+    "f": {
+      "service": "Service",
+      "emirate": "Emirate",
+      "area": "Area",
+      "address": "Address",
+      "makani": "Makani number (optional)",
+      "notes": "Notes (optional)",
+      "slot": "Time",
+      "place": "Where",
+      "time": "When",
+      "name": "Your name",
+      "phone": "WhatsApp number",
+      "language": "Language"
+    },
+    "err": {
+      "service": "Choose a service.",
+      "service_here": "This service is not offered in your emirate.",
+      "emirate": "Choose your emirate.",
+      "area": "Choose your area.",
+      "address": "Enter the address in 5 to 200 characters.",
+      "makani": "A Makani number has 10 digits.",
+      "notes": "Notes take at most 500 characters.",
+      "slot": "Choose a time.",
+      "name": "Enter a name of 2 to 80 characters.",
+      "phone": "Enter a UAE mobile number, for example +971 50 123 4567.",
+      "language": "Choose English or Arabic."
+    },
+    "confirm": {
+      "title": "Confirm your booking",
+      "intro": "Check the details, then confirm.",
+      "submit": "Confirm booking"
+    }
+  },
+  "my": {
+    "branch": "Branch:",
+    "technician": "Technician:",
+    "details": "Details of visit",
+    "status": {
+      "new": "Waiting for confirmation",
+      "scheduled": "Confirmed",
+      "en_route": "On the way",
+      "in_progress": "Work in progress",
+      "done": "Done",
+      "cancelled": "Cancelled",
+      "unknown": "In progress"
+    },
+    "event": {
+      "requested": "Requested",
+      "confirmed": "Confirmed",
+      "en_route": "Technician on the way",
+      "started": "Work started",
+      "finished": "Finished",
+      "cancelled": "Cancelled",
+      "rescheduled": "You moved the visit",
+      "cancelled_by_you": "You cancelled the visit"
+    },
+    "upcoming": {
+      "title": "Upcoming visits",
+      "requested": "Requested for",
+      "waiting": ", waiting for confirmation",
+      "no_time": "We will call you to agree a time.",
+      "empty": "You have no upcoming visits. Book a service when you need us."
+    },
+    "past": {
+      "title": "Past visits",
+      "empty": "No past visits yet.",
+      "pages": "Pages of past visits",
+      "page": "Page",
+      "prev": "Newer visits",
+      "next": "Older visits"
+    },
+    "contracts": {
+      "title": "Maintenance contracts",
+      "period": "Period:",
+      "per_year": "visits a year",
+      "next": "Next planned visit:",
+      "ends_on": "Ends on",
+      "renewal": ". We will contact you about renewal.",
+      "empty": "You have no active maintenance contract."
+    },
+    "visit": {
+      "title": "Your visit",
+      "back": "Back to my account",
+      "when": "When",
+      "waiting": "waiting for confirmation",
+      "where": "Where",
+      "notes": "Your notes",
+      "contact": "Questions? Call us",
+      "timeline": "What happened so far",
+      "no_timeline": "Nothing has happened yet."
+    },
+    "invoices": {
+      "title": "Invoices",
+      "open_sum": "To pay on your open invoices:",
+      "open_count": "open",
+      "nothing_open": "Nothing to pay: every invoice is settled.",
+      "empty": "You have no invoices yet.",
+      "number": "Invoice",
+      "date": "Date",
+      "for": "For",
+      "total": "Total with VAT",
+      "status": "Status",
+      "contract": "Contract",
+      "paid_on": "Paid on",
+      "open_due": "Open, due",
+      "pages": "Pages of invoices",
+      "prev": "Newer invoices",
+      "next": "Older invoices",
+      "tile_open": "open",
+      "see_all": "See all your invoices in your account"
+    },
+    "invoice": {
+      "title": "Tax invoice",
+      "back": "Back to your invoices",
+      "pdf": "Download PDF",
+      "how_to_pay": "How to pay"
+    },
+    "report": {
+      "title": "Visit report",
+      "done": "What was done",
+      "signed_by": "Signed by",
+      "pdf": "Download report (PDF)",
+      "open_photo": "Open the photo"
+    },
+    "change": {
+      "title": "Change or cancel",
+      "change_link": "Change the time",
+      "cancel_link": "Cancel this visit",
+      "why": {
+        "too_late": "Less than {hours} hours to go.",
+        "in_progress": "Your visit has started, so it can no longer be changed here.",
+        "limit": "You have already moved this visit {n} times.",
+        "contract_visit": "This visit is part of your maintenance contract: you can move it, but not cancel it here.",
+        "not_scheduled": "This visit can no longer be changed."
+      },
+      "call": "Please call",
+      "call_us": "Please call us.",
+      "change_title": "Choose a new time",
+      "pending_hint": "The new time is a request: we will confirm it.",
+      "days": "Days",
+      "submit_move": "Move my visit",
+      "keep": "Keep the visit as it is",
+      "cancel_title": "Cancel this visit?",
+      "f": {
+        "reason": "Why are you cancelling? (optional)",
+        "other": "More about the reason (optional, 200 characters)"
+      },
+      "reason": {
+        "none": "I prefer not to say",
+        "no_longer_needed": "No longer needed",
+        "found_other_time": "Found another time by phone",
+        "other": "Other"
+      },
+      "submit_cancel": "Yes, cancel the visit",
+      "err": {
+        "reason": "Choose one of the reasons.",
+        "other": "Write at most 200 characters."
+      },
+      "conflict": {
+        "taken": "That time was just taken. Please pick another.",
+        "changed": "Your visit changed meanwhile. Please look at it again."
+      },
+      "done": {
+        "moved": "Your visit is moved. We sent you a WhatsApp message.",
+        "cancelled": "Your visit is cancelled. We sent you a WhatsApp message."
+      }
+    }
   }
 }

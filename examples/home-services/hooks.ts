@@ -12,10 +12,19 @@
 //   task for the dispatcher (lib/inbox.ts).
 // - the `reports.nightly_to` hook: the nightly summary goes to the accounts
 //   email of the settings, read when the job runs.
-import type { DbStatements, DeliveredEvent, EventContext } from "@renoxium/sdk";
-import { notifications } from "renox:modules";
+// - the `auth.after_login` hook (#774): staff cannot use the customer path. A
+//   phone sign-in by a user with a staff role and no second factor is refused
+//   with a page that sends them to their email and password; no session
+//   starts. A staff user WITH a second factor is halted before this filler by
+//   2fa's (fillers run by ascending priority, and the first halt ends the
+//   hook), so they pass the second factor and land where staff land.
+import type { Authz, DbStatements, DeliveredEvent, EventContext } from "@renoxium/sdk";
+import { i18n, notifications, twofa } from "renox:modules";
 
+import ar from "./i18n/ar.json";
+import en from "./i18n/en.json";
 import { applyPendingRole, inviteOf } from "./lib/admin";
+import { isStaff } from "./lib/portal";
 import { handleInbound } from "./lib/inbox";
 import { findBranch } from "./lib/scope";
 import { getSettings } from "./lib/settings";
@@ -44,7 +53,36 @@ export const on = {
   },
 };
 
+type AfterLogin = { user_id: string; method?: string; next?: string; resume?: string };
+
+/** The page a staff member gets who signed in with their phone and has no second factor: no session started. */
+async function staffUsePassword(userId: string, next: string | undefined): Promise<Response> {
+  const lang = (await i18n.detectLocale({ user_id: userId, org_locale: null })).locale === "ar" ? "ar" : "en";
+  const tree = lang === "ar" ? ar : en;
+  const t = tree.portal.staff_phone;
+  const back = typeof next === "string" && /^\/(?![/\\])/u.test(next) ? next : "/";
+  const href = `/auth/login?next=${encodeURIComponent(back)}`;
+  const html = `<!doctype html>
+<html lang="${lang}" dir="${lang === "ar" ? "rtl" : "ltr"}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${t.title}</title><link rel="stylesheet" href="/renox-ui.css"><link rel="stylesheet" href="/app.css"></head>
+<body><a class="skip" href="#main">${tree.app.skip}</a><main id="main" tabindex="-1"><h1>${t.title}</h1><p>${t.body}</p><p><a class="btn-brand" href="${href}">${t.signin}</a></p></main></body>
+</html>`;
+  return new Response(html, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
 export const hooks = {
+  "auth.after_login": {
+    // After 2fa's filler (a module's, priority 100): set explicitly, so the order does not rest on the app-last tie rule.
+    priority: 200,
+    async handle(ctx: { readonly authz: Pick<Authz, "roles"> }, args: AfterLogin) {
+      if (args.method !== "phone") return undefined;
+      if (!(await isStaff(ctx, args.user_id))) return undefined;
+      // With a second factor, 2fa's filler has halted the sign-in already and asks for it.
+      if (await twofa.isEnrolled(args.user_id)) return undefined;
+      return { halt: true as const, response: await staffUsePassword(args.user_id, args.next) };
+    },
+  },
+
   "reports.nightly_to": {
     /** The module's args are `{ to: string[] }`: a filler pushes onto `to`. No accounts email: nothing, and the summary is kept as a snapshot only. */
     async handle(ctx: { readonly db: DbStatements }, args: { to: string[] }) {

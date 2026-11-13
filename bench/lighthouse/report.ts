@@ -93,7 +93,7 @@ const bytes = (n: number): string => (n >= 1024 ? `${(n / 1024).toFixed(1)} KiB`
 /** The result file: a header, the median table, and every run's scores. */
 export function markdown(results: TargetResult[], meta: ReportMeta): string {
   const lines: string[] = [
-    `# Lighthouse of the home-services dispatch board and technician visit page: ${meta.date}`,
+    `# Lighthouse of the home-services dispatch board, technician visit page and booking page: ${meta.date}`,
     "",
     `Commit ${meta.commit}; renox-worker ${meta.worker}; Lighthouse mobile emulation and throttling (the default phone profile); the app under \`renox dev\` with \`seeds/001_demo.sql\`${(meta.extraSeeds ?? []).map((f) => ` and \`${f}\``).join("")}; ${meta.runs} run${meta.runs === 1 ? "" : "s"} per target, median per column. Thresholds: accessibility >= ${THRESHOLDS.accessibility}, performance >= ${THRESHOLDS.performance}.`,
     "",

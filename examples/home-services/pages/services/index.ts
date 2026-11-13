@@ -22,11 +22,12 @@ type ServiceRow = {
   price_fils: number;
   vat_rate: number;
   active: number;
+  self_booking: number;
 }
 
 
 async function catalogue(ctx: LoaderContext | ActionContext, branch: Branch, locale: string, error: string | null, saved: string | null) {
-  const rows = await ctx.db.query<ServiceRow>("select id, branch_id, code, name_en, name_ar, unit, price_fils, vat_rate, active from app__services where (branch_id is null or branch_id = ?) order by id", [branch.id]);
+  const rows = await ctx.db.query<ServiceRow>("select id, branch_id, code, name_en, name_ar, unit, price_fils, vat_rate, active, self_booking from app__services where (branch_id is null or branch_id = ?) order by id", [branch.id]);
   return {
     services: rows.map((s) => ({
       id: s.id,
@@ -37,6 +38,7 @@ async function catalogue(ctx: LoaderContext | ActionContext, branch: Branch, loc
       price_input: (s.price_fils / 100).toFixed(2),
       vat_rate: s.vat_rate,
       active: s.active === 1,
+      self_booking: s.self_booking === 1,
       branch_only: s.branch_id !== null,
     })),
     error,
@@ -69,7 +71,7 @@ export const actions = {
     const s = input.value;
     const row = await ctx.db.queryOne<{ code: string }>("select code from app__services where id = ? and (branch_id is null or branch_id = ?)", [s.id, branch.id]);
     if (row === null) return new Response("Service not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
-    await ctx.db.execute("update app__services set price_fils = ?, active = ? where id = ?", [s.price_fils, s.active, s.id]);
+    await ctx.db.execute("update app__services set price_fils = ?, active = ?, self_booking = ? where id = ?", [s.price_fils, s.active, s.self_booking, s.id]);
     return catalogue(ctx, branch, page.locale, null, row.code);
   },
 };

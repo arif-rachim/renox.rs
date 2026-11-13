@@ -634,8 +634,8 @@ describe("weekly working hours (/admin/branches)", () => {
     // The page says how many jobs are outside (the seed's own jobs near this Friday may be too), with the link that lists them.
     const page = await owner.page(located(res));
     expect(page.html).toContain('id="hours-saved"');
-    // One job (the test's own) is singular; more when the seed has jobs near that Friday.
-    const said = /(\d+) scheduled jobs? (?:are|is) outside the new hours/u.exec(page.html);
+    // One job reads "1 scheduled job is" (i18n outside_one), as on a Friday once the seed's 10:00 job is past (#800).
+    const said = /(\d+) scheduled jobs? (?:is|are) outside the new hours/u.exec(page.html);
     expect(said).not.toBeNull();
     expect(page.html).toContain('href="/jobs?branch=br_dubai&amp;outside_hours=1"');
     const list = await owner.page("/jobs?branch=br_dubai&outside_hours=1");
@@ -669,5 +669,103 @@ describe("weekly working hours (/admin/branches)", () => {
     expect(bad.html).toContain("ساعات العمل: الجمعة");
     snapshot(form(ar.html), { role: "branch hours form, owner, ar" });
     snapshot(form(bad.html), { role: "branch hours form, a 422 on Friday, owner, ar" });
+  });
+});
+
+// The "Customer portal" section of /admin/settings (#779): online bookings confirmed automatically or not, the
+// change cut-off and the reschedules per visit, the payment instructions (moved here from #777) and the link of
+// /book to share. The same form, guard, 422 re-render and audit row as the branding above.
+describe("the customer portal settings (#779)", () => {
+  const brand = {
+    brand_name: "Blue Spanner",
+    brand_name_ar: "المفتاح الأزرق",
+    brand_color: "#112233",
+    brand_footer_en: "Blue Spanner LLC",
+    brand_footer_ar: "المفتاح الأزرق ذ.م.م",
+    sender_name: "The Blue Spanner team",
+    accounts_email: "billing@bluespanner.example",
+  };
+  const portalForm = (extra: Record<string, string> = {}) => ({ ...brand, portal_section: "1", portal_cutoff_hours: "12", portal_max_reschedules: "2", ...extra });
+  const portalRows = () => rows("select key, value from app__settings where key like 'portal_%' order by key");
+  const lastAudit = () => rows("select details from audit__events where action = 'settings.update' order by rowid desc limit 1")[0]?.details as string;
+
+  test("the section: the switch off, the two numbers at their defaults, the payment instructions inside it, the link of /book; in Arabic too", async () => {
+    const res = await owner.page("/admin/settings?lang=en");
+    expect(res.status).toBe(200);
+    const section = /<section id="portal"[^]*?<\/section>/u.exec(res.html)?.[0] ?? "";
+    expect(section).toContain("Customer portal");
+    expect(section).toMatch(/<input type="checkbox" name="portal_auto_confirm" value="1" id="f-portal_auto_confirm">/u);
+    expect(section).toContain("Confirm online bookings automatically");
+    expect(section).toMatch(/name="portal_cutoff_hours"[^>]*min="0" max="168" value="12"/u);
+    expect(section).toMatch(/name="portal_max_reschedules"[^>]*min="0" max="5" value="2"/u);
+    expect(section).toContain('<fieldset id="payment-instructions">');
+    expect(section).toMatch(/<input type="url" readonly dir="ltr" value="https:\/\/[^"/]+\/book" id="book-link">/u);
+    const ar = await owner.page("/admin/settings?lang=ar");
+    expect(ar.html).toContain("بوابة العملاء");
+    expect(ar.html).toContain("تأكيد الحجوزات عبر الإنترنت تلقائياً");
+    await owner.page("/admin/settings?lang=en");
+    expect(portalRows()).toEqual([]);
+  });
+
+  test("edge case: a cut-off over 168 hours and more than 5 reschedules are a 422 naming each field, the typed values kept; nothing is saved", async () => {
+    const res = await owner.action("/admin/settings", "save", portalForm({ portal_cutoff_hours: "169", portal_max_reschedules: "6", portal_auto_confirm: "1" }));
+    expect(res.status).toBe(422);
+    expect(res.html).toContain('id="err-portal_cutoff_hours"');
+    expect(res.html).toContain('id="err-portal_max_reschedules"');
+    expect(res.html).toContain("Enter a whole number of hours from 0 to 168.");
+    expect(res.html).toMatch(/name="portal_cutoff_hours"[^>]*value="169"[^>]*aria-invalid="true" aria-describedby="err-portal_cutoff_hours"/u);
+    expect(res.html).toMatch(/<input type="checkbox" name="portal_auto_confirm" value="1" checked/u);
+    for (const bad of [{ portal_cutoff_hours: "-1" }, { portal_cutoff_hours: "1.5" }, { portal_cutoff_hours: "" }, { portal_max_reschedules: "two" }] as Record<string, string>[]) {
+      expect((await owner.action("/admin/settings", "save", portalForm(bad))).status, JSON.stringify(bad)).toBe(422);
+    }
+    expect(portalRows()).toEqual([]);
+  });
+
+  test("saving the defaults writes nothing; a change is saved with a settings.update audit row naming its keys", async () => {
+    const before = Number(rows("select count(*) as n from audit__events where action = 'settings.update'")[0]?.n);
+    expect((await owner.action("/admin/settings", "save", portalForm())).status).toBe(303);
+    expect(portalRows()).toEqual([]);
+    expect(Number(rows("select count(*) as n from audit__events where action = 'settings.update'")[0]?.n)).toBe(before);
+    const res = await owner.action("/admin/settings", "save", portalForm({ portal_auto_confirm: "1", portal_cutoff_hours: "24", portal_max_reschedules: "0" }));
+    expect(res.status).toBe(303);
+    expect(located(res)).toBe("/admin/settings?saved=1");
+    expect(portalRows()).toEqual([
+      { key: "portal_auto_confirm", value: "1" },
+      { key: "portal_cutoff_hours", value: "24" },
+      { key: "portal_max_reschedules", value: "0" },
+    ]);
+    expect(Number(rows("select count(*) as n from audit__events where action = 'settings.update'")[0]?.n)).toBe(before + 1);
+    expect(JSON.parse(lastAudit()).keys.sort()).toEqual(["portal_auto_confirm", "portal_cutoff_hours", "portal_max_reschedules"]);
+    const page = await owner.page("/admin/settings?lang=en");
+    expect(page.html).toMatch(/<input type="checkbox" name="portal_auto_confirm" value="1" checked/u);
+    expect(page.html).toMatch(/name="portal_cutoff_hours"[^>]*value="24"/u);
+    // Unticked is off; a form without the section (another client of the action) leaves the portal as it is.
+    expect((await owner.action("/admin/settings", "save", portalForm({ portal_cutoff_hours: "24", portal_max_reschedules: "0" }))).status).toBe(303);
+    expect(setting("portal_auto_confirm")).toBe("0");
+    expect((await owner.action("/admin/settings", "save", brand)).status).toBe(303);
+    expect(setting("portal_cutoff_hours")).toBe("24");
+  });
+
+  test("error case: a dispatcher gets 403 on the page and on the save, and nothing changes", async () => {
+    expect((await dispatcher.page("/admin/settings")).status).toBe(403);
+    expect((await dispatcher.action("/admin/settings", "save", portalForm({ portal_auto_confirm: "1", portal_cutoff_hours: "1" }))).status).toBe(403);
+    expect(setting("portal_auto_confirm")).toBe("0");
+    expect(setting("portal_cutoff_hours")).toBe("24");
+  });
+
+  test("the dashboard tile counts the online bookings to confirm and links to them", async () => {
+    // One waiting self-booking in each branch: the tile shows the owner's active branch, whichever it is now.
+    const at = Math.floor(Date.now() / 1000);
+    for (const [id, branch, customer, site, number] of [["jb_tile_dxb", "br_dubai", "cu_dxb_02", "st_dxb_02a", "J-000971"], ["jb_tile_shj", "br_sharjah", "cu_shj_01", "st_shj_01a", "J-000972"]]) {
+      rw((db) =>
+        db.run(
+          "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values (?, ?, ?, ?, null, ?, 'new', 'normal', (select id from app__services where code = 'HANDYMAN'), '', ?, ?, null, null, 'u_owner', ?, ?, 'self_booking')",
+          [id as string, branch as string, customer as string, site as string, number as string, at + 3 * 86_400, at + 3 * 86_400 + 3600, at, at],
+        ),
+      );
+    }
+    const res = await tileFragment(owner, "?lang=en");
+    expect(res.status).toBe(200);
+    expect(res.html).toMatch(/id="tile-online"><span>Online bookings to confirm<\/span><strong dir="ltr">1<\/strong><a href="\/jobs\?source=self_booking"/u);
   });
 });

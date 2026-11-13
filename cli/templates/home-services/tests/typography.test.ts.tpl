@@ -2,11 +2,14 @@
 // from @fontsource/noto-sans-arabic, small), an app.css with logical properties only, numbers, codes and phones isolated
 // left to right on every page that prints them, and an Arabic catalogue with nothing left in English. The layout itself is
 // audited in a browser by bench/lighthouse/rtl-audit.ts.
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "@renoxium/sdk/test";
+
+import { phoneSignIn } from "./outbox";
 
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -22,6 +25,36 @@ async function signIn(jar: string, email: string, next = "/") {
 const dispatcher = await signIn("dispatcher", "dispatcher.dubai@fixit.example");
 const accountant = await signIn("accountant", "accountant.dubai@fixit.example");
 const ali = await signIn("ali", "ali.dubai@fixit.example", "/me");
+// A portal customer (#774): Fatima Al Suwaidi (cu_dxb_03) signs up with her phone, through auth's phone pages.
+const customer = t.as("customer");
+const plant = (sql: string, params: (string | number | null)[]) => {
+  const db = new Database(t.dbFile);
+  db.exec("pragma busy_timeout = 5000");
+  try {
+    db.run(sql, params);
+  } finally {
+    db.close();
+  }
+};
+expect((await phoneSignIn(customer, (sql, params) => t.db.query(sql, params), plant, "+971551110003", "/my")).status).toBe(303);
+// An open tax invoice of hers (#777), with its tax_gcc document as the module writes it, for /my/invoices.
+plant(
+  "insert into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values ('INV-000960', 'invoice', null, ?, 12000, 0, 0, 600, ?)",
+  [
+    JSON.stringify({
+      kind: "invoice",
+      title: { en: "Tax Invoice", ar: "فاتورة ضريبية" },
+      number: "INV-000960",
+      issued_at: Date.now(),
+      seller: { name: "FixIt Services LLC", trn: "100000000000003", address: "Dubai" },
+      buyer: { name: "Fatima Al Suwaidi", trn: null, address: "Dubai" },
+      lines: [{ description: "Handyman", quantity: 1, unit_fils: 12000, rate: "standard", net_fils: 12000, vat_fils: 600 }],
+      totals: { standard: 12000, zero: 0, exempt: 0, vat: 600, total: 12600, vat_rate: 5, currency: "AED", display: { standard: "120.00", zero: "0.00", exempt: "0.00", vat: "6.00", total: "126.00" } },
+    }),
+    Date.now(),
+  ],
+);
+plant("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_03', 'INV-000960', 12600, ?, null, 'u_dxb_accountant', ?)", [Math.floor(Date.now() / 1000) + 30 * 86_400, Math.floor(Date.now() / 1000)]);
 
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 
@@ -104,6 +137,11 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/customers/cu_dxb_04", who: dispatcher, values: ["+97144110004", "100123456700003", "ops@marinaheights.example"] },
     { page: "/quotes/qt_seed_02", who: dispatcher, values: ["Q-000002", "+971521110002"] },
     { page: "/invoices/INV-000001", who: accountant, values: ["INV-000001", "J-000013"] },
+    { page: "/my", who: customer, values: ["+971551110003", "J-000008", "J-000012"] },
+    { page: "/my/visits/jb_seed_08", who: customer, values: ["J-000008", "+97140000001"] },
+    { page: "/my/visits/jb_seed_12", who: customer, values: ["J-000012", "+97140000001"] },
+    { page: "/my/invoices", who: customer, values: ["INV-000960", "126.00"] },
+    { page: "/my/invoices/INV-000960", who: customer, values: ["INV-000960", "120.00", "6.00"] },
   ];
   for (const c of cases) {
     test(`${c.page}`, async () => {
@@ -112,6 +150,116 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
       for (const v of c.values) expect([v, isolated(res.html, v)]).toEqual([v, true]);
     });
   }
+});
+
+describe("the booking page in Arabic isolates its prices, days, times and phone left to right (#775)", () => {
+  const day = (() => {
+    for (let i = 1; i < 7; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    return "";
+  })();
+  const service = String(t.db.query<{ id: number }>("select id from app__services where code = 'AC-SERVICE'")[0]?.id);
+  const place = new URLSearchParams({ service, emirate: "AE-DU", area: "Dubai Marina", address: "Marina Gate 2, flat 3301", day, lang: "ar" }).toString();
+  const visitor = t.as("visitor");
+  /** The time `08:00` of a slot value `<staff>@<ms>`, Dubai. */
+  const clock = (slot: string) => new Date(Number(slot.split("@")[1]) + 4 * 3_600_000).toISOString().slice(11, 16);
+
+  test("step 1: the prices", async () => {
+    const res = await visitor.page("/book?lang=ar");
+    expect(res.status).toBe(200);
+    const price = /<span dir="ltr">([^<]*150[^<]*)<\/span>/u.exec(res.html)?.[1] ?? "";
+    expect(price).not.toBe("");
+    expect([price, isolated(res.html, price)]).toEqual([price, true]);
+  });
+
+  test("steps 2 and 3: the day and the times", async () => {
+    const two = await visitor.page(`/book?${place}&step=2`);
+    expect(two.status).toBe(200);
+    const slot = /name="slot" value="([^"]+)"/u.exec(two.html)?.[1] ?? "";
+    for (const v of [day, clock(slot)]) expect([v, isolated(two.html, v)]).toEqual([v, true]);
+    const three = await visitor.page(`/book?${place}&slot=${encodeURIComponent(slot)}&step=3`);
+    expect(three.status).toBe(200);
+    for (const v of [day, clock(slot)]) expect([v, isolated(three.html, v)]).toEqual([v, true]);
+  });
+
+  test("the confirmation: the phone, the day and the time", async () => {
+    const id = `bd_${"c".repeat(32)}`;
+    const start = Math.floor(Date.now() / 1000) + 2 * 86_400;
+    plant(
+      "insert into app__booking_drafts (id, service_id, emirate, area, address, makani, slot_start, slot_end, technician_user_id, branch_id, hold_id, name, phone, language, notes, ip_hash, created_at, expires_at) values (?, ?, 'AE-DU', 'Dubai Marina', 'Marina Gate 2', null, ?, ?, 'u_dxb_ali', 'br_dubai', null, 'Fatima', '+971551110003', 'ar', '', '', ?, ?)",
+      [id, Number(service), start, start + 3600, start - 2 * 86_400, start],
+    );
+    const res = await customer.page(`/book/confirm/${id}?lang=ar`);
+    expect(res.status).toBe(200);
+    const when = new Date((start + 4 * 3600) * 1000).toISOString();
+    for (const v of ["+971551110003", when.slice(0, 10), when.slice(11, 16)]) expect([v, isolated(res.html, v)]).toEqual([v, true]);
+  });
+});
+
+describe("changing a visit on /my in Arabic isolates its number, days, times and the branch's phone left to right (#778)", () => {
+  // A full working day from the day after tomorrow on: Fatima's visit J-000008 (the seed's, tomorrow afternoon) is past the cut-off.
+  const day = (() => {
+    for (let i = 2; i < 8; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    return "";
+  })();
+
+  test("?change=1: the number, the day and a time", async () => {
+    const res = await customer.page(`/my/visits/jb_seed_08?change=1&day=${day}&lang=ar`);
+    expect(res.status).toBe(200);
+    const slot = /name="slot" value="([^"]+)"/u.exec(res.html)?.[1] ?? "";
+    expect(slot).not.toBe("");
+    const clock = new Date(Number(slot.split("@")[1]) + 4 * 3_600_000).toISOString().slice(11, 16);
+    for (const v of ["J-000008", day, clock, "+97140000001"]) expect([v, isolated(res.html, v)]).toEqual([v, true]);
+  });
+
+  test("?cancel=1: the number and the branch's phone", async () => {
+    const res = await customer.page("/my/visits/jb_seed_08?cancel=1&lang=ar");
+    expect(res.status).toBe(200);
+    expect(res.html).toContain('action="?/cancel"');
+    for (const v of ["J-000008", "+97140000001"]) expect([v, isolated(res.html, v)]).toEqual([v, true]);
+  });
+});
+
+describe("the dispatcher's side of self-booking in Arabic isolates the number, the day and the requested times left to right (#779)", () => {
+  const day = (() => {
+    for (let i = 1; i < 7; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    return "";
+  })();
+  const at = Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) - 4 * 3600 + 15 * 3600;
+
+  test("/jobs/<self-booking> and the board's card", async () => {
+    const handyman = Number(t.db.query<{ id: number }>("select id from app__services where code = 'HANDYMAN'")[0]?.id);
+    plant(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values ('jb_rtl_online', 'br_dubai', 'cu_dxb_03', 'st_dxb_03a', null, 'J-000993', 'new', 'normal', ?, '', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [handyman, at, at + 3600, at - 86_400, at - 86_400],
+    );
+    const job = await dispatcher.page("/jobs/jb_rtl_online?lang=ar");
+    expect(job.status).toBe(200);
+    expect(job.html).toContain('id="requested"');
+    for (const v of ["J-000993", `${day} 15:00–16:00`]) expect([v, isolated(job.html, v)]).toEqual([v, true]);
+    const board = await dispatcher.page("/dispatch?lang=ar");
+    for (const v of ["J-000993", "15:00–16:00"]) expect([v, isolated(board.html, v)]).toEqual([v, true]);
+    const list = await dispatcher.page("/jobs?source=self_booking&lang=ar");
+    for (const v of ["J-000993", `${day} 15:00`]) expect([v, isolated(list.html, v)]).toEqual([v, true]);
+  });
+
+  test("/admin/settings: the portal's numbers and the booking link", async () => {
+    const owner = t.as("rtl-owner");
+    expect((await owner.action("/auth/login", "default", { email: "owner@fixit.example", password: PASSWORD, next: "/admin/settings" })).status).toBe(303);
+    const res = await owner.page("/admin/settings?lang=ar");
+    // The owner without a second factor may still read the page (settings.read); the portal's fields are left to right.
+    expect(res.status).toBe(200);
+    expect(res.html).toMatch(/<input type="number" name="portal_cutoff_hours" dir="ltr"/u);
+    expect(res.html).toMatch(/<input type="url" readonly dir="ltr" value="https:\/\/[^"]+\/book"/u);
+  });
 });
 
 // -- the Arabic catalogue ---------------------------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 // The app's tile on the `admin` module's dashboard (the `admin.dashboard`
-// slot, partials/admin-tile.html): three numbers of the active branch. A slot
+// slot, partials/admin-tile.html): four numbers of the active branch. A slot
 // filler is rendered with the module page's data and runs no loader of the
 // app, so the tile asks /admin/tile (pages/admin/tile) for its numbers with
 // htmx once the dashboard has loaded; that page's loader calls this.
@@ -11,9 +11,11 @@ export interface Tiles {
   jobs_today: number;
   open_invoices: number;
   amc_renewals: number;
+  /** Self-bookings (/book) that wait for the dispatcher's confirmation (#779). */
+  online_to_confirm: number;
 }
 
-/** The three numbers for a branch: today's jobs, invoices not yet paid, active contracts that end this month (Dubai days). */
+/** The four numbers for a branch: today's jobs, invoices not yet paid, active contracts that end this month (Dubai days), and online bookings to confirm. */
 export async function tiles(db: DbStatements, branchId: string, today: string): Promise<Tiles> {
   const startOfDay = Math.floor(Date.parse(`${today}T00:00:00Z`) / 1000) - 4 * 3600;
   const month = today.slice(0, 7);
@@ -22,6 +24,7 @@ export async function tiles(db: DbStatements, branchId: string, today: string): 
     jobs_today: await one("select count(*) as n from app__jobs where branch_id = ? and status != 'cancelled' and scheduled_start >= ? and scheduled_start < ?", [branchId, startOfDay, startOfDay + 86_400]),
     open_invoices: await one("select count(*) as n from app__invoice_status where branch_id = ? and status in ('issued', 'part-paid')", [branchId]),
     amc_renewals: await one("select count(*) as n from app__contracts where branch_id = ? and status = 'active' and substr(ends_on, 1, 7) = ?", [branchId, month]),
+    online_to_confirm: await one("select count(*) as n from app__jobs where branch_id = ? and status = 'new' and source = 'self_booking'", [branchId]),
   };
 }
 

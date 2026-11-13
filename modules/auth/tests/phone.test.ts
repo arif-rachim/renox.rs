@@ -123,4 +123,14 @@ describe.skipIf(!worker)("phone sign-in", () => {
     const logs = JSON.stringify(t.logs());
     for (const c of codes(PHONE)) expect(logs).not.toContain(`"${c.code}"`);
   });
+
+  test("?phone= pre-fills a valid number in E.164; an invalid one leaves the field empty (#796)", async () => {
+    const v = t.as("prefill");
+    const ok = await v.page("/auth/phone?phone=050%20123%204567&next=%2F");
+    expect(ok.status).toBe(200);
+    expect(ok.html).toContain(`value="${PHONE}"`);
+    const bad = await v.page("/auth/phone?phone=%3Cb%3E12345&next=%2F");
+    expect(bad.html).not.toContain("12345");
+    expect(bad.html).not.toContain("&lt;b&gt;");
+  });
 });

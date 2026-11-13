@@ -1,7 +1,7 @@
 <r-layout use="auth">
   <r-group slot="title"><r-t key="auth.phone.code_title" /></r-group>
   <h1><r-t key="auth.phone.code_title" /></h1>
-  <p class="notice" r-if="message"><r-t key="auth.phone.sent" /></p>
+  <p class="notice" r-if="message"><r-t key="auth.phone.sent" /></p><p class="notice" r-if="sent_signup"><r-t key="auth.phone.sent_signup" /></p>
   <p class="error" id="error" r-if="error">{{ error }}</p>
   <x-form action="default">
     <input type="hidden" name="phone" :value="phone">

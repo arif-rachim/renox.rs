@@ -777,3 +777,66 @@ describe("invite_staff (#751)", () => {
     ]);
   });
 });
+
+// The customer portal's three settings through the owner connector (#779): "let customers book online and confirm
+// automatically" is one update_settings call, with the page's ranges and a plan in plain words.
+describe("update_settings: the customer portal (#779)", () => {
+  const portalRows = () => rows("select key, value from app__settings where key like 'portal_%' order by key");
+
+  test("get_settings shows the portal as it applies (the defaults while nothing is set)", async () => {
+    expect((await own("get_settings", {})).result).toMatchObject({ portal: { auto_confirm: false, cutoff_hours: 12, max_reschedules: 2 } });
+  });
+
+  test("the first call names each change in plain words and writes nothing; the confirmed one writes, audits and answers", async () => {
+    const args = { settings: { portal: { auto_confirm: true, cutoff_hours: 24, max_reschedules: 2 } } };
+    const preview = await own("update_settings", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    // max_reschedules is already 2 (the default): it is not a change.
+    expect(preview.preview).toEqual({
+      would_change: [
+        { key: "portal_auto_confirm", from: "0", to: "1" },
+        { key: "portal_cutoff_hours", from: "12", to: "24" },
+      ],
+      plan: "Confirm online bookings automatically: off → on; Customers may change a visit until: 12 hours before → 24 hours before.",
+    });
+    expect(portalRows()).toEqual([]);
+    const done = await own("update_settings", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    expect(done.result).toMatchObject({ portal: { auto_confirm: true, cutoff_hours: 24, max_reschedules: 2 } });
+    expect(portalRows()).toEqual([
+      { key: "portal_auto_confirm", value: "1" },
+      { key: "portal_cutoff_hours", value: "24" },
+    ]);
+    const audit = JSON.parse(String(rows("select details from audit__events where action = 'settings.update' order by rowid desc limit 1")[0]?.details)) as { keys: string[] };
+    expect(audit.keys.sort()).toEqual(["portal_auto_confirm", "portal_cutoff_hours"]);
+    // Off again, with the brand in the same call: the plan names both.
+    const both = await own("update_settings", { settings: { brand_name: "FixIt Plus", portal: { auto_confirm: false } } });
+    expect((both.preview as { plan: string }).plan).toContain("Confirm online bookings automatically: on → off");
+    expect((both.preview as { plan: string }).plan).toContain('Company name: "');
+    expect((await own("update_settings", { settings: { portal: { auto_confirm: false } } }, true)).result).toMatchObject({ portal: { auto_confirm: false } });
+  });
+
+  test("the page's ranges: out of range, not whole, not a boolean or an unknown key is invalid and writes nothing; the limits are accepted", async () => {
+    const before = portalRows();
+    const bad: Record<string, unknown>[] = [
+      { settings: { portal: {} } },
+      { settings: { portal: { cutoff_hours: 169 } } },
+      { settings: { portal: { cutoff_hours: -1 } } },
+      { settings: { portal: { cutoff_hours: 1.5 } } },
+      { settings: { portal: { cutoff_hours: "12" } } },
+      { settings: { portal: { max_reschedules: 6 } } },
+      { settings: { portal: { auto_confirm: "yes" } } },
+      { settings: { portal: { waiting_list: true } } },
+      { settings: { portal: true } },
+    ];
+    for (const args of bad) expectInvalid(await own("update_settings", args), JSON.stringify(args));
+    expect(portalRows()).toEqual(before);
+    expect((await own("update_settings", { settings: { portal: { cutoff_hours: 168, max_reschedules: 0 } } }, true)).result).toMatchObject({ portal: { cutoff_hours: 168, max_reschedules: 0 } });
+    expect((await own("update_settings", { settings: { portal: { cutoff_hours: 0, max_reschedules: 5 } } }, true)).result).toMatchObject({ portal: { cutoff_hours: 0, max_reschedules: 5 } });
+  });
+
+  test("a dispatcher's agent cannot change the portal", async () => {
+    const r = await t.tool("update_settings", { settings: { portal: { auto_confirm: true } } }, { as: dina });
+    expect(r.error?.code).toBe("RENOX_FORBIDDEN");
+  });
+});

@@ -1,7 +1,7 @@
 [module]
 name = "otpbox"
 version = "1.0.0"
-description = "Test fixture: records auth.send_otp codes (for whatsapp), extends auth.principal, lists agent orgs (for org), halts auth.after_login for chosen users"
+description = "Test fixture: records auth.send_otp codes (for whatsapp), extends auth.principal, lists agent orgs (for org), halts auth.after_login for chosen users and records the method it was told (#794)"
 
 [exports.services]
 addOrg = "Give a user an organisation an agent may act in: (user_id, org_id, name) -> true (#590)"

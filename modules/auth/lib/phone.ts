@@ -10,13 +10,29 @@
 // phone, and sends nothing for an unknown one; it costs one argon2 run in
 // both cases. Buckets: 5 codes per phone and 30 per IP address in 15
 // minutes, on top of the 5 attempts per code.
+//
+// Sign-up by phone (#773, config `phone_signup`, with `phone_login`): an
+// unknown phone gets a code too (same answer, same buckets, one argon2 run,
+// one `auth.send_otp`), kept in auth__phone_signups with no user; the correct
+// code creates the user (phone verified, no email, no password) and signs
+// them in. Account creation is capped per IP address (3 an hour, 20 a day): a
+// request past the cap answers the same and sends nothing, and the check is
+// made again where the account would be created.
 
-import { afterLogin, type AuthCtx, bucket, clientIp, now, startSession, type User } from "./core.ts";
+import { afterLogin, type AuthCtx, bucket, clientIp, NO_PASSWORD, now, PHONE_ONLY_EMAIL, randomHex, sha256Hex, startSession, type User, USER_COLUMNS } from "./core.ts";
 
 export const CODE_TTL_SECONDS = 5 * 60;
 export const CODE_ATTEMPTS = 5;
 export const SENDS_PER_PHONE = 5;
 export const SENDS_PER_IP = 30;
+/** Accounts a phone sign-up may create from one IP address. */
+export const SIGNUPS_PER_IP_HOUR = 3;
+export const SIGNUPS_PER_IP_DAY = 20;
+const HOUR = 3600;
+const DAY = 86400;
+
+/** `phone_signup` has an effect only with `phone_login`. */
+export const signupOn = (ctx: Pick<AuthCtx, "config">): boolean => ctx.config.phone_login === true && ctx.config.phone_signup === true;
 
 /** The same message for an unknown phone, a wrong, expired or used code, and a locked bucket. */
 export const GENERIC_PHONE_ERROR = "The code is incorrect or has expired, or there were too many attempts. Request a new code.";
@@ -68,41 +84,105 @@ export async function requestLoginCode(ctx: AuthCtx, input: unknown): Promise<{ 
   const answer = { ok: true as const, phone, message: SENT_MESSAGE };
   if (!(await mayRequest(ctx, phone))) return answer;
   const user = await ctx.db.queryOne<{ id: string }>("select id from auth__users where phone = ? and phone_verified_at is not null", [phone]);
-  if (user === null) {
-    await ctx.password.hash(DUMMY_CODE);
-    return answer;
-  }
-  await issue(ctx, phone, "login", user.id);
+  if (user !== null) await issue(ctx, phone, "login", user.id);
+  else if (signupOn(ctx)) await issueSignup(ctx, phone);
+  else await ctx.password.hash(DUMMY_CODE);
   return answer;
 }
 
-/** Checks a code: one attempt, then the row is used up, expired, or exhausted. */
-async function consume(ctx: AuthCtx, phone: string | null, purpose: "login" | "verify", code: unknown): Promise<string | null> {
+
+/** Whether this IP address may still create an account (reads only). */
+async function mayCreateAccount(ctx: AuthCtx): Promise<boolean> {
+  const ip = clientIp(ctx.headers);
+  return (await bucket(ctx, `signup:h:${ip}`, false, HOUR)) < SIGNUPS_PER_IP_HOUR && (await bucket(ctx, `signup:d:${ip}`, false, DAY)) < SIGNUPS_PER_IP_DAY;
+}
+
+/**
+ * A code to a phone that has no account (phone_signup): the same work as
+ * `issue` (one argon2 run, one row, one `auth.send_otp`). Past the per-IP
+ * account cap it hashes and stops: nothing is stored or sent.
+ */
+async function issueSignup(ctx: AuthCtx, phone: string): Promise<void> {
+  const code = newCode();
+  const hash = await ctx.password.hash(code);
+  if (!(await mayCreateAccount(ctx))) return;
+  const t = now();
+  await ctx.db.execute("insert or replace into auth__phone_signups (phone, code_hash, expires_at, attempts, created_at) values (?, ?, ?, 0, ?)", [phone, hash, t + CODE_TTL_SECONDS, t]);
+  await ctx.hooks.run("auth.send_otp", { to: phone, code, purpose: "login" });
+}
+
+type Consumed = { kind: "user"; userId: string } | { kind: "signup" };
+
+/**
+ * Checks a code: one attempt, then the row is used up, expired, or exhausted.
+ * With `signup`, a login purpose that finds no code of a user falls back to
+ * the pending code of a phone with no account; one argon2 run in every case.
+ */
+async function consumeRow(ctx: AuthCtx, phone: string | null, purpose: "login" | "verify", code: unknown, signup: boolean): Promise<Consumed | null> {
   if (phone === null || typeof code !== "string" || !/^[0-9]{6}$/u.test(code.trim())) return null;
-  const row = await ctx.db.queryOne<{ user_id: string; code_hash: string; expires_at: number; attempts: number }>("select user_id, code_hash, expires_at, attempts from auth__phone_codes where phone = ? and purpose = ?", [phone, purpose]);
+  type Row = { user_id: string | null; code_hash: string; expires_at: number; attempts: number };
+  let table = "auth__phone_codes";
+  let row = await ctx.db.queryOne<Row>("select user_id, code_hash, expires_at, attempts from auth__phone_codes where phone = ? and purpose = ?", [phone, purpose]);
+  if (row === null && signup && purpose === "login") {
+    table = "auth__phone_signups";
+    row = await ctx.db.queryOne<Row>("select null as user_id, code_hash, expires_at, attempts from auth__phone_signups where phone = ?", [phone]);
+  }
   if (row === null || row.expires_at <= now() || row.attempts >= CODE_ATTEMPTS) {
     await ctx.password.hash(DUMMY_CODE); // one argon2 run, like a real check
     return null;
   }
-  await ctx.db.execute("update auth__phone_codes set attempts = attempts + 1 where phone = ? and purpose = ?", [phone, purpose]);
+  const signupRow = table === "auth__phone_signups";
+  const where = signupRow ? "phone = ?" : "phone = ? and purpose = ?";
+  const args = signupRow ? [phone] : [phone, purpose];
+  await ctx.db.execute(`update ${table} set attempts = attempts + 1 where ${where}`, args);
   if (!(await ctx.password.verify(code.trim(), row.code_hash))) return null;
-  await ctx.db.execute("delete from auth__phone_codes where phone = ? and purpose = ?", [phone, purpose]);
-  return row.user_id;
+  await ctx.db.execute(`delete from ${table} where ${where}`, args);
+  return signupRow ? { kind: "signup" } : { kind: "user", userId: row.user_id as string };
+}
+
+async function consume(ctx: AuthCtx, phone: string | null, purpose: "login" | "verify", code: unknown): Promise<string | null> {
+  const c = await consumeRow(ctx, phone, purpose, code, false);
+  return c?.kind === "user" ? c.userId : null;
 }
 
 export type PhoneLogin = { ok: true; user: User; cookie: string; halt?: Response } | { ok: false; error: string };
 
 /** Sign-in step 2: the code, then `auth.after_login`, a new session, `auth.login`, as the password flow. */
 export async function verifyLoginCode(ctx: AuthCtx, phoneInput: unknown, code: unknown, next?: string): Promise<PhoneLogin> {
-  const userId = await consume(ctx, normalizePhone(phoneInput), "login", code);
-  if (userId === null) return { ok: false, error: GENERIC_PHONE_ERROR };
-  const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where id = ?", [userId]);
+  const phone = normalizePhone(phoneInput);
+  const consumed = await consumeRow(ctx, phone, "login", code, signupOn(ctx));
+  if (consumed === null) return { ok: false, error: GENERIC_PHONE_ERROR };
+  const user = consumed.kind === "signup" ? await createPhoneUser(ctx, phone as string) : await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where id = ?`, [consumed.userId]);
   if (user === null) return { ok: false, error: GENERIC_PHONE_ERROR };
-  const hook = await afterLogin(ctx, user.id, next);
+  const hook = await afterLogin(ctx, user.id, "phone", next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });
   return { ok: true, user, cookie: session.cookie };
+}
+
+/**
+ * The account of a verified sign-up code: past the per-IP cap nothing is
+ * created (null: the caller answers the generic message). A phone that got
+ * an account in the meantime signs that account in. The user has the phone,
+ * verified, no email, no password and an empty name.
+ */
+async function createPhoneUser(ctx: AuthCtx, phone: string): Promise<User | null> {
+  const existing = await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where phone = ? and phone_verified_at is not null`, [phone]);
+  if (existing !== null) return existing;
+  if (!(await mayCreateAccount(ctx))) {
+    // The same in-memory counter as a refused password sign-in; no phone, no address.
+    await ctx.events.emit("auth.login_failed", { reason: "locked", ip_hash: (await sha256Hex(clientIp(ctx.headers))).slice(0, 16) }, { durable: false });
+    return null;
+  }
+  const ip = clientIp(ctx.headers);
+  await bucket(ctx, `signup:h:${ip}`, true, HOUR);
+  await bucket(ctx, `signup:d:${ip}`, true, DAY);
+  const t = now();
+  const id = randomHex(16);
+  await ctx.db.execute("insert into auth__users (id, email, display_name, password_hash, phone, phone_verified_at, created_at, updated_at) values (?, ?, '', ?, ?, ?, ?, ?)", [id, `${PHONE_ONLY_EMAIL}${id}`, NO_PASSWORD, phone, t, t, t]);
+  await ctx.events.emit("auth.user_registered", { user_id: id, at: t, source: "phone" });
+  return { id, email: "", display_name: "", created_at: t };
 }
 
 /** Account page: a code to a new phone for the signed-in user. */

@@ -16,6 +16,7 @@ import { app, snapshot } from "@renoxium/sdk/test";
 
 import { inkOn, lineOn, PAPER, ratio } from "../lib/contrast";
 import { tokenHash } from "../lib/links";
+import { phoneSignIn } from "./outbox";
 
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -57,6 +58,30 @@ const owner = await ownerWithSecondFactor();
 const accountant = await signIn("accountant", "accountant.dubai@fixit.example");
 const ali = await signIn("ali", "ali.dubai@fixit.example", "/me");
 const manager = await signIn("manager", "manager.dubai@fixit.example", "/customers");
+// A portal customer (#774): Peter Nowak (cu_dxb_02) signs up with his phone, through auth's phone pages.
+const customer = t.as("customer");
+expect((await phoneSignIn(customer, (sql, params) => t.db.query(sql, params), (sql, params) => rw((db) => db.run(sql, params)), "+971521110002", "/my")).status).toBe(303);
+
+// The booking page (#775): its three steps for a working day ahead (the first slot step 2 offers), a step 1
+// with an error, an emirate with no branch, and a draft of Peter's to confirm.
+const BOOK_DAY = (() => {
+  for (let i = 1; i < 7; i++) {
+    const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+    if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+  }
+  return "";
+})();
+const BOOK_SERVICE = String(t.db.query<{ id: number }>("select id from app__services where code = 'AC-SERVICE'")[0]?.id);
+const BOOK_PLACE = new URLSearchParams({ service: BOOK_SERVICE, emirate: "AE-DU", area: "Dubai Marina", address: "Marina Gate 2, flat 3301", day: BOOK_DAY }).toString();
+const BOOK_SLOT = /name="slot" value="([^"]+)"/u.exec((await anonymous.page(`/book?${BOOK_PLACE}&step=2`)).html)?.[1] ?? "";
+const BOOK_FU_AREA = encodeURIComponent(String(t.db.query<{ name_en: string }>("select name_en from gcc__areas where emirate = 'AE-FU' order by name_en limit 1")[0]?.name_en));
+const BOOK_DRAFT = `bd_${"a".repeat(32)}`;
+rw((db) =>
+  db.run(
+    "insert into app__booking_drafts (id, service_id, emirate, area, address, makani, slot_start, slot_end, technician_user_id, branch_id, hold_id, name, phone, language, notes, ip_hash, created_at, expires_at) values (?, ?, 'AE-DU', 'Dubai Marina', 'Marina Gate 2, flat 3301', null, ?, ?, 'u_dxb_ali', 'br_dubai', null, 'Peter Nowak', '+971521110002', 'en', '', '', ?, ?)",
+    [BOOK_DRAFT, Number(BOOK_SERVICE), Math.floor(Number(BOOK_SLOT.split("@")[1]) / 1000), Math.floor(Number(BOOK_SLOT.split("@")[1]) / 1000) + 3600, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + 86_400],
+  ),
+);
 
 // What the seed does not hold: the customer's invoice and report links (only a hash is stored), and two
 // spreadsheet imports (a file with errors and a clean one), written the way the app writes them.
@@ -75,6 +100,39 @@ rw((db) => {
   const empty = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_00000000000a11d0', 'customers', 'k3', 'waiting.xlsx', 'checking', ?, 'u_owner', ?)", [empty, now]);
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at, error) values ('im_00000000000a11e0', 'customers', 'k4', 'broken.xlsx', 'failed', ?, 'u_owner', ?, 'import.err.not_xlsx')", [empty, now]);
+  // An open tax invoice of Peter's (#777), with its tax_gcc document as the module writes it (no job: a page of /my/invoices).
+  const body = JSON.stringify({
+    kind: "invoice",
+    title: { en: "Tax Invoice", ar: "فاتورة ضريبية" },
+    number: "INV-000950",
+    issued_at: now * 1000,
+    seller: { name: "FixIt Services LLC", trn: "100000000000003", address: "Dubai" },
+    buyer: { name: "Peter Nowak", trn: null, address: "Villa, Al Barsha" },
+    lines: [{ description: "Handyman", quantity: 1, unit_fils: 12000, rate: "standard", net_fils: 12000, vat_fils: 600 }],
+    totals: { standard: 12000, zero: 0, exempt: 0, vat: 600, total: 12600, vat_rate: 5, currency: "AED", display: { standard: "120.00", zero: "0.00", exempt: "0.00", vat: "6.00", total: "126.00" } },
+  });
+  db.run("insert into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values ('INV-000950', 'invoice', null, ?, 12000, 0, 0, 600, ?)", [body, now * 1000]);
+  db.run("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_02', 'INV-000950', 12600, ?, null, 'u_dxb_accountant', ?)", [now + 30 * 86_400, now]);
+});
+
+// Two self-bookings of Peter's waiting for the dispatcher (#779): one at a time the technicians are free (the
+// confirm form) and one on a Sunday, when the branch is closed (no technician free: Confirm disabled).
+const ONLINE_AT = Math.floor(Date.parse(`${BOOK_DAY}T00:00:00Z`) / 1000) - 4 * 3600 + 16 * 3600;
+const ONLINE_SUNDAY = (() => {
+  for (let i = 1; i < 8; i++) {
+    const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+    if (local.getUTCDay() === 0) return Math.floor(Date.parse(`${local.toISOString().slice(0, 10)}T00:00:00Z`) / 1000) - 4 * 3600 + 10 * 3600;
+  }
+  return 0;
+})();
+rw((db) => {
+  const handyman = Number((db.query("select id from app__services where code = 'HANDYMAN'").get() as { id: number }).id);
+  for (const [id, number, at] of [["jb_a11y_online", "J-000991", ONLINE_AT], ["jb_a11y_online_none", "J-000992", ONLINE_SUNDAY]] as [string, string, number][]) {
+    db.run(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values (?, 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', null, ?, 'new', 'normal', ?, '', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [id, number, handyman, at, at + 3600, now, now],
+    );
+  }
 });
 
 // Ali checks in to his job J-000006 and records a part: its visit page then holds every form (J-000010 is still before check-in).
@@ -221,6 +279,9 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/jobs/jb_seed_05", as: () => dispatcher, note: "scheduled" },
   { path: "/jobs/jb_seed_10", as: () => dispatcher, note: "in progress, with a visit" },
   { path: "/jobs/jb_seed_12", as: () => dispatcher, note: "done, with a report" },
+  { path: "/jobs/jb_a11y_online", as: () => dispatcher, note: "a self-booking to confirm (#779)" },
+  { path: "/jobs/jb_a11y_online_none", as: () => dispatcher, note: "a self-booking with no technician free (#779)" },
+  { path: "/jobs?source=self_booking", as: () => dispatcher, note: "booked online (#779)" },
   { path: "/dispatch", as: () => dispatcher },
   { path: "/services", as: () => owner },
   { path: "/contracts", as: () => owner },
@@ -247,6 +308,21 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/me/visits/jb_seed_10", as: () => ali, note: "before check-in" },
   { path: "/me/visits/jb_seed_06", as: () => ali, note: "visit open" },
   { path: "/me/visits/jb_seed_12", as: () => ali, note: "visit closed" },
+  { path: "/my", as: () => customer, note: "the customer portal" },
+  { path: "/my/visits/jb_seed_06", as: () => customer, note: "a visit in progress" },
+  { path: "/my/visits/jb_seed_02", as: () => customer, note: "a visit waiting for confirmation" },
+  { path: "/my/visits/jb_seed_11", as: () => customer, note: "a visit done" },
+  { path: "/my/visits/jb_seed_02?change=1", as: () => customer, note: "change the time (#778)" },
+  { path: "/my/visits/jb_seed_02?cancel=1", as: () => customer, note: "cancel the visit (#778)" },
+  { path: "/my/invoices", as: () => customer, note: "the customer's invoices" },
+  { path: "/my/invoices/INV-000950", as: () => customer, note: "an open invoice" },
+  { path: "/book", as: () => anonymous, note: "step 1, signed out" },
+  { path: `/book?${BOOK_PLACE}&address=x&step=2`, as: () => anonymous, note: "step 1 with an error" },
+  { path: `/book?service=${BOOK_SERVICE}&emirate=AE-FU&area=${BOOK_FU_AREA}&address=Fujairah+corniche&step=2`, as: () => anonymous, note: "an emirate with no branch" },
+  { path: `/book?${BOOK_PLACE}&step=2`, as: () => anonymous, note: "step 2" },
+  { path: `/book?${BOOK_PLACE}&slot=${encodeURIComponent(BOOK_SLOT)}&step=3`, as: () => anonymous, note: "step 3" },
+  { path: `/book?${BOOK_PLACE}&slot=${encodeURIComponent(BOOK_SLOT)}&step=3`, as: () => customer, note: "step 3, signed in" },
+  { path: `/book/confirm/${BOOK_DRAFT}`, as: () => customer, note: "the confirmation" },
 ];
 
 const withLang = (path: string, lang: string) => `${path}${path.includes("?") ? "&" : "?"}lang=${lang}`;

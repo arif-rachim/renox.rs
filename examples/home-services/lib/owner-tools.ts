@@ -7,7 +7,7 @@
 // lib/admin.ts and lib/setup.ts inside `run`.
 import type { DbStatements } from "@renoxium/sdk";
 
-import { getSettings, logoSrc } from "./settings";
+import { getSettings, logoSrc, PORTAL_CUTOFF_HOURS, PORTAL_MAX_RESCHEDULES, portalNow, type PortalSettings } from "./settings";
 
 export type Issue = { message: string; path: string[] };
 type Raw = Record<string, unknown>;
@@ -115,6 +115,17 @@ export const SETTINGS_PATCH_JSON = {
           properties: { invoice: str("The invoice footer; empty clears it", 500, 0), quote: str("The quotation footer; empty clears it", 500, 0), job_card: str("The job card footer; empty clears it", 500, 0) },
           additionalProperties: false,
         },
+        portal: {
+          type: "object",
+          minProperties: 1,
+          description: "The customer portal (#779): online booking on /book and changes on /my",
+          properties: {
+            auto_confirm: { type: "boolean", description: "Confirm online bookings automatically (otherwise a dispatcher confirms each one)" },
+            cutoff_hours: { type: "integer", minimum: PORTAL_CUTOFF_HOURS.min, maximum: PORTAL_CUTOFF_HOURS.max, description: "Customers may change a visit until this many hours before it" },
+            max_reschedules: { type: "integer", minimum: PORTAL_MAX_RESCHEDULES.min, maximum: PORTAL_MAX_RESCHEDULES.max, description: "How often a customer may move one visit" },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },
@@ -129,11 +140,12 @@ export interface SettingsPatch {
   sender_name?: string;
   accounts_email?: string;
   footers?: { invoice?: string; quote?: string; job_card?: string };
+  portal?: { auto_confirm?: boolean; cutoff_hours?: number; max_reschedules?: number };
 }
 
 export function parseSettingsPatch(raw: Raw, issues: Issue[]): { settings: SettingsPatch } {
   noExtra(raw, ["settings"], issues);
-  const s = objectAt(raw, "settings", ["brand_name", "brand_color", "sender_name", "accounts_email", "footers"], issues);
+  const s = objectAt(raw, "settings", ["brand_name", "brand_color", "sender_name", "accounts_email", "footers", "portal"], issues);
   const out: SettingsPatch = {};
   if (s === undefined) return { settings: out };
   if (Object.keys(s).length === 0) issues.push({ message: "settings needs at least one key", path: ["settings"] });
@@ -165,6 +177,24 @@ export function parseSettingsPatch(raw: Raw, issues: Issue[]): { settings: Setti
       out.footers = footers;
     }
   }
+  if (s.portal !== undefined) {
+    const o = objectAt(s, "portal", ["auto_confirm", "cutoff_hours", "max_reschedules"], issues, p);
+    if (o !== undefined) {
+      if (Object.keys(o).length === 0) issues.push({ message: "portal needs at least one key", path: [...p, "portal"] });
+      const portal: NonNullable<SettingsPatch["portal"]> = {};
+      if (o.auto_confirm !== undefined) {
+        if (typeof o.auto_confirm === "boolean") portal.auto_confirm = o.auto_confirm;
+        else issues.push({ message: "auto_confirm is true or false", path: [...p, "portal", "auto_confirm"] });
+      }
+      for (const [key, rule] of [["cutoff_hours", PORTAL_CUTOFF_HOURS], ["max_reschedules", PORTAL_MAX_RESCHEDULES]] as const) {
+        const v = o[key];
+        if (v === undefined) continue;
+        if (typeof v === "number" && Number.isInteger(v) && v >= rule.min && v <= rule.max) portal[key] = v;
+        else issues.push({ message: `${key} is a whole number from ${rule.min} to ${rule.max}`, path: [...p, "portal", key] });
+      }
+      out.portal = portal;
+    }
+  }
   return { settings: out };
 }
 
@@ -175,7 +205,48 @@ export function patchEntries(patch: SettingsPatch): Record<string, string> {
   if (patch.footers?.invoice !== undefined) out.footer_invoice = patch.footers.invoice;
   if (patch.footers?.quote !== undefined) out.footer_quote = patch.footers.quote;
   if (patch.footers?.job_card !== undefined) out.footer_job_card = patch.footers.job_card;
+  if (patch.portal?.auto_confirm !== undefined) out.portal_auto_confirm = patch.portal.auto_confirm ? "1" : "0";
+  if (patch.portal?.cutoff_hours !== undefined) out.portal_cutoff_hours = String(patch.portal.cutoff_hours);
+  if (patch.portal?.max_reschedules !== undefined) out.portal_max_reschedules = String(patch.portal.max_reschedules);
   return out;
+}
+
+/** The plain words of a setting a plan names (#779). */
+const PLAN_LABELS: Record<string, string> = {
+  brand_name: "Company name",
+  brand_color: "Brand colour",
+  sender_name: "Sender name",
+  accounts_email: "Accounts email",
+  footer_invoice: "Invoice footer",
+  footer_quote: "Quotation footer",
+  footer_job_card: "Job card footer",
+  portal_auto_confirm: "Confirm online bookings automatically",
+  portal_cutoff_hours: "Customers may change a visit until",
+  portal_max_reschedules: "Reschedules allowed per visit",
+};
+
+/** How a value reads in a plan. */
+function planValue(key: string, v: string): string {
+  if (key === "portal_auto_confirm") return v === "1" ? "on" : "off";
+  if (key === "portal_cutoff_hours") return `${v} ${v === "1" ? "hour" : "hours"} before`;
+  if (key === "portal_max_reschedules") return v;
+  return v === "" ? "(not set)" : `"${v}"`;
+}
+
+/**
+ * What `update_settings` would change, from the value that applies now (an
+ * unset portal setting reads as its default) to the new one, and the same as
+ * one sentence in plain words: "Confirm online bookings automatically: off →
+ * on; Customers may change a visit until: 12 hours before → 24 hours before."
+ */
+export function settingsPlan(current: Record<string, string>, next: Record<string, string>): { would_change: { key: string; from: string; to: string }[]; plan: string } {
+  const portal: Record<string, string> = portalNow(current) satisfies PortalSettings;
+  const now = (k: string): string => (k in portal ? (portal[k] as string) : (current[k] ?? ""));
+  const would_change = Object.entries(next)
+    .filter(([k, v]) => now(k) !== v)
+    .map(([key, to]) => ({ key, from: now(key), to }));
+  const plan = would_change.length === 0 ? "Nothing changes." : `${would_change.map((c) => `${PLAN_LABELS[c.key] ?? c.key}: ${planValue(c.key, c.from)} → ${planValue(c.key, c.to)}`).join("; ")}.`;
+  return { would_change, plan };
 }
 
 export const LOGO_JSON = {
@@ -309,6 +380,7 @@ export interface SettingsView {
   sender_name: string;
   accounts_email: string;
   footers: { invoice: string; quote: string; job_card: string };
+  portal: { auto_confirm: boolean; cutoff_hours: number; max_reschedules: number };
   logo: boolean;
   logo_url: string | null;
 }
@@ -317,12 +389,14 @@ export interface SettingsView {
 export async function settingsView(db: DbStatements): Promise<SettingsView> {
   const s = await getSettings(db);
   const logo = logoSrc(s);
+  const portal = portalNow(s);
   return {
     brand_name: s.brand_name ?? "",
     brand_color: s.brand_color ?? "",
     sender_name: s.sender_name ?? "",
     accounts_email: s.accounts_email ?? "",
     footers: { invoice: s.footer_invoice ?? "", quote: s.footer_quote ?? "", job_card: s.footer_job_card ?? "" },
+    portal: { auto_confirm: portal.portal_auto_confirm === "1", cutoff_hours: Number(portal.portal_cutoff_hours), max_reschedules: Number(portal.portal_max_reschedules) },
     logo: logo !== null,
     logo_url: logo,
   };

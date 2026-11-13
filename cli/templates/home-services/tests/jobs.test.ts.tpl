@@ -403,3 +403,115 @@ describe("booking is told about technicians the first time they are seen", () =>
     expect(res.html).not.toContain("u_dxb_");
   });
 });
+
+// The dispatcher's side of self-booking (#779): a `new` job booked online keeps the time the customer asked for.
+// Confirm books that time with a technician who is free then (the staff schedule path: `scheduled`, a confirmed
+// booking, the customer's visit_scheduled message); with nobody free the button is disabled and the page offers
+// the schedule form ("Propose another time"), after which the customer's message is booking_moved.
+describe("confirming a self-booking (#779)", () => {
+  const { outboxOf } = require("./outbox") as typeof import("./outbox");
+  const write = (sql: string, params: (string | number | null)[]) => {
+    const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
+    try {
+      db.run(sql, params);
+    } finally {
+      db.close();
+    }
+  };
+  const PHONE = String(rows("select phone from app__customers where id = 'cu_dxb_03'")[0]?.phone);
+  const service = Number(rows("select id from app__services where code = 'AC-REPAIR'")[0]?.id);
+  /** A self-booking of Fatima Al Suwaidi's (cu_dxb_03) waiting for the dispatcher, asking for `ms` (90 minutes, the service's length). */
+  const plant = (id: string, number: string, ms: number) => {
+    const at = Math.floor(Date.now() / 1000);
+    write(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values (?, 'br_dubai', 'cu_dxb_03', 'st_dxb_03a', null, ?, 'new', 'normal', ?, 'Booked online', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [id, number, service, ms / 1000, ms / 1000 + 5400, at, at],
+    );
+  };
+  const asked = mondayAt(10, 22);
+  /** A Sunday: the branch is closed, so nobody is free at the time asked. */
+  const sunday = { ms: asked.ms - 86_400_000, day: new Date(asked.ms - 86_400_000 + 4 * 3_600_000).toISOString().slice(0, 10) };
+
+  test("the page shows the badge and the requested time with the technicians free then, in English and Arabic", async () => {
+    plant("jb_online_free", "J-000961", asked.ms);
+    plant("jb_online_none", "J-000962", sunday.ms);
+    const res = await dubai.page("/jobs/jb_online_free?lang=en");
+    expect(res.status).toBe(200);
+    expect(res.html).toContain('<span class="badge" id="job-online">Booked online</span>');
+    const block = /<section id="requested"[^]*?<\/section>/u.exec(res.html)?.[0] ?? "";
+    expect(block).toContain("Requested time");
+    expect(block).toContain(`<span dir="ltr" id="requested-when">${asked.day} 10:00–11:30</span>`);
+    expect(block).toContain(`<option value="${ALI}"`);
+    expect(block).toContain(`<option value="${BILAL}"`);
+    expect(block).toContain('action="?/confirm"');
+    expect(block).toContain(`href="/jobs/jb_online_free?day=${asked.day}#schedule"`);
+    expect(block).not.toContain("disabled");
+    // The schedule form opens on the requested day.
+    expect(res.html).toMatch(new RegExp(`<input type="date" name="day" value="${asked.day}"`, "u"));
+    const ar = await dubai.page("/jobs/jb_online_free?lang=ar");
+    expect(ar.html).toContain("حُجز عبر الإنترنت");
+    expect(ar.html).toContain("الموعد المطلوب");
+    await dubai.page("/jobs/jb_online_free?lang=en");
+    // A job staff made has neither.
+    const staff = await dubai.page("/jobs/jb_seed_01");
+    expect(staff.html).not.toContain('id="job-online"');
+    expect(staff.html).not.toContain('id="requested"');
+  });
+
+  test("Confirm with a free technician books the requested time, schedules the job and sends the customer the scheduled message", async () => {
+    const res = await dubai.action("/jobs/jb_online_free", "confirm", { technician: ALI });
+    expect(res.status).toBe(303);
+    expect(located(res)).toBe("/jobs/jb_online_free");
+    const job = jobOf("J-000961");
+    expect(job).toMatchObject({ status: "scheduled", technician_user_id: ALI, scheduled_start: asked.ms / 1000, scheduled_end: asked.ms / 1000 + 5400, source: "self_booking" });
+    expect(rows("select status, staff_id, start_at from booking__bookings where id = ?", [job.booking_id as string])[0]).toEqual({ status: "confirmed", staff_id: ALI, start_at: asked.ms });
+    const event = rows("select from_status, to_status, note from app__job_events where job_id = 'jb_online_free' order by id desc limit 1")[0];
+    expect(event).toEqual({ from_status: "new", to_status: "scheduled", note: `confirmed the online booking for ${asked.day} 10:00 with Ali Hassan` });
+    const sent = outboxOf(rows, PHONE).filter((m) => m.template === "visit_scheduled" && m.text.includes("J-000961"));
+    expect(sent.length).toBe(1);
+    expect(sent[0]?.text).toContain(`${asked.day} 10:00`);
+    expect(sent[0]?.text).toContain("Ali Hassan");
+    // Scheduled now: the requested block is gone, the badge stays; a second confirm is a 409.
+    const page = await dubai.page("/jobs/jb_online_free");
+    expect(page.html).toContain('id="job-online"');
+    expect(page.html).not.toContain('id="requested"');
+    expect((await dubai.action("/jobs/jb_online_free", "confirm", { technician: BILAL })).status).toBe(409);
+  });
+
+  test("no technician free at the time asked: Confirm is disabled, the page says so and offers another time; a forced confirm is a 409", async () => {
+    const res = await dubai.page("/jobs/jb_online_none");
+    const block = /<section id="requested"[^]*?<\/section>/u.exec(res.html)?.[0] ?? "";
+    expect(block).toContain('id="requested-none"');
+    expect(block).toContain("No technician of this branch is free at that time.");
+    expect(block).toContain('<button type="button" disabled id="confirm-disabled">Confirm</button>');
+    expect(block).not.toContain('action="?/confirm"');
+    expect(block).toContain(`href="/jobs/jb_online_none?day=${sunday.day}#schedule"`);
+    const forced = await dubai.action("/jobs/jb_online_none", "confirm", { technician: ALI });
+    expect(forced.status).toBe(409);
+    expect(forced.html).toContain("Ali Hassan is not free at");
+    expect(jobOf("J-000962")).toMatchObject({ status: "new", technician_user_id: null, booking_id: null });
+    // An invalid technician is a 422 naming the field; a staff job has nothing to confirm.
+    const bad = await dubai.action("/jobs/jb_online_none", "confirm", { technician: "" });
+    expect(bad.status).toBe(422);
+    expect(bad.html).toContain('id="err-technician"');
+    expect((await dubai.action("/jobs/jb_seed_01", "confirm", { technician: ALI })).status).toBe(409);
+  });
+
+  test("Propose another time: the schedule form books another time, and the customer hears that the booking moved", async () => {
+    const other = mondayAt(13, 22);
+    const res = await dubai.action("/jobs/jb_online_none", "schedule", { slot: slot(BILAL, other.ms) });
+    expect(res.status).toBe(303);
+    expect(jobOf("J-000962")).toMatchObject({ status: "scheduled", technician_user_id: BILAL, scheduled_start: other.ms / 1000 });
+    const moved = outboxOf(rows, PHONE).filter((m) => m.template === "booking_moved" && m.text.includes("J-000962"));
+    expect(moved.length).toBe(1);
+    expect(moved[0]?.text).toContain(`${other.day} 13:00`);
+    expect(outboxOf(rows, PHONE).some((m) => m.template === "visit_scheduled" && m.text.includes("J-000962"))).toBe(false);
+  });
+
+  test("error case: a technician cannot confirm (403)", async () => {
+    plant("jb_online_tech", "J-000963", mondayAt(15, 22).ms);
+    expect((await ali.action("/jobs/jb_online_tech", "confirm", { technician: ALI })).status).toBe(403);
+    expect(jobOf("J-000963")).toMatchObject({ status: "new" });
+  });
+});
