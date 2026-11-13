@@ -34,6 +34,13 @@ export interface User {
   created_at: number;
 }
 
+/** The email column of a phone-only user (#773) starts with this: no `@`, so it matches no address; shown as "". */
+export const PHONE_ONLY_EMAIL = "!phone:";
+/** The password hash of a user with no password (phone sign-up); never an argon2id string, so nothing verifies. */
+export const NO_PASSWORD = "!phone";
+/** The `User` columns, with the sentinel email shown as "". */
+export const USER_COLUMNS = "id, case when email like '!phone:%' then '' else email end as email, display_name, created_at";
+
 export const COOKIE = "__Host-renox_auth";
 export const ACCOUNT_LIMIT = 10;
 export const IP_LIMIT = 30;
@@ -115,7 +122,7 @@ export async function currentSession(ctx: AuthCtx): Promise<{ id: string; user: 
   const t = now();
   const idle = intConfig(ctx, "session_idle_hours", 24) * 3600;
   if (s === null || s.revoked_at !== null || t >= s.absolute_expires_at || t - s.last_seen_at >= idle) return null;
-  const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where id = ?", [s.user_id]);
+  const user = await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where id = ?`, [s.user_id]);
   if (user === null) return null;
   // At most once a minute, so a page view is not a write each time.
   if (t - s.last_seen_at >= 60) await ctx.db.execute("update auth__sessions set last_seen_at = ? where id = ?", [t, s.id]);
@@ -142,10 +149,10 @@ export async function startSession(ctx: AuthCtx, userId: string): Promise<{ id: 
 }
 
 /** Bucket counts after `failed` (one more failure) or read only. */
-export async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> {
+export async function bucket(ctx: AuthCtx, key: string, add: boolean, windowSeconds = WINDOW_SECONDS): Promise<number> {
   const t = now();
   const row = await ctx.db.queryOne<{ count: number; window_start: number }>("select count, window_start from auth__attempts where bucket = ?", [key]);
-  const fresh = row === null || t - row.window_start >= WINDOW_SECONDS;
+  const fresh = row === null || t - row.window_start >= windowSeconds;
   const count = fresh ? 0 : (row as { count: number }).count;
   if (!add) return count;
   if (fresh) await ctx.db.execute("insert or replace into auth__attempts (bucket, count, window_start) values (?, 1, ?)", [key, t]);
@@ -199,7 +206,7 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   const acct = `acct:${email}`;
   const ip = `ip:${clientIp(ctx.headers)}`;
   const locked = (await bucket(ctx, acct, false)) >= ACCOUNT_LIMIT || (await bucket(ctx, ip, false)) >= IP_LIMIT;
-  const row = email ? await ctx.db.queryOne<User & { password_hash: string }>("select id, email, display_name, created_at, password_hash from auth__users where email = ?", [email]) : null;
+  const row = email ? await ctx.db.queryOne<User & { password_hash: string }>(`select ${USER_COLUMNS}, password_hash from auth__users where email = ? and email not like '!phone:%'`, [email]) : null;
   // Always one argon2 run: unknown email, wrong password, and lock cost the same.
   const valid = password.length > 0 && password.length <= 1024 ? await ctx.password.verify(password, row?.password_hash ?? DUMMY_HASH) : false;
   if (locked || row === null || !valid) {

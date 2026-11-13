@@ -6,6 +6,6 @@
     <input type="hidden" name="next" :value="next">
     <label><r-t key="auth.phone.number" /> <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" placeholder="+971 50 123 4567" :value="phone" required></label>
     <button type="submit"><r-t key="auth.phone.send" /></button>
-  </x-form>
+  </x-form><p class="hint" r-if="signup"><r-t key="auth.phone.signup_hint" /></p>
   <p><a href="../login"><r-t key="auth.phone.other_ways" /></a></p>
 </r-layout>

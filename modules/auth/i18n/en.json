@@ -72,6 +72,8 @@
       "other_ways": "Other ways to sign in",
       "code_title": "Enter your code",
       "sent": "If this number has an account, a code is on its way.",
+      "sent_signup": "A code is on its way to this number.",
+      "signup_hint": "New here? Enter your number and we will set up your account.",
       "code": "Code",
       "verify": "Verify",
       "again": "Use another number or ask for a new code"

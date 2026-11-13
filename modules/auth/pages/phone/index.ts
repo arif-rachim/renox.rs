@@ -3,7 +3,7 @@
 // every case), then a 303 to the code page. Off unless config `phone_login`.
 import { type AuthCtx, currentUser, redirectWith } from "../../lib/core.ts";
 import { localized } from "../../lib/locale.ts";
-import { requestLoginCode } from "../../lib/phone.ts";
+import { requestLoginCode, signupOn } from "../../lib/phone.ts";
 
 type Page = AuthCtx & { url: URL; form: FormData };
 
@@ -13,7 +13,7 @@ export const load = localized(async (ctx: Page) => {
   if (ctx.config.phone_login !== true) return off();
   const next = ctx.url.searchParams.get("next") ?? "/";
   if ((await currentUser(ctx)) !== null) return redirectWith(next, []);
-  return { next, phone: "", error: null };
+  return { next, phone: "", error: null, signup: signupOn(ctx) };
 });
 
 export const actions = {
@@ -21,7 +21,7 @@ export const actions = {
     if (ctx.config.phone_login !== true) return off();
     const next = String(ctx.form.get("next") ?? "/");
     const r = await requestLoginCode(ctx, ctx.form.get("phone"));
-    if (!r.ok) return { next, phone: String(ctx.form.get("phone") ?? ""), error: r.error };
+    if (!r.ok) return { next, phone: String(ctx.form.get("phone") ?? ""), error: r.error, signup: signupOn(ctx) };
     const mount = ctx.url.pathname.replace(/\/phone\/?$/u, "");
     return redirectWith(`${mount}/phone/verify?phone=${encodeURIComponent(r.phone)}&next=${encodeURIComponent(next)}`, []);
   }),

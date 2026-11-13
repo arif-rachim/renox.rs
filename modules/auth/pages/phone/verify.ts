@@ -3,7 +3,7 @@
 // a 303 to `next`, as the password flow.
 import { type AuthCtx, redirectWith } from "../../lib/core.ts";
 import { localized } from "../../lib/locale.ts";
-import { normalizePhone, SENT_MESSAGE, verifyLoginCode } from "../../lib/phone.ts";
+import { normalizePhone, SENT_MESSAGE, signupOn, verifyLoginCode } from "../../lib/phone.ts";
 
 type Page = AuthCtx & { url: URL; form: FormData };
 
@@ -11,7 +11,7 @@ const off = () => new Response("Not found", { status: 404 });
 
 export const load = localized(async (ctx: Page) => {
   if (ctx.config.phone_login !== true) return off();
-  return { phone: normalizePhone(ctx.url.searchParams.get("phone")) ?? "", next: ctx.url.searchParams.get("next") ?? "/", message: SENT_MESSAGE, error: null };
+  return { phone: normalizePhone(ctx.url.searchParams.get("phone")) ?? "", next: ctx.url.searchParams.get("next") ?? "/", message: signupOn(ctx) ? null : SENT_MESSAGE, sent_signup: signupOn(ctx), error: null };
 });
 
 export const actions = {
@@ -20,7 +20,7 @@ export const actions = {
     const phone = String(ctx.form.get("phone") ?? "");
     const next = String(ctx.form.get("next") ?? "/");
     const r = await verifyLoginCode(ctx, phone, ctx.form.get("code"), next);
-    if (!r.ok) return { phone, next, message: null, error: r.error };
+    if (!r.ok) return { phone, next, message: null, sent_signup: false, error: r.error };
     if (r.halt) return r.halt;
     return redirectWith(next, [r.cookie]);
   }),

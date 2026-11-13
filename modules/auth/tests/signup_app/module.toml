@@ -1,0 +1,3 @@
+# Not a module: the marker that makes `renox test` build tests/app/ below.
+# phone-signup.test.ts runs the auth module with phone_signup on (the app of
+# tests/app has it off).

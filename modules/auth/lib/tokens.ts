@@ -89,7 +89,7 @@ async function sendAllowed(ctx: AuthCtx, email: string): Promise<boolean> {
 export async function sendLink(ctx: AuthCtx & { url: URL }, purpose: Purpose, rawEmail: string): Promise<string> {
   const email = normalizeEmail(rawEmail);
   if (!(await sendAllowed(ctx, email))) return SENT;
-  const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where email = ?", [email]);
+  const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where email = ? and email not like '!phone:%'", [email]);
   if (user === null) return SENT;
   const token = await createToken(ctx, purpose, user.id);
   const path = purpose === "magic" ? `${mountOf(ctx)}/magic/${token}` : `${mountOf(ctx)}/reset/confirm?token=${token}`;
