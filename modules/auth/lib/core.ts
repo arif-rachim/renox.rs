@@ -34,6 +34,13 @@ export interface User {
   created_at: number;
 }
 
+/** The email column of a phone-only user (#773) starts with this: no `@`, so it matches no address; shown as "". */
+export const PHONE_ONLY_EMAIL = "!phone:";
+/** The password hash of a user with no password (phone sign-up); never an argon2id string, so nothing verifies. */
+export const NO_PASSWORD = "!phone";
+/** The `User` columns, with the sentinel email shown as "". */
+export const USER_COLUMNS = "id, case when email like '!phone:%' then '' else email end as email, display_name, created_at";
+
 export const COOKIE = "__Host-renox_auth";
 export const ACCOUNT_LIMIT = 10;
 export const IP_LIMIT = 30;
@@ -115,7 +122,7 @@ export async function currentSession(ctx: AuthCtx): Promise<{ id: string; user: 
   const t = now();
   const idle = intConfig(ctx, "session_idle_hours", 24) * 3600;
   if (s === null || s.revoked_at !== null || t >= s.absolute_expires_at || t - s.last_seen_at >= idle) return null;
-  const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where id = ?", [s.user_id]);
+  const user = await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where id = ?`, [s.user_id]);
   if (user === null) return null;
   // At most once a minute, so a page view is not a write each time.
   if (t - s.last_seen_at >= 60) await ctx.db.execute("update auth__sessions set last_seen_at = ? where id = ?", [t, s.id]);
@@ -142,10 +149,10 @@ export async function startSession(ctx: AuthCtx, userId: string): Promise<{ id: 
 }
 
 /** Bucket counts after `failed` (one more failure) or read only. */
-export async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> {
+export async function bucket(ctx: AuthCtx, key: string, add: boolean, windowSeconds = WINDOW_SECONDS): Promise<number> {
   const t = now();
   const row = await ctx.db.queryOne<{ count: number; window_start: number }>("select count, window_start from auth__attempts where bucket = ?", [key]);
-  const fresh = row === null || t - row.window_start >= WINDOW_SECONDS;
+  const fresh = row === null || t - row.window_start >= windowSeconds;
   const count = fresh ? 0 : (row as { count: number }).count;
   if (!add) return count;
   if (fresh) await ctx.db.execute("insert or replace into auth__attempts (bucket, count, window_start) values (?, 1, ?)", [key, t]);
@@ -159,16 +166,20 @@ export const TICKET_SECONDS = 10 * 60;
 
 /**
  * `auth.after_login` for every sign-in method (password, magic link, OAuth,
- * phone, passkey): the fillers get `{ user_id, next?, resume }`. `resume` is
+ * phone, passkey): the fillers get `{ user_id, method, next?, resume }`
+ * (`method` names the check that ran, #794). `resume` is
  * a single-use ticket (10 minutes, stored hashed): a filler that halts (2fa,
  * #287) keeps it and, once its own check passed, calls `auth.resumeLogin`
  * with it to start the session. Without a halt the ticket is spent at once.
  */
-export async function afterLogin(ctx: AuthCtx, userId: string, next?: string): Promise<{ halt: false } | { halt: true; response: Response }> {
+/** The sign-in method an `auth.after_login` filler is told (#794); UAE PASS signs in through the OAuth path. */
+export type LoginMethod = "password" | "magic" | "oauth" | "phone" | "passkey";
+
+export async function afterLogin(ctx: AuthCtx, userId: string, method: LoginMethod, next?: string): Promise<{ halt: false } | { halt: true; response: Response }> {
   const ticket = randomHex(32);
   const hash = await sha256Hex(ticket);
   await ctx.db.execute("insert into auth__login_tickets (ticket_hash, user_id, next, expires_at) values (?, ?, ?, ?)", [hash, userId, next ?? null, now() + TICKET_SECONDS]);
-  const hook = await ctx.hooks.run("auth.after_login", { user_id: userId, ...(next ? { next } : {}), resume: ticket });
+  const hook = await ctx.hooks.run("auth.after_login", { user_id: userId, method, ...(next ? { next } : {}), resume: ticket });
   if (hook.halt) return { halt: true, response: hook.response };
   await ctx.db.execute("delete from auth__login_tickets where ticket_hash = ?", [hash]);
   return { halt: false };
@@ -199,7 +210,7 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   const acct = `acct:${email}`;
   const ip = `ip:${clientIp(ctx.headers)}`;
   const locked = (await bucket(ctx, acct, false)) >= ACCOUNT_LIMIT || (await bucket(ctx, ip, false)) >= IP_LIMIT;
-  const row = email ? await ctx.db.queryOne<User & { password_hash: string }>("select id, email, display_name, created_at, password_hash from auth__users where email = ?", [email]) : null;
+  const row = email ? await ctx.db.queryOne<User & { password_hash: string }>(`select ${USER_COLUMNS}, password_hash from auth__users where email = ? and email not like '!phone:%'`, [email]) : null;
   // Always one argon2 run: unknown email, wrong password, and lock cost the same.
   const valid = password.length > 0 && password.length <= 1024 ? await ctx.password.verify(password, row?.password_hash ?? DUMMY_HASH) : false;
   if (locked || row === null || !valid) {
@@ -213,7 +224,7 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   await ctx.db.execute("delete from auth__attempts where bucket = ?", [acct]);
   const user: User = { id: row.id, email: row.email, display_name: row.display_name, created_at: row.created_at };
   // A filler that halts (2fa, F5) answers instead; no session is started yet.
-  const hook = await afterLogin(ctx, user.id, input.next);
+  const hook = await afterLogin(ctx, user.id, "password", input.next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });

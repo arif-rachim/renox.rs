@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
 import { discoverAppHooks, discoverFunctions, discoverPages, discoverRealtime, discoverWebhooks, type Route } from "../routes.ts";
-import { lazyModuleEntries, readHookKeys, unapprovedHookMessage, unreadableMessage } from "../hook-keys.ts";
+import { lazyModuleEntries, moduleErrorCodes, readHookKeys, unapprovedHookMessage, unreadableMessage } from "../hook-keys.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
@@ -290,6 +290,9 @@ export function moduleParts(project: string): ModuleParts {
         events: Object.fromEntries(Object.entries(obj(exportsDoc.events)).map(([k, v]) => [k, (obj(v).payload ?? { type: "object" }) as Json])),
         hooks: Object.keys(obj(exportsDoc.hooks)),
         views: strings(exportsDoc.views),
+        // #769: the declared error codes (MF18), the only ones that cross to a caller; written
+        // once the pinned worker reads them (moduleErrorCodes: a 0.9.0 worker refuses the field).
+        ...(Object.keys(obj(exportsDoc.errors)).length && moduleErrorCodes() ? { errors: Object.keys(obj(exportsDoc.errors)) } : {}),
       },
       // Artifact 1.3: the module's [authz] and [realtime] (#283, #284).
       ...(manifest.doc.authz !== undefined ? { authz: manifest.doc.authz as Json } : {}),

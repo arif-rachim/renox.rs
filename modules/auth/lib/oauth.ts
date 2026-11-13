@@ -352,7 +352,7 @@ async function recordUaepass(ctx: AuthCtx, userId: string, profile: Profile): Pr
 
 /** After the profile: `auth.after_login`, the session, `auth.login`. */
 export async function finishSignIn(ctx: AuthCtx, user: User): Promise<{ cookie: string; halt?: Response }> {
-  const hook = await afterLogin(ctx, user.id);
+  const hook = await afterLogin(ctx, user.id, "oauth");
   if (hook.halt) return { cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: Math.floor(Date.now() / 1000) });

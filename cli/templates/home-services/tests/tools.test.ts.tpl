@@ -313,7 +313,6 @@ describe("the audit trail of an agent's tool call (#683)", () => {
 // actions are `settings.update`, `branch.write` and `service.write` and not the pages' sensitive `settings.write`.
 // The owner belongs to two branches, so the consent must name one (t.tool cannot): this agent acts in Dubai.
 import { Database } from "bun:sqlite";
-import { createHash } from "node:crypto";
 import { agentToken, callTool, listTools } from "@renoxium/sdk/test";
 
 const ownerJar = await signIn("owner-tools", "owner@fixit.example");
@@ -744,18 +743,18 @@ describe("invite_staff (#751)", () => {
     expect(rows("select org_id, role, invited_by from org__invites where email = ?", [EMAIL])).toEqual([{ org_id: "org_dubai", role: "member", invited_by: "u_owner" }]);
     expect(rows("select branch_id, role, invited_by, applied_at from app__staff_invites where email = ?", [EMAIL])).toEqual([{ branch_id: "br_dubai", role: "technician", invited_by: "u_owner", applied_at: null }]);
     expect(Number(rows("select count(*) as n from audit__events where action = 'staff.invite'")[0]?.n)).toBeGreaterThanOrEqual(1);
-    // Only the token's hash is stored, and the mail's link is a path (a tool call has no request origin), so the
-    // test gives the invitation a token it knows, as the invitee's mail would carry.
-    const token = "75".repeat(32);
-    const db = new Database(t.dbFile);
-    db.exec("pragma busy_timeout = 5000");
-    db.query("update org__invites set token_hash = ? where email = ?").run(createHash("sha256").update(token).digest("hex"), EMAIL);
-    db.close();
+    // The invitation mail carries the accept link on the app's own host (a tool call has no request origin: the
+    // email module completes org's path on its app_url, #765); the invitee follows it.
+    const mail = rows("select text_body, html_body from email__messages where to_address = ? order by at desc limit 1", [EMAIL])[0] as { text_body: string; html_body: string };
+    const link = /https:\/\/home-services\.renoxium\.app\/org\/accept\/[A-Za-z0-9_-]+/u.exec(mail.text_body)?.[0] ?? "";
+    expect(link).not.toBe("");
+    expect(mail.html_body).toContain(`href="${link}"`);
+    const accept = new URL(link).pathname;
 
     const sara = t.as("sara");
     expect((await sara.action("/auth/register", "default", { email: EMAIL, password: PASSWORD, display_name: "Sara Tech" })).status).toBe(200);
     expect((await sara.action("/auth/login", "default", { email: EMAIL, password: PASSWORD })).status).toBe(303);
-    expect((await sara.action(`/org/accept/${token}`, "accept", {})).status).toBe(303);
+    expect((await sara.action(accept, "accept", {})).status).toBe(303);
     let held: Record<string, unknown>[] = [];
     for (let i = 0; i < 100 && held.length === 0; i++) {
       held = rows("select role, scope_type, scope_id from renox__role_assignments where user_id = (select id from auth__users where email = ?)", [EMAIL]);
@@ -776,5 +775,68 @@ describe("invite_staff (#751)", () => {
       { branch_id: "br_sharjah", role: "branch_manager" },
       { branch_id: "br_sharjah", role: "accountant" },
     ]);
+  });
+});
+
+// The customer portal's three settings through the owner connector (#779): "let customers book online and confirm
+// automatically" is one update_settings call, with the page's ranges and a plan in plain words.
+describe("update_settings: the customer portal (#779)", () => {
+  const portalRows = () => rows("select key, value from app__settings where key like 'portal_%' order by key");
+
+  test("get_settings shows the portal as it applies (the defaults while nothing is set)", async () => {
+    expect((await own("get_settings", {})).result).toMatchObject({ portal: { auto_confirm: false, cutoff_hours: 12, max_reschedules: 2 } });
+  });
+
+  test("the first call names each change in plain words and writes nothing; the confirmed one writes, audits and answers", async () => {
+    const args = { settings: { portal: { auto_confirm: true, cutoff_hours: 24, max_reschedules: 2 } } };
+    const preview = await own("update_settings", args);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    // max_reschedules is already 2 (the default): it is not a change.
+    expect(preview.preview).toEqual({
+      would_change: [
+        { key: "portal_auto_confirm", from: "0", to: "1" },
+        { key: "portal_cutoff_hours", from: "12", to: "24" },
+      ],
+      plan: "Confirm online bookings automatically: off → on; Customers may change a visit until: 12 hours before → 24 hours before.",
+    });
+    expect(portalRows()).toEqual([]);
+    const done = await own("update_settings", args, true);
+    expect(done.ok, JSON.stringify(done)).toBe(true);
+    expect(done.result).toMatchObject({ portal: { auto_confirm: true, cutoff_hours: 24, max_reschedules: 2 } });
+    expect(portalRows()).toEqual([
+      { key: "portal_auto_confirm", value: "1" },
+      { key: "portal_cutoff_hours", value: "24" },
+    ]);
+    const audit = JSON.parse(String(rows("select details from audit__events where action = 'settings.update' order by rowid desc limit 1")[0]?.details)) as { keys: string[] };
+    expect(audit.keys.sort()).toEqual(["portal_auto_confirm", "portal_cutoff_hours"]);
+    // Off again, with the brand in the same call: the plan names both.
+    const both = await own("update_settings", { settings: { brand_name: "FixIt Plus", portal: { auto_confirm: false } } });
+    expect((both.preview as { plan: string }).plan).toContain("Confirm online bookings automatically: on → off");
+    expect((both.preview as { plan: string }).plan).toContain('Company name: "');
+    expect((await own("update_settings", { settings: { portal: { auto_confirm: false } } }, true)).result).toMatchObject({ portal: { auto_confirm: false } });
+  });
+
+  test("the page's ranges: out of range, not whole, not a boolean or an unknown key is invalid and writes nothing; the limits are accepted", async () => {
+    const before = portalRows();
+    const bad: Record<string, unknown>[] = [
+      { settings: { portal: {} } },
+      { settings: { portal: { cutoff_hours: 169 } } },
+      { settings: { portal: { cutoff_hours: -1 } } },
+      { settings: { portal: { cutoff_hours: 1.5 } } },
+      { settings: { portal: { cutoff_hours: "12" } } },
+      { settings: { portal: { max_reschedules: 6 } } },
+      { settings: { portal: { auto_confirm: "yes" } } },
+      { settings: { portal: { waiting_list: true } } },
+      { settings: { portal: true } },
+    ];
+    for (const args of bad) expectInvalid(await own("update_settings", args), JSON.stringify(args));
+    expect(portalRows()).toEqual(before);
+    expect((await own("update_settings", { settings: { portal: { cutoff_hours: 168, max_reschedules: 0 } } }, true)).result).toMatchObject({ portal: { cutoff_hours: 168, max_reschedules: 0 } });
+    expect((await own("update_settings", { settings: { portal: { cutoff_hours: 0, max_reschedules: 5 } } }, true)).result).toMatchObject({ portal: { cutoff_hours: 0, max_reschedules: 5 } });
+  });
+
+  test("a dispatcher's agent cannot change the portal", async () => {
+    const r = await t.tool("update_settings", { settings: { portal: { auto_confirm: true } } }, { as: dina });
+    expect(r.error?.code).toBe("RENOX_FORBIDDEN");
   });
 });

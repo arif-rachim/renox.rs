@@ -10,13 +10,16 @@
 // and this script. `renox.lock` is copied: `renox check` generates the module
 // types (`renox:modules`) from it. A text file becomes
 // `<path>.tpl`; a binary one (BINARY) becomes `<path>.base64.tpl`, its bytes in
-// base64, which `renox new` decodes. `renox.toml` gets `name = "{{APP}}"`.
+// base64, which `renox new` decodes. `renox.toml` gets `name = "{{APP}}"`, and the
+// email module's `app_url` in `renox.toml` and `renox.lock` becomes `https://{{APP}}.renoxium.app`.
 // `files.ts` imports them all as text (so the compiled CLI embeds them) and is
 // generated here too.
 import { type Dirent, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
 export const EXAMPLE_DIR = import.meta.dir;
+/** The example's own origin on the platform domain, the email module's `app_url` in renox.toml and renox.lock (#765). */
+export const APP_URL = "https://home-services.renoxium.app";
 export const TEMPLATE_DIR = join(import.meta.dir, "../../cli/templates/home-services");
 
 /** Paths (relative to the example) that stay out of the template. */
@@ -45,6 +48,8 @@ export function templateEntry(rel: string): { file: string; content: string } {
     if (named === text) throw new Error('renox.toml: no line name = "home-services" to replace');
     text = named;
   }
+  // The email module's app_url (#765) is the app's own host on the platform domain: a new app gets its own.
+  if (rel === "renox.toml" || rel === "renox.lock") text = text.replaceAll(`app_url = "${APP_URL}"`, 'app_url = "https://{{APP}}.renoxium.app"');
   return { file: `${rel}.tpl`, content: text };
 }
 

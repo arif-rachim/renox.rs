@@ -51,7 +51,16 @@ Roles are the `[authz.default_roles]` of `renox.toml`; branches are `org` organi
    _Screenshot: the invoice list and an invoice with a payment._
 
 6. **Contracts.** An annual maintenance contract lists services at the customer's sites with a number of visits a year. A daily scheduled job makes the next visits as jobs 14 days ahead, and another reminds the customer 30 days before the end and expires the contract after its last day; renewing copies it for the next year.
-7. **Reports.** The owner and the accountant see sales per day, jobs and hours per technician, contracts due for renewal and outstanding invoices by age, and export each as CSV or Excel.
+7. **The customer's own path.** The customer can also do it alone, from a phone, with no account and no call:
+   - **Book.** `/book` (the link the owner shares): the service, the emirate, the area and the address, then a free time of the next 7 days across the branch's technicians, then the name and the WhatsApp number. A one-time code on WhatsApp signs the customer in, and "Confirm booking" makes the customer, the site and the job (`source = self_booking`).
+   - **Confirm.** With "Confirm online bookings automatically" on (`/admin/settings`, "Customer portal"), the job is scheduled at once with the technician of the chosen time. Off (the default), the job waits in the board's New column with a "Booked online" badge and the time it wants; the board's header counts these and links to `/jobs?source=self_booking`. On the job page the dispatcher presses **Confirm** with one of the technicians free at that time, or, when nobody is, uses the schedule form below ("Propose another time"). The customer gets `visit_scheduled` or `booking_moved` on WhatsApp.
+   - **Follow.** `/my` lists the customer's visits; `/my/visits/<id>` shows the time, the technician and, after the visit, the report and its photos.
+   - **Change.** On the same page the customer moves the visit to another free time or cancels it, until the cut-off before the slot (default 12 hours) and up to the number of moves a visit allows (default 2); after that the page shows the branch's phone.
+   - **Invoice.** `/my/invoices` lists the customer's tax invoices with what is still to pay, and `/my/invoices/<number>` shows one with its PDF and the payment instructions while it is open.
+
+   _Screenshot: `/book` step 2 and the job page's "Requested time" on a phone._
+
+8. **Reports.** The owner and the accountant see sales per day, jobs and hours per technician, contracts due for renewal and outstanding invoices by age, and export each as CSV or Excel.
 
    _Screenshot: the reports page._
 
@@ -214,13 +223,20 @@ renox secrets set WHATSAPP_VERIFY_TOKEN
 renox secrets set WHATSAPP_APP_SECRET
 ```
 
-3. Register the six message templates of `i18n/whatsapp.*.json` in English and Arabic (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) and wait for Meta's approval; see "WhatsApp (from the `whatsapp` module's README)" in the app's `README.md`.
+3. Register the ten message templates of `i18n/whatsapp.*.json` in English and Arabic (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`, `visit_moved`, `visit_cancelled`, `booking_moved`) and wait for Meta's approval; see "WhatsApp (from the `whatsapp` module's README)" in the app's `README.md`.
 4. In `renox.toml` change the module's config to `sandbox = false`, set `public_url` to the app's address, and run `renox deploy`.
 5. Test with one number first: a customer whose phone is the owner's own, a quotation sent to it, and the message arriving on that phone. Only then tell the staff.
 
 `/admin/whatsapp` (the owner) lists the last 50 messages the app sent, newest first: the time, the recipient (only the last four digits show), the template or the start of the text, and the status (queued, sent, delivered, read or failed). Filter by status (`?status=failed`) or by phone. Codes of sign-in messages are never shown, and there is no resend button.
 
-### 8. The company's own domain
+### 8. Open online booking
+
+1. `/admin/settings`, section "Customer portal": decide with the owner whether online bookings are confirmed automatically ("Confirm online bookings automatically"; off by default, so a dispatcher confirms each one on the job page), until how many hours before a visit a customer may still change it (0 to 168, default 12), how often one visit may be moved (0 to 5, default 2), and the payment instructions in English and Arabic. Save: a number out of range is refused with the field named, and the change is a `settings.update` row in `/admin/audit`.
+2. `/services`: untick "Bookable online" for any service the company does not want booked without a call.
+3. Copy "The booking link to share" from the same section (`https://<the app's address>/book`) and give it to the company: their WhatsApp profile, their website, their next message to customers.
+4. A test booking. With the WhatsApp sandbox still on (step 7), the sign-in code is recorded as sent but never delivered (the `whatsapp` module's README, "Sandbox"), so the test stops at the code: open the link on a phone, check that step 1 offers the company's services and emirates and step 2 their free times, give the owner's own number in step 3, and see the `otp` row for that number on `/admin/whatsapp` (`?phone=`; the code itself is never shown). Once WhatsApp is live, run it to the end with the same number: enter the code, press "Confirm booking", and you should land on `/my` with "We received your booking". On `/dispatch` the job is in New with "Booked online" and the requested time; open it and press Confirm with a free technician, and the `visit_scheduled` message arrives on the owner's phone. Then cancel the test job.
+
+### 9. The company's own domain
 
 ```sh
 renox domains add www.acme-fm.example
@@ -229,7 +245,7 @@ renox domains status www.acme-fm.example
 
 `add` prints the CNAME record and the two TXT records to create (use `www.<domain>`, not the apex). Enter them at the company's DNS provider, where they bought the domain. `status` shows `pending` and then `verified`; the time depends on the provider's DNS, from a few minutes to a few hours. When it is verified, set `public_url` to the new address (`app__settings`) and deploy again.
 
-### 9. First-week checklist
+### 10. First-week checklist
 
 - [ ] Day 1: one real job from quotation to paid invoice, with the company's own customer.
 - [ ] The owner and every manager have the second factor on and the recovery codes stored.
@@ -240,8 +256,9 @@ renox domains status www.acme-fm.example
 - [ ] A contract was activated and its invoice reached the customer.
 - [ ] A WhatsApp message to one real number arrived (or the sandbox is still on, on purpose).
 - [ ] The company knows who to call: you, and the address for support requests.
+- [ ] A test booking on `/book` reached the board and was confirmed (or the owner chose to confirm automatically).
 - [ ] A date for the one-week review is in both calendars.
 
-### 10. The written exit
+### 11. The written exit
 
 The company's data is theirs: at any time `renox db export` downloads the whole SQLite database (checked by sha256), and `renox export` downloads a runnable copy of the app (database, stored files and the deployed artifact) that `renox-worker --config worker.toml` serves on any host; the self-hosting steps are in `docs/self-host.md`. Secret values are not exported; their names are listed in `secrets.txt`.

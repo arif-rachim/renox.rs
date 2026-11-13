@@ -61,6 +61,45 @@ export async function principal(ctx: AuthCtx, _sessionId?: string | null): Promi
   return { id: u.id, attrs };
 }
 
+/**
+ * Set the signed-in user's display name (#773): a phone-only account starts
+ * with an empty one, and an app asks for it once. 1 to 80 characters after
+ * trimming; throws `AuthRequiredError` when signed out.
+ */
+export async function setDisplayName(ctx: AuthCtx, name: unknown): Promise<{ display_name: string } | { error: string }> {
+  const u = await core.currentUser(ctx);
+  if (u === null) throw new core.AuthRequiredError();
+  const v = typeof name === "string" ? name.trim() : "";
+  if (v.length < 1 || v.length > 80) return { error: "Enter a name of 1 to 80 characters." };
+  await ctx.db.execute("update auth__users set display_name = ?, updated_at = ? where id = ?", [v, core.now(), u.id]);
+  return { display_name: v };
+}
+
+/**
+ * Whether the signed-in user has a password (#773): false for an account
+ * made by phone sign-up (or OAuth), so an app can tell a phone-only
+ * account. False when signed out. (`principal` attrs cannot carry it: the
+ * platform's Cedar schema fixes them.)
+ */
+export async function hasPassword(ctx: AuthCtx): Promise<boolean> {
+  const u = await core.currentUser(ctx);
+  if (u === null) return false;
+  const row = await ctx.db.queryOne<{ password_hash: string }>("select password_hash from auth__users where id = ?", [u.id]);
+  return row !== null && row.password_hash.startsWith("$");
+}
+
+/**
+ * The signed-in user's phone in E.164 when it is verified, else null; null
+ * when signed out (#794): an app links its own records to the person by it
+ * (a customer portal), since auth__users is the module's own table.
+ */
+export async function verifiedPhone(ctx: AuthCtx): Promise<string | null> {
+  const u = await core.currentUser(ctx);
+  if (u === null) return null;
+  const row = await ctx.db.queryOne<{ phone: string | null }>("select phone from auth__users where id = ? and phone_verified_at is not null", [u.id]);
+  return row?.phone ?? null;
+}
+
 /** The signed-in user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`); a page sends `loginUrl(next)` instead. */
 export async function requireUser(ctx: AuthCtx): Promise<User> {
   const u = await core.currentUser(ctx);

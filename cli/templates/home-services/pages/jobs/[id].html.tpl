@@ -2,7 +2,7 @@
   <r-group slot="title">{{ job.number }} · {{ brand.name }}</r-group>
   <p><a href="/jobs"><r-t key="jobs.back" /></a></p>
   <h1 dir="ltr">{{ job.number }}</h1>
-  <p><span :class="'status status-' ~ job.status" id="job-status">{{ ('jobs.status.' ~ job.status) | t }}</span> <span :class="'priority priority-' ~ job.priority">{{ ('jobs.priority.' ~ job.priority) | t }}</span></p>
+  <p><span :class="'status status-' ~ job.status" id="job-status">{{ ('jobs.status.' ~ job.status) | t }}</span> <span :class="'priority priority-' ~ job.priority">{{ ('jobs.priority.' ~ job.priority) | t }}</span><r-group r-if="online"> <span class="badge" id="job-online"><r-t key="jobs.badge.self_booking" /></span></r-group></p>
   <dl class="detail">
     <dt><r-t key="jobs.f.customer" /></dt>
     <dd><a r-if="customer" :href="'/customers/' ~ customer.id">{{ customer.name }}</a> <span dir="ltr" r-if="customer">{{ customer.phone }}</span></dd>
@@ -18,6 +18,23 @@
     <dd id="job-technician">{{ job.technician }}</dd>
   </dl>
   <p r-if="job.description">{{ job.description }}</p>
+
+  <section id="requested" r-if="requested">
+    <h2><r-t key="jobs.requested.title" /></h2>
+    <p><r-t key="jobs.requested.intro" /> <span dir="ltr" id="requested-when">{{ requested.start }}–{{ requested.end }}</span></p>
+    <r-group r-if="can_dispatch">
+      <r-group r-if="requested.free"><x-form action="confirm" class="stack narrow">
+        <p><label><r-t key="jobs.requested.technician" /> <select name="technician" required id="f-confirm-technician" :aria-invalid="true if values.form == 'confirm' and errors.technician else false" :aria-describedby="'err-technician' if values.form == 'confirm' and errors.technician else none" aria-required="true">
+          <option r-for="t in requested.free" :value="t.id" :selected="values.form == 'confirm' and t.id == values.technician">{{ t.name }}</option>
+        </select></label></p>
+        <p><button type="submit" class="btn-brand"><r-t key="jobs.requested.confirm" /></button> <a :href="requested.propose"><r-t key="jobs.requested.propose" /></a></p>
+      </x-form></r-group>
+      <r-group r-else>
+        <p id="requested-none"><r-t key="jobs.requested.none" /></p>
+        <p><button type="button" disabled id="confirm-disabled"><r-t key="jobs.requested.confirm" /></button> <a :href="requested.propose"><r-t key="jobs.requested.propose" /></a></p>
+      </r-group>
+    </r-group>
+  </section>
 
   <section id="schedule" r-if="can_schedule">
     <h2><r-t key="jobs.schedule.title" /></h2>

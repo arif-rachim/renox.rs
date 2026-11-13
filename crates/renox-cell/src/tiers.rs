@@ -14,6 +14,9 @@ use serde::Deserialize;
 pub struct Tier {
     /// CPU time per request.
     pub cpu_ms: u64,
+    /// CPU time per job attempt (`ops.md` section 20): replaces `cpu_ms` for
+    /// a job; events, tools and requests keep `cpu_ms`.
+    pub job_cpu_ms: u64,
     /// Wall clock per request.
     pub wall_ms: u64,
     /// V8 heap per isolate.
@@ -31,6 +34,7 @@ pub struct Tier {
 impl Tier {
     pub const FREE: Tier = Tier {
         cpu_ms: Limits::FREE.cpu_ms,
+        job_cpu_ms: Limits::FREE.job_cpu_ms,
         wall_ms: Limits::FREE.wall_ms,
         heap_mb: Limits::FREE.heap_bytes / (1024 * 1024),
         concurrency: Limits::FREE.concurrency,
@@ -41,6 +45,7 @@ impl Tier {
 
     pub const PAID: Tier = Tier {
         cpu_ms: Limits::PAID.cpu_ms,
+        job_cpu_ms: Limits::PAID.job_cpu_ms,
         wall_ms: Limits::PAID.wall_ms,
         heap_mb: Limits::PAID.heap_bytes / (1024 * 1024),
         concurrency: Limits::PAID.concurrency,
@@ -54,6 +59,7 @@ impl Tier {
     pub fn runtime_limits(&self, base: Limits) -> Limits {
         Limits {
             cpu_ms: self.cpu_ms,
+            job_cpu_ms: self.job_cpu_ms,
             wall_ms: self.wall_ms,
             heap_bytes: self.heap_mb * 1024 * 1024,
             concurrency: self.concurrency,
@@ -69,6 +75,7 @@ impl Tier {
 #[serde(deny_unknown_fields)]
 pub struct TierOverride {
     pub cpu_ms: Option<u64>,
+    pub job_cpu_ms: Option<u64>,
     pub wall_ms: Option<u64>,
     pub heap_mb: Option<u64>,
     pub concurrency: Option<u32>,
@@ -115,6 +122,7 @@ impl Tiers {
                 }
             };
             set(&mut tier.cpu_ms, o.cpu_ms);
+            set(&mut tier.job_cpu_ms, o.job_cpu_ms);
             set(&mut tier.wall_ms, o.wall_ms);
             set(&mut tier.heap_mb, o.heap_mb);
             set(&mut tier.db_quota_bytes, o.db_quota_bytes);
@@ -149,11 +157,23 @@ mod tests {
     fn defaults_match_the_docs() {
         let t = Tiers::default();
         assert_eq!((t.free.cpu_ms, t.paid.cpu_ms), (50, 500));
+        // #768: a job attempt has a CPU budget of its own.
+        assert_eq!((t.free.job_cpu_ms, t.paid.job_cpu_ms), (2_000, 10_000));
         assert_eq!((t.free.wall_ms, t.paid.wall_ms), (30_000, 60_000));
         assert_eq!((t.free.heap_mb, t.paid.heap_mb), (128, 512));
         assert_eq!((t.free.concurrency, t.paid.concurrency), (50, 500));
         assert_eq!(t.free.db_quota_bytes, 100 * 1024 * 1024);
         assert_eq!(t.paid.db_quota_bytes, 10 * 1024 * 1024 * 1024);
+    }
+
+    /// #768: the job budget reaches the runtime's limits; the request
+    /// limit stays the tier's `cpu_ms`.
+    #[test]
+    fn the_job_budget_reaches_the_runtime_limits() {
+        let l = Tier::FREE.runtime_limits(Limits::FREE);
+        assert_eq!((l.cpu_ms, l.job_cpu_ms), (50, 2_000));
+        let l = Tier::PAID.runtime_limits(Limits::PAID);
+        assert_eq!((l.cpu_ms, l.job_cpu_ms), (500, 10_000));
     }
 
     #[test]
@@ -168,6 +188,7 @@ mod tests {
         .into();
         let t = Tiers::with_overrides(&o);
         assert_eq!(t.free.cpu_ms, 20);
+        assert_eq!(t.free.job_cpu_ms, 2_000);
         assert_eq!(t.free.wall_ms, 30_000);
         assert_eq!(t.paid, Tier::PAID);
     }

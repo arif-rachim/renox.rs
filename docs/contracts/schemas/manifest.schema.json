@@ -911,6 +911,19 @@
                 "$ref": "#/$defs/dottedName"
               }
             },
+            "errors": {
+              "type": "array",
+              "description": "1.11 (#769): the codes of the manifest's [exports.errors] (manifest.md MF18): the only codes of this module whose error crosses to a caller as cause_code, with its filtered details (ops.md section 15.2, \"Errors\")",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+                "not": {
+                  "pattern": "^RENOX_"
+                }
+              }
+            },
             "views": {
               "type": "array",
               "maxItems": 64,

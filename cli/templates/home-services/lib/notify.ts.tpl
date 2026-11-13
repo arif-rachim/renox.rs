@@ -98,6 +98,11 @@ export async function notifyCustomer(ctx: NotifyCtx, customer: { id: string }, k
   return channel;
 }
 
+/** Tells each of these staff members in the app (the notifications module: the badge updates over SSE); a new self-booking tells the branch's dispatchers (lib/book.ts). */
+export async function notifyStaff(userIds: readonly string[], note: { category: string; title: string; link?: string }): Promise<void> {
+  for (const id of new Set(userIds)) await notifications.notify(id, { category: note.category, title: note.title, ...(note.link === undefined ? {} : { link: note.link }) });
+}
+
 async function deliver(ctx: NotifyCtx, sdb: DbStatements, c: CustomerRow, kind: MessageKind, data: MessageData): Promise<{ channel: Channel; template: string | null }> {
   const settings = await getSettings(ctx.db);
   const language: Language = c.language === "ar" ? "ar" : "en";

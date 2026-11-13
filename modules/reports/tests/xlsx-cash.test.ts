@@ -13,6 +13,9 @@ import { ValidationError } from "../../../sdk/src/validate.ts";
 
 // The module imports "@renoxium/sdk" (a worker resolves it); plain bun gets the source.
 mock.module("@renoxium/sdk", () => ({ ValidationError }));
+// services.ts loads jobs/nightly.ts and lib/report.ts, which import "renox:modules"; this file must not depend on
+// another test file having mocked it first (the order of files in a root `bun test` run is not fixed).
+mock.module("renox:modules", () => ({ tax_gcc: { documents: async () => [] }, auth: {}, i18n: {}, email: { sendRaw: async () => ({ id: null }) } }));
 const services = await import("../services.ts");
 
 test("an .xlsx: one sheet, numbers stay numbers, strings stay text (no formula), Arabic intact", () => {

@@ -41,6 +41,8 @@ footer { padding: 1rem 1.5rem; text-align: center; }
 .job-card.priority-high .priority { color: var(--rx-warn); }
 .job-card.priority-urgent .priority { color: var(--rx-bad); }
 .job-card em { font-style: normal; font-weight: 600; }
+/* "Booked online" (#779): a word in a box, not a colour. */
+.badge { display: inline-block; padding: 0 .375rem; border: 1px solid var(--rx-rule-strong); border-radius: .25rem; font-size: .8125rem; font-weight: 600; }
 .timeline { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
 .work-links { display: flex; gap: 1rem; }
 
@@ -95,3 +97,6 @@ main fieldset { min-inline-size: 0; }
 main :is(li, dd, p) { overflow-wrap: anywhere; }
 /* An outside bullet sticks out of the page by 2 px at the reading edge of a phone in Arabic (it made the page scroll): inside keeps it on the line. */
 main :is(ul, ol):not([class]) { list-style-position: inside; padding-inline-start: 0; }
+
+/* A row of links as a list (the days of /book and of a visit's change step): no bullets, which overlap the flex items at phone width. */
+ul.row { list-style: none; padding-inline-start: 0; }

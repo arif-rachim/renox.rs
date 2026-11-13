@@ -13,6 +13,7 @@
         <option r-for="t in technicians" :value="t.id" :selected="t.current">{{ t.name }}</option>
       </select></label>
     <label><r-t key="jobs.f.day" /> <input type="date" name="day" :value="day" dir="ltr"></label>
+    <label><input type="checkbox" name="source" value="self_booking" :checked="online"> <r-t key="jobs.badge.self_booking" /></label>
     <input type="hidden" name="outside_hours" value="1" r-if="outside_hours"><input type="hidden" name="branch" :value="branch_id" r-if="outside_hours"><button type="submit"><r-t key="jobs.filter" /></button>
     <a class="btn-brand" href="/jobs/new" r-can="job.write"><r-t key="jobs.new" /></a>
     <a href="/dispatch" r-can="job.dispatch"><r-t key="jobs.board" /></a>
@@ -27,7 +28,7 @@
         <td dir="ltr"><a :href="'/jobs/' ~ j.id">{{ j.number }}</a></td>
         <td>{{ j.customer }}</td>
         <td>{{ j.service }}</td>
-        <td><span :class="'status status-' ~ j.status">{{ ('jobs.status.' ~ j.status) | t }}</span></td>
+        <td><span :class="'status status-' ~ j.status">{{ ('jobs.status.' ~ j.status) | t }}</span><r-group r-if="j.online"> <span class="badge"><r-t key="jobs.badge.self_booking" /></span></r-group></td>
         <td>{{ j.technician }}</td>
         <td dir="ltr">{{ j.start }}<r-group r-if="!j.start"><r-t key="jobs.unscheduled" /></r-group></td>
       </tr>

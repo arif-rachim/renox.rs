@@ -1,21 +1,20 @@
 ---
 source: crates/renox-template/tests/compile.rs
-assertion_line: 36
 expression: text
 ---
 == modules/billing/partials/invoice-link (Partial)
 
-<a class="mine" href="/billing/invoices/{{ id }}">Your invoice</a>
+{#@ overrides/billing/partials/invoice-link:2 #}<a class="mine" href="/billing/invoices/{{ id }}">Your invoice</a>
 
 == modules/billing/partials/plan-badge (Partial)
 
-<span class="plan" dir="auto">{{ user.plan }}</span>
+<span class="plan" dir="auto">{#@ modules/billing/partials/plan-badge:2 #}{{ user.plan }}</span>
 
 == pages/index (Page)
-<p>{% with __a1_0 = (user) %}{% with user = __a1_0 %}
-<span class="plan" dir="auto">{{ user.plan }}</span>
-{% endwith %}{% endwith %} {% with __a2_0 = ("inv_1") %}{% with id = __a2_0 %}
-<a class="mine" href="/billing/invoices/{{ id }}">Your invoice</a>
+<p>{#@ pages/index:1 #}{% with __a1_0 = (user) %}{% with user = __a1_0 %}
+<span class="plan" dir="auto">{#@ modules/billing/partials/plan-badge:2 #}{{ user.plan }}</span>
+{% endwith %}{% endwith %} {#@ pages/index:1 #}{% with __a2_0 = ("inv_1") %}{% with id = __a2_0 %}
+{#@ overrides/billing/partials/invoice-link:2 #}<a class="mine" href="/billing/invoices/{{ id }}">Your invoice</a>
 {% endwith %}{% endwith %}</p>
 
 -- fragments: {}

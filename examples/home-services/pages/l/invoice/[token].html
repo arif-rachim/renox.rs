@@ -22,4 +22,5 @@
   </table></div>
   <p><r-t key="invoices.f.due" />: <span dir="ltr">{{ invoice.due }}</span></p>
   <p id="invoice-pdf"><a :href="'/l/invoice/' ~ token ~ '/pdf'"><r-t key="invoices.pdf_en" /></a> · <a :href="'/l/invoice/' ~ token ~ '/pdf?lang=ar'"><r-t key="invoices.pdf_ar" /></a></p>
+  <p id="see-all-invoices"><a href="/my/invoices"><r-t key="my.invoices.see_all" /></a></p>
 </r-layout>

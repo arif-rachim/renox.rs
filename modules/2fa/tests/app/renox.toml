@@ -12,3 +12,5 @@ sensitive = ["invoice.refund"]
 i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
 auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
 twofa = { version = "^1.0", source = "path:../..", mount = "/2fa", config = { passkey_rp_id = "shop.example", passkey_origin = "https://shop.example", recovery_codes = 4 } }
+# #769: a caller in another module, for the declared errors (tests/errors.test.ts).
+twofa_probe = { version = "^0.1", source = "path:../caller" }

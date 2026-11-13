@@ -27,6 +27,8 @@ The pages are under the mount: `/auth/login`, `/auth/register`, `/auth/account`,
 | `session_absolute_days` | 30 | A session ends this many days after sign-in, used or not; the cookie's `Max-Age` |
 | `password_min_length` | 12 | At register, password change, and reset |
 | `login_path` | `/auth/login` | Where `requireUser` and `loginUrl` send a signed-out visitor; change it with the mount |
+| `phone_login` | `false` | Phone-first sign-in with a one-time code (below) |
+| `phone_signup` | `false` | With `phone_login`: a phone with no account also gets a code, and verifying it creates the account (no email, no password; below) |
 | `google_client_id`, `github_client_id`, `microsoft_client_id` | `""` | OAuth client ids; a provider is on when its id and its secret are set |
 
 ## Permissions
@@ -49,6 +51,9 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `currentUser()` | The signed-in user of this request, or `null` |
 | `currentSession()` | `{ id, user }` of the live session, or `null`. `id` is not the cookie token: other modules key per-session state by it (org's active organisation) |
 | `requireUser()` | The user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`; through the broker, `RENOX_MODULE_SERVICE`) |
+| `setDisplayName(name)` | Sets the signed-in user's display name (1 to 80 characters, trimmed): `{ display_name }` or `{ error }`; `AUTH_REQUIRED` when signed out. For a phone-only account, which starts with none (#773) |
+| `hasPassword()` | Whether the signed-in user has a password: `false` for an account made by phone sign-up, and when signed out (#773) |
+| `verifiedPhone()` | The signed-in user's phone in E.164 when it is verified, else `null`; `null` when signed out. An app links its own records to the person by it (#794) |
 | `loginUrl(next?)` | `/auth/login?next=…`; `next` kept only when it is a path of the app |
 | `register({ email, password, display_name? })` | `{ message }` (a confirmation link is mailed; the same message when the email already has an account, which gets a mail saying so) or `{ error }` for a bad email or password |
 | `login({ email, password })` | `{ user, cookie }` or `{ error }`: the same error for an unknown email, a wrong password, and a locked account |
@@ -79,9 +84,9 @@ export async function load(ctx) {
 
 | Event | Payload |
 | --- | --- |
-| `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" }` |
+| `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" \| "phone" }` |
 | `auth.login` | `{ user_id, at }` |
-| `auth.login_failed` | `{ reason: "password" \| "unknown_user" \| "locked", ip_hash }`: no email, no user id; in memory (no outbox row), and the runtime counts it at the emit as `renox_security_events_total{kind="login_failed"}` (#659) |
+| `auth.login_failed` | `{ reason: "password" \| "unknown_user" \| "locked", ip_hash }` (`locked` also counts a phone sign-up refused past the per-IP account cap): no email, no user id; in memory (no outbox row), and the runtime counts it at the emit as `renox_security_events_total{kind="login_failed"}` (#659) |
 | `auth.password_changed` | `{ user_id, at }` (a reset) |
 | `auth.logout` | `{ user_id, at }`: the cell drops the principal from its cache |
 | `auth.agent_token_revoked` | `{ token_hash, user_id, at }`: the cell drops the token from its `/mcp` cache |
@@ -93,7 +98,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | Hook | When | A filler may |
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
-| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, next?, resume }`) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
+| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, method, next?, resume }`; `method` is `password`, `magic`, `oauth` (UAE PASS too), `phone` or `passkey`, #794) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
 | `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
 | `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
@@ -146,11 +151,16 @@ Every method ends the same way as the password flow. The hook `auth.after_login`
 
 ### Phone (`phone_login = true`)
 
-- **Pages.** `<mount>/phone` asks for the number and sends a code; `<mount>/phone/verify` takes the code. The account page adds or changes the phone with a code to the new number. A phone signs in only once it is verified.
+- **Pages.** `<mount>/phone` asks for the number and sends a code (`?phone=` pre-fills a valid number, shown in E.164, so an app that already asked for it can pass it on, #796); `<mount>/phone/verify` takes the code. The account page adds or changes the phone with a code to the new number. A phone signs in only once it is verified.
 - **Numbers.** UAE numbers are accepted as `+971 5x xxx xxxx`, `05x xxx xxxx` or `00971…`; numbers in any other E.164 form are accepted too.
 - **Codes.** A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. It is stored as argon2id.
-- **Same answer.** The sign-in request answers the same whether or not a user has the number, and sends nothing for an unknown one.
+- **Same answer.** The sign-in request answers the same whether or not a user has the number, and sends nothing for an unknown one (unless `phone_signup` is on, below).
 - **Buckets.** At most 5 codes per number and 30 per IP address in 15 minutes.
+- **Sign-up (`phone_signup = true`, #773).** It has an effect only with `phone_login = true`; `renox check` does not warn about the pair, so set both. A number with no account then gets a code too, and the correct code creates the account in the same request: the phone verified, no email, no password, an empty `display_name`. Then the normal path: `auth.after_login`, a session, the redirect. There is no separate register page: the sign-in page says "New here? Enter your number and we will set up your account."
+  - *Same answer.* A known and an unknown number get the same answer, the same buckets, one argon2 run and one `auth.send_otp` call each. The pending code of a new number is kept in `auth__phone_signups` (argon2id, no user id), never in `auth__public_users_v1`; five wrong attempts lock it.
+  - *Account cap.* At most 3 accounts an hour and 20 a day per IP address. Past it a request for a new number answers the generic message and sends nothing; the cap is checked again where the account would be created (a correct code past it creates nothing and answers the generic error, counted as `auth.login_failed` with `reason: "locked"`).
+  - *No password.* The account has a placeholder email (no `@`, shown as `""` by `currentUser` and the public view) and a placeholder password hash: `login`, magic link and password reset never match it, and nothing is mailed. `auth.user_registered` has `source: "phone"`.
+  - *Two services.* `setDisplayName(name)` sets the signed-in user's name (1 to 80 characters, trimmed), so an app can ask a phone-only user for it once. `hasPassword()` tells a phone-only account from one with a password. (`has_password` is not a `principal` attribute: the platform's Cedar schema fixes the attributes, so adding one needs a change in `renox-authz`.)
 - **Delivery.** Codes go out through the hook `auth.send_otp`. Install `whatsapp` (#290), which fills it. auth cannot call an optional module, and a hook needs no dependency.
 
 ### Passkeys (`passkeys = true`)

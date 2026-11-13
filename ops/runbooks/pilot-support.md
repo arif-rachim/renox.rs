@@ -61,7 +61,7 @@ Others you may meet: `RENOX_DB_QUOTA` (the free tier's database is full: writes 
 2. **The sandbox flag.** In `renox.toml` the `whatsapp` module's `config = { sandbox = true }` records every message as sent and calls no API. With it on, nothing reaches a phone by design. Going live is `sandbox = false` and `renox deploy`.
 3. **The secrets.** `renox secrets list` must show `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_APP_SECRET`. A missing one is set with `renox secrets set <NAME>` (the value comes from stdin); then deploy again.
 4. **The logs.** Search around the time of the action: `renox logs --since 2h | grep -i whatsapp`. A 5xx or 429 from the provider is retried by the outbox with backoff; a 4xx is final and is logged with its reason.
-5. **The provider's template status.** In Meta's WhatsApp Manager, each of the six templates (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) must be approved in the customer's language. A template that is pending, rejected or has a different parameter count fails.
+5. **The provider's template status.** In Meta's WhatsApp Manager, each of the ten templates (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`, `visit_moved`, `visit_cancelled`, `booking_moved`) must be approved in the customer's language. A template that is pending, rejected or has a different parameter count fails.
 6. **The customer.** A customer with no phone gets the email instead; a phone must be a valid UAE number (stored as `+971...`).
 7. **`public_url`** in `app__settings` must be the app's real address, or links in the messages are wrong.
 
@@ -71,6 +71,16 @@ Others you may meet: `RENOX_DB_QUOTA` (the free tier's database is full: writes 
 2. **Role.** In the staff table the person must have a role. A member with no role signs in and sees nothing. Set one with "Set role".
 3. **Second factor.** The "Second factor" column shows whether it is on. A user who lost their device first uses one of their recovery codes (each works once). With no device and no recovery code left, the owner resets it: on `/admin/people`, "Reset second factor" on the person's row, then confirm. The owner needs a recent second factor of their own (an owner without one gets 403; sign in again with the code), and reaches only the people of the branch that is active (switch branch first for someone in another branch). The person's authenticator, passkeys and recovery codes are deleted, they get a notice ("Your second factor was reset by …") in the app, by WhatsApp when their number is linked, and by email, and their next sign-in asks them to set it up again. Each reset is a `twofa.reset` row on `/admin/audit` (who reset whom). An owner cannot reset their own second factor this way; an owner who lost both device and codes is an escalation (see "Escalate"), and never a database edit.
 4. **Password or email.** The sign-in page's reset link; check that the `email` module's `from` is set and the sending domain is verified, or the reset mail never leaves.
+
+## A customer cannot sign in or book
+
+The customer portal (`/book`, `/my`) signs a customer in with a one-time code on WhatsApp, to the number they type. Check, in this order:
+
+1. **The code did not arrive.** `/admin/whatsapp` (the owner) lists every message the app sent: filter by the customer's phone (`?phone=`). An `otp` row with status `failed` is the provider refusing it (see "WhatsApp messages do not arrive" above); no row at all is the number typed wrong, or the sandbox (`sandbox = true`), which records the code as sent and sends nothing. The code itself is never shown. Too many codes for one number in a short time are refused by `auth` until the window passes.
+2. **The emirate has no branch.** `/book` step 2 says "We do not serve this emirate yet" with the company's phone when no branch's emirate is the one chosen. Add the branch on `/admin/branches` (with its emirate), or tell the customer to call.
+3. **The phone belongs to a staff account.** A number that is already a staff member's (an owner, a dispatcher, a technician) signs in to that account, not to a customer's, and `/my` is refused. Ask the customer for another number, or book for them from `/jobs/new`.
+4. **No free time is offered.** Step 2 searches what `booking` holds; a service or technician added since a dispatcher last opened a job's slot picker offers no slots yet (#797). Open any job page as a dispatcher once, then try again.
+5. **A booking is waiting.** A booking the customer confirmed is a `new` job with "Booked online" on `/dispatch` and on `/jobs?source=self_booking`, until a dispatcher confirms it, unless "Confirm online bookings automatically" is on (`/admin/settings`, "Customer portal").
 
 ## Undo a mistake
 

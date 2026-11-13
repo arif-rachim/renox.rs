@@ -112,6 +112,7 @@ const {
   ReflectDeleteProperty,
   SafeArrayIterator,
   String,
+  StringPrototypeCharCodeAt,
   StringPrototypeIsWellFormed,
   StringPrototypeStartsWith,
   StringPrototypeToLowerCase,
@@ -159,10 +160,26 @@ const stateVar = new core.AsyncVariable();
 const txVar = new core.AsyncVariable();
 const depthVar = new core.AsyncVariable();
 const spVar = new core.AsyncVariable();
+// ops.md 1.19.0 section 15.2 (#763): the caller of the service call the code
+// runs in ("app" or the calling module's name), entered by the broker only;
+// for a module's own page, action, job, event handler, hook filler or tool,
+// that module's name; undefined for the app's own code. Read through the
+// `caller` getter of every ctx: tenant code has no way to enter it.
+const callerVar = new core.AsyncVariable();
 
 /** The module whose code runs now: "app" unless the broker entered one. */
 function currentModule() {
   return moduleVar.get() ?? "app";
+}
+
+/** `ctx.caller` for code entered at `owner`'s own entry point: its name, undefined for the app (#763). */
+function ownCaller(owner) {
+  return owner === "app" ? undefined : owner;
+}
+
+/** The getter of `ctx.caller` (ops.md 1.19.0 section 15.2, #763). */
+function callerGetter() {
+  return callerVar.get();
 }
 
 /** The op's module argument: null for the app (ops.md section 0, "Module"). */
@@ -956,7 +973,11 @@ async function crossCall(kind, target, name, args) {
       dropCall(call);
       await rollbackTx(false);
     }
-    throw new ModuleServiceError(`${target}.${name} failed`, { module: target, service: name, cause_code: details.cause_code ?? null });
+    // #769: the host filtered a declared cause (code, details) again before it crossed back.
+    const out = { module: target, service: name, cause_code: details.cause_code ?? null };
+    if (details.cause_details !== undefined && details.cause_details !== null) out.cause_details = details.cause_details;
+    if (details.cause_details_truncated === true) out.cause_details_truncated = true;
+    throw new ModuleServiceError(`${target}.${name} failed`, out);
   }
   await closeCall(call);
   return JSONParse(out);
@@ -1187,7 +1208,77 @@ async function calleeFailed(e, details, label, undo = rollbackCurrent) {
   within([[moduleVar, details.module]], () =>
     writeLog("error", `${label} threw`, { error: describeThrow(e), code: "RENOX_MODULE_SERVICE" }),
   );
-  return new ModuleServiceError(`${label} failed: ${safeString(e?.message ?? e)}`, { ...details, cause_code: cause });
+  // ops.md section 15.2, "Errors" (#769): a service's declared code crosses with its filtered details.
+  const declared = details.service !== undefined ? declaredCause(e, details.module) : null;
+  return new ModuleServiceError(`${label} failed: ${safeString(e?.message ?? e)}`, { ...details, ...causeFields(cause, declared) });
+}
+
+/**
+ * ops.md section 15.2, "Errors" (#769): the most UTF-8 bytes of a
+ * declared error's details that reach the caller, after serialisation.
+ */
+const MAX_CAUSE_DETAILS = 2048;
+/** manifest.md MF18: a module's own error code. */
+const MODULE_ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
+/** A key named like a secret (contains one of these, any case): its value never crosses. */
+const SECRET_KEY = /token|secret|password|key|authorization/i;
+
+function causeReplacer(key, value) {
+  // `this` is the holder; an array's keys are indices, never a secret's name.
+  if (key !== "" && !ArrayIsArray(this) && RegExpPrototypeTest(SECRET_KEY, key)) return undefined;
+  if (typeof value === "bigint") return String(value);
+  return value;
+}
+
+function utf8Length(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = StringPrototypeCharCodeAt(s, i);
+    // JSON.stringify escapes lone surrogates, so a surrogate is half of a 4-byte pair.
+    n += c < 0x80 ? 1 : c < 0x800 || (c >= 0xd800 && c <= 0xdfff) ? 2 : 3;
+  }
+  return n;
+}
+
+/**
+ * The callee error's code when `module` declares it in `[exports.errors]`
+ * (the artifact's `exports.errors`, never the error's say), and its
+ * `details` as JSON only: secret-named keys removed at every depth, at
+ * most MAX_CAUSE_DETAILS bytes, else dropped (`truncated`). Null for any
+ * other error: a `RENOX_*` code, an undeclared code, no code.
+ * `{ code, json, truncated }`; `json` is undefined without details.
+ */
+function declaredCause(e, module) {
+  let code;
+  let raw;
+  try {
+    code = e?.code;
+    if (typeof code !== "string" || StringPrototypeStartsWith(code, "RENOX_") || !RegExpPrototypeTest(MODULE_ERROR_CODE, code)) return null;
+    if (!ArrayPrototypeIncludes(infoOf(module)?.exports?.errors ?? [], code)) return null;
+    raw = e.details;
+  } catch {
+    return null;
+  }
+  if (raw === undefined || raw === null) return { code, json: undefined, truncated: false };
+  let json;
+  try {
+    json = JSONStringify(raw, causeReplacer);
+  } catch {
+    // A cycle, bytes, a throwing getter or toJSON: not JSON, nothing crosses.
+    return { code, json: undefined, truncated: true };
+  }
+  if (typeof json !== "string") return { code, json: undefined, truncated: false };
+  if (utf8Length(json) > MAX_CAUSE_DETAILS) return { code, json: undefined, truncated: true };
+  return { code, json, truncated: false };
+}
+
+/** The `cause_*` fields of a ModuleServiceError's details from a RENOX_ code and a declared cause. */
+function causeFields(renoxCode, declared) {
+  if (declared === null) return { cause_code: renoxCode };
+  const out = { cause_code: declared.code };
+  if (declared.json !== undefined) out.cause_details = JSONParse(declared.json);
+  if (declared.truncated) out.cause_details_truncated = true;
+  return out;
 }
 
 /** `<target>.<service>(...args)` from the module whose code runs. */
@@ -1225,6 +1316,7 @@ async function callService(target, service, args) {
     result = await within(
       callVars(call, [
         [moduleVar, target],
+        [callerVar, caller],
         [depthVar, depth],
       ]),
       () => fn(calleeCtx, ...args),
@@ -1250,7 +1342,13 @@ function makeHooks(module) {
         const fillerCtx = f.remote === true ? null : st.ctxOf(f.module);
         let r;
         try {
-          r = await within([[moduleVar, f.module]], () => f.handle(fillerCtx, args));
+          r = await within(
+            [
+              [moduleVar, f.module],
+              [callerVar, ownCaller(f.module)],
+            ],
+            () => f.handle(fillerCtx, args),
+          );
           if (r !== undefined && !(r !== null && typeof r === "object" && r.halt === true && isResponse(r.response))) {
             throw new TypeError("a hook filler returns undefined or { halt: true, response }");
           }
@@ -1395,7 +1493,13 @@ async function runInMemory(st, id, name, payload) {
     const e = ObjectFreeze({ id, name, payload, attempt: 1 });
     const hctx = eventCtx(st.ctxOf(m), m, actionDb("current", m), e);
     try {
-      await within([[moduleVar, m]], () => h(hctx, e));
+      await within(
+        [
+          [moduleVar, m],
+          [callerVar, ownCaller(m)],
+        ],
+        () => h(hctx, e),
+      );
     } catch (err) {
       throw await calleeFailed(err, { module: m, event: name }, `${m} handler of ${name}`);
     }
@@ -1404,7 +1508,7 @@ async function runInMemory(st, id, name, payload) {
 
 /** A JobContext (ops.md section 20): the module's ctx without the request, `db` the attempt's transaction, `job` the run. */
 function jobCtx(base, statementsOf, info) {
-  const c = { ...base, db: statementsOf, job: info };
+  const c = { ...base, db: statementsOf, job: info, caller: ownCaller(base.module) };
   delete c.req;
   delete c.url;
   delete c.params;
@@ -1417,7 +1521,7 @@ function jobCtx(base, statementsOf, info) {
 
 /** An EventContext: the module's ctx without the request, `db` given. */
 function eventCtx(base, module, statementsOf, e) {
-  const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }) };
+  const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }), caller: ownCaller(module) };
   delete c.req;
   delete c.url;
   delete c.params;
@@ -1940,6 +2044,7 @@ async function resolvePrincipal(token, url, headers) {
       answer = await within(
         [
           [moduleVar, "auth"],
+          [callerVar, "app"],
           [stateVar, st0],
         ],
         async () => {
@@ -2021,6 +2126,9 @@ function newRequestState(base) {
         c = ObjectDefineProperties({}, ObjectGetOwnPropertyDescriptors(st.base));
         const fields = moduleFields(m);
         for (const k of new SafeArrayIterator(ObjectKeys(fields))) c[k] = fields[k];
+        // #763: an accessor without a setter, frozen with the ctx: a callee
+        // cannot assign or redefine it, and its value is the async context's.
+        ObjectDefineProperty(c, "caller", { get: callerGetter, enumerable: true });
         c = ObjectFreeze(c);
         cache.set(m, c);
       }
@@ -2402,6 +2510,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     return PromisePrototypeThen(
       prelude(token, url, headers),
       (pre) => {
@@ -2423,6 +2532,7 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     let p;
     try {
       const init = { method, headers };
@@ -2488,6 +2598,7 @@ function dispatchRealtime(handler, token, url, headers, body, params, owner, rt)
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     const go = async () => {
       if (rt.phase === "connect") {
         const pre = await prelude(token, url, headers);
@@ -2562,6 +2673,10 @@ function invoke(token, env, handler, owner) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(env.kind === "tool" || env.kind === "cross" ? owner : "app");
+    // #763: a tool is its module's own entry; a platform service call is the
+    // app's (callService enters "app" for the callee); crossServe enters the
+    // caller the host carried for a cross-isolate call.
+    callerVar.enter(env.kind === "tool" ? ownCaller(owner) : undefined);
     const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
     const st = newRequestState({ deadline: requestDeadline, principal });
     stateVar.enter(st);
@@ -2616,7 +2731,20 @@ function invoke(token, env, handler, owner) {
       if (json.length > MAX_TOOL_OUTPUT) return { kind: KIND_INVOKE, result: "output_too_large" };
       return { kind: KIND_INVOKE, result: "ok", data_json: json };
     };
-    return PromisePrototypeThen(go(), undefined, describeThrow);
+    return PromisePrototypeThen(go(), undefined, (e) => {
+      const d = describeThrow(e);
+      // #769: a service of an `isolate` module threw a declared code; the
+      // host checks it against the artifact and filters the details again.
+      if (env.kind === "cross" && env.what === "service") {
+        const c = declaredCause(e, env.module);
+        if (c !== null) {
+          d.cause_code = c.code;
+          if (c.json !== undefined) d.cause_details_json = c.json;
+          if (c.truncated) d.cause_details_truncated = true;
+        }
+      }
+      return d;
+    });
   } finally {
     core.setAsyncContext(previous);
   }
@@ -2631,9 +2759,13 @@ function invoke(token, env, handler, owner) {
 async function crossServe(st, env) {
   const tx = env.tx ?? 0;
   if (tx !== 0) st.borrowedTx = tx;
+  // #763: the caller is the envelope's top-level `caller`, which Rust
+  // builds from the CrossCall the caller isolate's broker made (checked
+  // there against the modules that isolate runs), never from `args`.
   const vars = [
     [stateVar, st],
     [moduleVar, env.module],
+    [callerVar, env.what === "hook" ? ownCaller(env.module) : env.caller],
   ];
   if (tx !== 0) ArrayPrototypePush(vars, [txVar, tx]);
   const args = JSONParse(env.args);
@@ -2683,6 +2815,7 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     let p = lazyModules.get(desc.lazy);
     if (p === undefined) {
       p = import(desc.lazy);
@@ -2722,6 +2855,7 @@ function deliver(token, id, name, payloadJson, attempt, module, job) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
+    callerVar.enter(ownCaller(module));
     const on = eventHandlers.get(module);
     const recorded = on instanceof LazyOn ? ArrayPrototypeIncludes(on.names, name) : typeof on?.[name] === "function";
     if (!recorded) return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
@@ -2779,6 +2913,7 @@ function deliverJob(token, id, payloadJson, attempt, module, job) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
+    callerVar.enter(ownCaller(module));
     const st = newRequestState({
       deadline: requestDeadline,
       // docs/11: jobs run as Renox::System::"<module>", never as a superuser.

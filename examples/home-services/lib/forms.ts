@@ -124,6 +124,8 @@ export interface ServiceInput {
   id: number;
   price_fils: number;
   active: 0 | 1;
+  /** Offered on /book (#775). */
+  self_booking: 0 | 1;
 }
 
 /** The catalogue edit: the price in AED as typed ("120" or "120.50"), stored in fils. */
@@ -134,7 +136,7 @@ export const serviceSchema = schema<ServiceInput>(async (raw) => {
   if (!Number.isSafeInteger(id) || id < 1) errors.service = "catalogue.err.service";
   if (!/^\d{1,7}(\.\d{1,2})?$/u.test(price)) errors.price = "catalogue.err.price";
   if (Object.keys(errors).length > 0) return { errors };
-  return { value: { id, price_fils: Math.round(Number(price) * 100), active: raw.active === "1" ? 1 : 0 } };
+  return { value: { id, price_fils: Math.round(Number(price) * 100), active: raw.active === "1" ? 1 : 0, self_booking: raw.self_booking === "1" ? 1 : 0 } };
 });
 
 /** How many line rows the quotation form has. */

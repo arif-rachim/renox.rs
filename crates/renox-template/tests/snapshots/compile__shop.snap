@@ -6,16 +6,16 @@ expression: text
 <!DOCTYPE html><html lang="en" dir="ltr"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Renox Shop{% endblock %}</title>
+  {#@ pages/_layouts/main:6 #}<title>{% block title %}Renox Shop{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/htmx.min.js" defer{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}></script>
+  {#@ pages/_layouts/main:8 #}<script src="/static/htmx.min.js" defer{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}></script>
 </head>
 <body>
   <header class="site-header">
     <a class="logo" href="/">Renox Shop</a>
-    <nav><a href="/products">Products</a> <a href="/cart">Cart ({% block cart_count %}<span id="cart-count" dir="auto">{{ cart_count }}</span>{% endblock %})</a></nav>
+    <nav><a href="/products">Products</a> <a href="/cart">Cart ({#@ pages/_layouts/main:13 #}{% block cart_count %}<span id="cart-count" dir="auto">{{ cart_count }}</span>{% endblock %})</a></nav>
   </header>
-  <main id="main">{% block content %}{% endblock %}</main>
+  <main id="main">{#@ pages/_layouts/main:15 #}{% block content %}{% endblock %}</main>
   <footer class="site-footer"><small>Prices include VAT. Dubai, United Arab Emirates.</small></footer>
 
 
@@ -23,21 +23,21 @@ expression: text
 == pages/products/index (Page)
 {% extends "pages/_layouts/main" %}{% block content %}
   <section class="catalog">
-    <h1 dir="auto">{{ title }}</h1>
+    <h1 dir="auto">{#@ pages/products/index:3 #}{{ title }}</h1>
     <form class="search" action="/products" hx-get="/products" hx-target="#product-list" hx-select="#product-list" hx-trigger="input changed delay:300ms from:input[name=q], submit" hx-push-url="true">
-      <input type="search" name="q"{% with __attr = query %}{% if __attr is not false and __attr is not none and __attr is defined %} value="{{ __attr }}"{% endif %}{% endwith %} placeholder="Search products" autocomplete="off" dir="auto">
+      {#@ pages/products/index:5 #}<input type="search" name="q"{% with __attr = query %}{% if __attr is not false and __attr is not none and __attr is defined %} value="{{ __attr }}"{% endif %}{% endwith %} placeholder="Search products" autocomplete="off" dir="auto">
       <select name="category">
         <option value="">All categories</option>
-        {% for c in (categories) | __loop %}<option{% with __attr = c.slug %}{% if __attr is not false and __attr is not none and __attr is defined %} value="{{ __attr }}"{% endif %}{% endwith %}{% if c.slug == category %} selected{% endif %} dir="auto">{{ c.name }}</option>{% endfor %}
+        {#@ pages/products/index:8 #}{% for c in (categories) | __loop %}<option{% with __attr = c.slug %}{% if __attr is not false and __attr is not none and __attr is defined %} value="{{ __attr }}"{% endif %}{% endwith %}{% if c.slug == category %} selected{% endif %} dir="auto">{{ c.name }}</option>{% endfor %}
       </select>
       <button type="submit">Search</button>
     </form>
-    {% if products | length > 0 %}<p class="result-count" dir="auto">{{ products | length }} products</p>{% endif %}
-    {% block product_list %}<ul id="product-list" class="grid">
-      {% for p in (products) | __loop %}<li class="card{% if p.stock == 0 %} card--empty{% endif %}{% if p.featured %} card--featured{% endif %}"{% with __attr = p.id %}{% if __attr is not false and __attr is not none and __attr is defined %} data-id="{{ __attr }}"{% endif %}{% endwith %}>
-        <a href="/products/{{ p.slug }}" dir="auto">{{ p.name }}</a>
-        {% if p.stock == 0 %}<span class="badge">Out of stock</span>{% else %}<span class="price" dir="auto">{{ p.price | money }}</span>{% endif %}
-        <button{% if p.stock == 0 %} disabled{% endif %} hx-post="/cart/add" hx-vals='{"productId": "{{ p.id }}"}'>Add</button>
+    {#@ pages/products/index:12 #}{% if products | length > 0 %}<p class="result-count" dir="auto">{{ products | length }} products</p>{% endif %}
+    {#@ pages/products/index:13 #}{% block product_list %}<ul id="product-list" class="grid">
+      {#@ pages/products/index:14 #}{% for p in (products) | __loop %}<li class="card{% if p.stock == 0 %} card--empty{% endif %}{% if p.featured %} card--featured{% endif %}"{% with __attr = p.id %}{% if __attr is not false and __attr is not none and __attr is defined %} data-id="{{ __attr }}"{% endif %}{% endwith %}>
+        {#@ pages/products/index:15 #}<a href="/products/{{ p.slug }}" dir="auto">{{ p.name }}</a>
+        {#@ pages/products/index:16 #}{% if p.stock == 0 %}<span class="badge">Out of stock</span>{% else %}<span class="price" dir="auto">{{ p.price | money }}</span>{% endif %}
+        {#@ pages/products/index:17 #}<button{% if p.stock == 0 %} disabled{% endif %} hx-post="/cart/add" hx-vals='{"productId": "{{ p.id }}"}'>Add</button>
       </li>{% else %}<li class="empty">No products found</li>{% endfor %}
     </ul>{% endblock %}
   </section>

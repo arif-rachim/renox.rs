@@ -1106,7 +1106,7 @@ function configValueProblem(decl: JsonObject, value: Json): string | null {
   }
 }
 
-/** MF1, MF4, MF5 (self), MF6, MF8, MF9, MF10 on a module.toml that passed the schema. */
+/** MF1, MF4, MF5 (self), MF6, MF8, MF9, MF10, MF18 on a module.toml that passed the schema. */
 function moduleRules(doc: JsonObject): string[] {
   const errors: string[] = [];
   const name = (doc.module as JsonObject).name as string;
@@ -1137,6 +1137,14 @@ function moduleRules(doc: JsonObject): string[] {
         if (schema !== undefined) for (const p of unsupportedKeywords(schema)) errors.push(`MF6: ${kind} "${n}" ${key} ${p}`);
       }
     }
+  }
+
+  // MF18 (#769): a module's declared error codes are its own, never RENOX_*, at most 32.
+  const codes = Object.keys(obj(exports.errors));
+  if (codes.length > 32) errors.push(`MF18: [exports.errors] declares ${codes.length} codes, more than 32`);
+  for (const code of codes) {
+    if (code.startsWith("RENOX_")) errors.push(`MF18: [exports.errors] "${code}" starts with RENOX_, the platform's codes`);
+    else if (!/^[A-Z][A-Z0-9_]{2,63}$/u.test(code)) errors.push(`MF18: [exports.errors] "${code}" does not match ^[A-Z][A-Z0-9_]{2,63}$`);
   }
 
   const slots = (doc.slots as JsonObject[] | undefined) ?? [];

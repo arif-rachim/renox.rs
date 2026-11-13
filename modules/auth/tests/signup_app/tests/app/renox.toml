@@ -1,0 +1,11 @@
+# The app of phone-signup.test.ts (#773): the app of tests/app with phone_signup on.
+# Paths are relative to this folder (the harness rewrites them).
+[app]
+name = "authsignup"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../..", mount = "/auth", config = { phone_login = true, phone_signup = true } }
+mailer = { version = "^1.0", source = "path:../../../fixtures/mailer" }
+otpbox = { version = "^1.0", source = "path:../../../fixtures/otpbox" }

@@ -99,6 +99,8 @@ export const on = {{
     }}
     // Spin until the CPU limit kills it: a wall-clock exit lets a descheduled handler finish under the limit (#665).
     if (e.payload.invoice_id === "spin") {{ for (;;) {{}} }}
+    // #768: 500 ms of CPU, past the 50 ms of an event handler and under the job budget.
+    if (e.payload.invoice_id === "burn") {{ const t = Date.now(); while (Date.now() - t < 500) {{}} }}
     await ctx.db.execute("insert into {module}__seen (event_id, attempt) values (?, ?)", [e.id, e.attempt]);
   }},
 }};
@@ -464,6 +466,33 @@ async fn a_handler_over_the_cpu_limit_is_a_failed_attempt() {
     );
     assert!(seen(&data, "email").is_empty());
     assert_eq!(n.manager.outbox_stats(TENANT).await.unwrap().dead, 2);
+}
+
+/// #768: only a job attempt gets the job budget (`ops.md` section 20): an
+/// event handler still gets the request's 50 ms on the free tier, so 500 ms
+/// of CPU is `cpu_limit` with `kind: "event"`, killed near 50 ms.
+#[tokio::test]
+async fn an_event_handler_still_gets_the_request_cpu_limit() {
+    let (data, artifacts, hash) = setup();
+    let n = node(
+        &data,
+        &artifacts,
+        &hash,
+        OutboxConfig {
+            max_attempts: 1,
+            dead: DeadLetterCap::default(),
+            ..fast()
+        },
+    );
+    n.get("invoice=burn").await;
+    assert!(eventually(Duration::from_secs(20), || n.event_records().len() >= 2).await);
+    let r = n.event_records();
+    for rec in &r {
+        assert_eq!(rec.status, MeterStatus::CpuLimit, "{rec:?}");
+        assert_eq!(rec.kind, Some(MeterKind::Event));
+        assert!(rec.cpu_ms < 200.0, "killed near 50 ms: {}", rec.cpu_ms);
+    }
+    assert!(seen(&data, "email").is_empty());
 }
 
 /// D14, no polling: an idle tenant's file sees no statement for 5 s.

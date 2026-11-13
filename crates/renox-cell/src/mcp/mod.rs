@@ -27,6 +27,7 @@
 //! `run`, the preview included.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -61,6 +62,23 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub const TOKEN_TTL: Duration = Duration::from_secs(60);
 /// Calls per minute per token (`ops.md` Open 16, *proposed*).
 pub const CALLS_PER_MINUTE: u32 = 60;
+/// How long a rate-limit window lasts (#684): the refusals of a token inside
+/// it are counted, not audited one by one. The limit's own unit, a minute.
+pub const REFUSAL_WINDOW: Duration = Duration::from_secs(60);
+/// Most tokens with an open refusal window; past it the oldest is dropped.
+pub const MAX_REFUSAL_WINDOWS: usize = 10_000;
+/// The window in milliseconds; only [`set_refusal_window_for_tests`] changes it.
+static REFUSAL_WINDOW_MS: AtomicU64 = AtomicU64::new(REFUSAL_WINDOW.as_millis() as u64);
+
+/// Test hook: a shorter refusal window, for every cell of the process.
+#[doc(hidden)]
+pub fn set_refusal_window_for_tests(window: Duration) {
+    REFUSAL_WINDOW_MS.store(window.as_millis() as u64, Ordering::SeqCst);
+}
+
+fn refusal_window() -> Duration {
+    Duration::from_millis(REFUSAL_WINDOW_MS.load(Ordering::SeqCst))
+}
 /// How long a confirmation token is valid.
 pub const CONFIRM_TTL: Duration = Duration::from_secs(600);
 /// The event that drops a token from the cache.
@@ -103,10 +121,33 @@ struct Bucket {
     at: Instant,
 }
 
+/// The open refusal window of one token (#684): the first refusal was
+/// audited; the ones after it are only counted here.
+#[derive(Debug, Clone)]
+struct Refusals {
+    ends: Instant,
+    /// Refusals after the first one.
+    suppressed: u64,
+    tool: String,
+    request_id: String,
+    agent: Agent,
+}
+
+/// What a refusal of a token means for the audit trail.
+enum Refusal {
+    /// The first of its window: audit it now, with `count: 1`.
+    First,
+    /// Counted in the open window; nothing to write.
+    Counted,
+}
+
 /// The MCP state of one cell.
 pub struct Mcp {
     tokens: Mutex<HashMap<[u8; 32], (Agent, Instant)>>,
     buckets: Mutex<HashMap<[u8; 32], Bucket>>,
+    /// Open refusal windows, one per token (#684), at most
+    /// [`MAX_REFUSAL_WINDOWS`].
+    refusals: Mutex<HashMap<[u8; 32], Refusals>>,
     /// Confirmation tokens already used (`ops.md` section 19: no replay).
     used: Mutex<HashSet<String>>,
     key: [u8; 32],
@@ -125,6 +166,7 @@ impl Default for Mcp {
         Mcp {
             tokens: Mutex::default(),
             buckets: Mutex::default(),
+            refusals: Mutex::default(),
             used: Mutex::default(),
             key,
         }
@@ -189,6 +231,61 @@ impl Mcp {
             Ok(())
         } else {
             Err(((1.0 - b.tokens) / rate).ceil() as u64)
+        }
+    }
+
+    /// A refusal of `token` (#684). Inside an open window it is counted;
+    /// otherwise it opens a window and is the one to audit. Returns the
+    /// expired window it replaced (to summarise), and how many windows were
+    /// dropped to stay under the cap.
+    fn refuse(
+        &self,
+        token: &[u8; 32],
+        tool: &str,
+        request_id: &str,
+        agent: &Agent,
+    ) -> (Refusal, Option<Refusals>, usize) {
+        let mut map = self.refusals.lock().expect("mcp lock");
+        let now = Instant::now();
+        let mut expired = None;
+        if let Some(w) = map.get_mut(token) {
+            if now < w.ends {
+                w.suppressed += 1;
+                w.tool = tool.to_string();
+                w.request_id = request_id.to_string();
+                return (Refusal::Counted, None, 0);
+            }
+            expired = map.remove(token);
+        }
+        let mut dropped = 0;
+        while map.len() >= MAX_REFUSAL_WINDOWS {
+            let Some(oldest) = map.iter().min_by_key(|(_, w)| w.ends).map(|(k, _)| *k) else {
+                break;
+            };
+            map.remove(&oldest);
+            dropped += 1;
+        }
+        map.insert(
+            *token,
+            Refusals {
+                ends: now + refusal_window(),
+                suppressed: 0,
+                tool: tool.to_string(),
+                request_id: request_id.to_string(),
+                agent: agent.clone(),
+            },
+        );
+        (Refusal::First, expired, dropped)
+    }
+
+    /// The window of `token` when it has ended (removed: whoever gets it
+    /// writes the summary, once).
+    fn take_ended(&self, token: &[u8; 32]) -> Option<Refusals> {
+        let mut map = self.refusals.lock().expect("mcp lock");
+        if map.get(token).is_some_and(|w| Instant::now() >= w.ends) {
+            map.remove(token)
+        } else {
+            None
         }
     }
 
@@ -414,7 +511,7 @@ fn record(
 /// Serves `/mcp` and its resource metadata. `body` is the request body.
 pub(crate) async fn serve(
     manager: &crate::CellManager,
-    cell: &Cell,
+    cell: &Arc<Cell>,
     ctx: RequestCtx,
     parts: &http::request::Parts,
     body: Bytes,
@@ -699,10 +796,17 @@ pub const TOOL_CALL_CODE: &str = "RENOX_TOOL_CALL";
 /// app without the module still has the trail in `renox logs`. A call to a
 /// tool that does not exist is a protocol error, not a tool call: no
 /// record (and an unknown name is not a bounded string to store).
+///
+/// #684: the refusals of a token past the rate limit are coalesced per
+/// window ([`REFUSAL_WINDOW`]): the first is audited as above with
+/// `count: 1`; the later ones are counted; when the window ends, one more
+/// event and log line carry `count` (the refusals after the first). A window
+/// ends at the timer started when it opened, or earlier, at the next call of
+/// the token after its end, whichever comes first.
 #[allow(clippy::too_many_arguments)]
 async fn call(
     manager: &crate::CellManager,
-    cell: &Cell,
+    cell: &Arc<Cell>,
     ctx: &RequestCtx,
     id: &serde_json::Value,
     params: serde_json::Value,
@@ -715,21 +819,82 @@ async fn call(
         .and_then(|n| n.as_str())
         .unwrap_or_default()
         .to_string();
+    if let Some(ended) = cell.mcp.take_ended(token_hash) {
+        audit_summary(cell, manager, ended).await;
+    }
     let (response, outcome) =
         run_call(manager, cell, ctx, id, params, agent, token_hash, tools).await;
-    if let Some(outcome) = outcome {
-        audit_call(cell, manager, ctx, &name, agent, outcome).await;
+    match outcome {
+        Some("rate_limited") => {
+            let (refusal, ended, dropped) =
+                cell.mcp.refuse(token_hash, &name, &ctx.request_id, agent);
+            if let Some(ended) = ended {
+                audit_summary(cell, manager, ended).await;
+            }
+            if dropped > 0 {
+                tracing::warn!(
+                    dropped,
+                    "mcp refusal windows over the cap: the oldest were dropped with their counts"
+                );
+            }
+            if matches!(refusal, Refusal::First) {
+                audit_call(
+                    cell,
+                    manager,
+                    &name,
+                    agent,
+                    "rate_limited",
+                    &ctx.request_id,
+                    Some(1),
+                )
+                .await;
+                // The timer that ends the window when the token goes quiet.
+                let weak = Arc::downgrade(cell);
+                let manager = manager.clone();
+                let token = *token_hash;
+                tokio::spawn(async move {
+                    tokio::time::sleep(refusal_window()).await;
+                    if let Some(cell) = weak.upgrade()
+                        && let Some(ended) = cell.mcp.take_ended(&token)
+                    {
+                        audit_summary(&cell, &manager, ended).await;
+                    }
+                });
+            }
+        }
+        Some(outcome) => {
+            audit_call(cell, manager, &name, agent, outcome, &ctx.request_id, None).await;
+        }
+        None => {}
     }
     response
+}
+
+/// The summary of an ended window: the refusals after the first one, with
+/// the last tool and request id. Nothing when there were none.
+async fn audit_summary(cell: &Cell, manager: &crate::CellManager, w: Refusals) {
+    if w.suppressed > 0 {
+        audit_call(
+            cell,
+            manager,
+            &w.tool,
+            &w.agent,
+            "rate_limited",
+            &w.request_id,
+            Some(w.suppressed),
+        )
+        .await;
+    }
 }
 
 async fn audit_call(
     cell: &Cell,
     manager: &crate::CellManager,
-    ctx: &RequestCtx,
     tool: &str,
     agent: &Agent,
     outcome: &'static str,
+    request_id: &str,
+    count: Option<u64>,
 ) {
     let client: String = agent
         .client
@@ -745,17 +910,23 @@ async fn audit_call(
     f.insert("tool".into(), tool.into());
     f.insert("client".into(), client.clone().into());
     f.insert("outcome".into(), outcome.into());
-    f.insert("request_id".into(), ctx.request_id.clone().into());
+    f.insert("request_id".into(), request_id.into());
+    if let Some(count) = count {
+        f.insert("count".into(), count.into());
+    }
     cell.isolate
-        .log("info", Some(&ctx.request_id), "mcp tool call", f);
+        .log("info", Some(request_id), "mcp tool call", f);
     let mut payload = serde_json::json!({
         "tool": tool,
         "agent_user_id": agent.principal.id,
         "client": client,
         "outcome": outcome,
-        "request_id": ctx.request_id,
+        "request_id": request_id,
         "at": at,
     });
+    if let Some(count) = count {
+        payload["count"] = count.into();
+    }
     // #748: the owner connector grant the token was minted under, when
     // `verifyAgentToken` said (`client.grant_id`); absent otherwise.
     if let Some(grant) = agent

@@ -9,6 +9,7 @@
 //   const { html } = await t.as("bob").page("/notes/");
 //   snapshot(html, { role: "admin" });
 //   await t.job("nightly");                        // a scheduled job, run now (#593)
+//   await t.job("import", { payload: { id: 1 } }); // a queued run with its payload (#770)
 //   await t.tool("echo", { x: 1 }, { as: alice, confirm: true }); // an App MCP tool as alice's agent
 //
 // Bun-only (bun:test, bun:sqlite): not part of the runtime-neutral SDK
@@ -25,7 +26,7 @@ interface Harness {
   startTestWorker(spec: Spec): Promise<Worker>;
   changeModule(project: string, name: string, source: string, scratch?: { project: string; db: string }, worker?: string, version?: string): Promise<ModuleChange & { db: string }>;
   evaluatePolicies(spec: Spec, casesFrom?: string): Promise<{ file: string; case: PolicyCase; result: { allow: boolean; reason: string }; ok: boolean }[]>;
-  runJob(spec: Spec, db: string, module: string, name: string): { id: string; attempts: number };
+  runJob(spec: Spec, db: string, module: string, name: string, now?: number, payload?: unknown): { id: string; attempts: number };
   SERVICE_PATH: string;
 }
 interface Spec {
@@ -117,8 +118,11 @@ export interface TestApp {
    * now, as a tick of its schedule (`renox jobs run`), and resolves after
    * the run committed (its outbox row is gone). Rejects with the run's
    * error when an attempt fails, or after `timeoutMs` (default 10 s).
+   * With `payload` (JSON, at most 64 KiB) it runs a queued run of the job
+   * instead, as `ctx.jobs.enqueue(name, payload)` would write it: the job
+   * sees `ctx.job.payload`, every call is its own run (no coalescing).
    */
-  job(name: string, options?: { module?: string; timeoutMs?: number }): Promise<void>;
+  job(name: string, options?: { module?: string; timeoutMs?: number; payload?: unknown }): Promise<void>;
   /**
    * Calls the App MCP tool `name` (`POST /mcp`, `tools/call`) as the agent
    * of `as` (default this user): an agent token from the auth module's OAuth
@@ -530,7 +534,7 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
       async job(name, o = {}) {
         const module = o.module ?? "app";
         const ms = o.timeoutMs ?? 10_000;
-        const run = h.runJob(s, w.db, module, name);
+        const run = h.runJob(s, w.db, module, name, Date.now(), o.payload);
         const deadline = Date.now() + ms;
         let last: string | null = null;
         for (;;) {

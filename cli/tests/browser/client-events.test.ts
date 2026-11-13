@@ -7,7 +7,8 @@
 //
 // Runs when RENOX_WORKER_PATH points at a renox-worker binary (cargo build
 // -p renox-cell --bin renox-worker) and Playwright is installed
-// (PLAYWRIGHT_PATH, else the global `playwright` package with its Chromium).
+// (PLAYWRIGHT_PATH, else the global `playwright` package with its Chromium);
+// under RENOX_JOURNEY=1 (journey.yml) it fails instead of skipping.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -17,6 +18,7 @@ import { join } from "node:path";
 import { type DevServer, startDev } from "../../src/commands/dev.ts";
 import { testWorker } from "../worker-env.ts";
 import { freePort } from "../free-port.ts";
+import { journeyMissing } from "../../../control/dashboard/tests/playwright.ts";
 
 const repo = join(import.meta.dir, "../../..");
 const worker = testWorker();
@@ -68,6 +70,12 @@ const PAGES: Record<string, string> = {
   "pages/boom.html": "<r-layout use=\"main\"><p>{{ x }}</p></r-layout>\n",
   "pages/boom.ts": 'export function load() {\n  throw new Error("boom: the database is down");\n}\n',
 };
+
+// Under RENOX_JOURNEY=1 (journey.yml) the file fails instead of skipping (#586).
+const missing = journeyMissing(playwright, worker ?? undefined);
+if (missing !== null) test("the browser tests can run (RENOX_JOURNEY=1)", () => {
+  throw new Error(missing ?? "");
+});
 
 describe.skipIf(!worker || !playwright)("renox-client.js in Chromium under renox dev", () => {
   let dev: DevServer;

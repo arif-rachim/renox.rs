@@ -1,6 +1,6 @@
 // module.toml (docs/contracts/manifest.md section 2): read, validate against
 // schemas/module-manifest.schema.json, and the single-file rules MF1, MF4,
-// MF5 (self), MF6, MF8, MF9, MF10.
+// MF5 (self), MF6, MF8, MF9, MF10, MF18.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ import { type Json, type JsonObject, isObject, validate } from "../schema.ts";
 
 export const schemas = { manifest: manifestSchema as unknown as JsonObject, lock: lockSchema as unknown as Json };
 
-/** One rule violation: the rule id (`MF1`–`MF12`, or `schema`), where, and why. */
+/** One rule violation: the rule id (`MF1`–`MF18`, or `schema`), where, and why. */
 export interface ModuleProblem {
   rule: string;
   file: string;
@@ -109,6 +109,22 @@ export function permissionProblems(name: string, p: JsonObject, where: string): 
   return out;
 }
 
+/** MF18 (#769): a module's own error code: not a platform `RENOX_*` code. */
+export const MODULE_ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/u;
+export const MAX_MODULE_ERRORS = 32;
+
+/** MF18 on `[exports.errors]`: each code matches MODULE_ERROR_CODE and is not `RENOX_*`; at most 32. */
+export function errorCodeProblems(declared: JsonObject): string[] {
+  const out: string[] = [];
+  const codes = Object.keys(declared);
+  if (codes.length > MAX_MODULE_ERRORS) out.push(`MF18: [exports.errors] declares ${codes.length} codes, more than ${MAX_MODULE_ERRORS}`);
+  for (const code of codes) {
+    if (code.startsWith("RENOX_")) out.push(`MF18: [exports.errors] "${code}" starts with RENOX_, the platform's codes`);
+    else if (!MODULE_ERROR_CODE.test(code)) out.push(`MF18: [exports.errors] "${code}" does not match ^[A-Z][A-Z0-9_]{2,63}$`);
+  }
+  return out;
+}
+
 /** MF10: the reason a config value does not fit its declaration, or null. */
 export function configValueProblem(decl: JsonObject, value: Json): string | null {
   switch (decl.type) {
@@ -154,6 +170,7 @@ export function manifestRules(doc: JsonObject): string[] {
   for (const [kind, entries] of [["event", obj(exports.events)], ["hook", obj(exports.hooks)]] as const) {
     for (const n of Object.keys(entries)) if (!n.startsWith(`${name}.`)) errors.push(`MF6: ${kind} "${n}" does not start with "${name}."`);
   }
+  errors.push(...errorCodeProblems(obj(exports.errors)));
   const slots = Array.isArray(doc.slots) ? (doc.slots as JsonObject[]) : [];
   const filled = new Set(slots.map((s) => s.name as string));
   const asked = new Set(strings(permissions.slots));

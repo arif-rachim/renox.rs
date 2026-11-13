@@ -1,6 +1,6 @@
 [module]
 name = "auth"
-version = "1.2.0"
+version = "1.3.0"
 description = "Users, passwords (argon2id), sessions, and the login, register and account pages"
 
 # The page locale of auth's pages (#244): auth passes the user to i18n.
@@ -21,6 +21,7 @@ microsoft_client_id = { type = "string", max_length = 200, default = "", descrip
 uaepass_client_id = { type = "string", max_length = 200, default = "", description = "UAE PASS sign-in: the client id (secret AUTH_UAEPASS_CLIENT_SECRET); empty = off (#291)" }
 uaepass_env = { type = "enum", values = ["staging", "production"], default = "staging", description = "Which UAE PASS environment the sign-in uses" }
 phone_login = { type = "bool", default = false, description = "Phone-first sign-in with a one-time code (#291); codes go out through the auth.send_otp hook (whatsapp fills it)" }
+phone_signup = { type = "bool", default = false, description = "With phone_login: a phone with no account also gets a code, and verifying it creates the account (no email, no password) (#773)" }
 passkeys = { type = "bool", default = false, description = "Passkeys as a sign-in method (#291)" }
 passkey_rp_id = { type = "string", max_length = 200, default = "", description = "The WebAuthn relying party id; empty = the request's host" }
 passkey_origin = { type = "string", max_length = 200, default = "", description = "The WebAuthn origin; empty = https://<the request's host>" }
@@ -53,10 +54,13 @@ verifyAgentToken = "The cell's check of an agent token on /mcp (#286): token -> 
 oauthMetadata = "RFC 8414 metadata of the authorization server for agents: issuer -> the metadata object (the cell serves it, #286)"
 listAgentTokens = "The signed-in user's connected agents (live tokens), newest first"
 revokeAgentToken = "Disconnect one of the signed-in user's agents: id -> true when a token was revoked"
+setDisplayName = "Set the signed-in user's display name (a phone-only account starts with none): name (1 to 80 characters, trimmed) -> { display_name } or { error }; AUTH_REQUIRED when signed out (#773)"
+hasPassword = "Whether the signed-in user has a password: false for an account made by phone sign-up (#773); false when signed out"
+verifiedPhone = "The signed-in user's phone in E.164 when it is verified, else null; null when signed out (#794)"
 mintAgentToken = "Platform only (#698): { email, scopes: [tools:<name>], ttl_seconds <= 300, client_name, grant_id } -> { token, expires_at } of the verified app user, or null; else AUTH_PLATFORM_ONLY"
 
 [exports.events."auth.user_registered"]
-payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth"] } } }
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth", "phone"] } } }
 description = "A user registered"
 
 [exports.events."auth.login"]
@@ -65,7 +69,7 @@ description = "A user signed in"
 
 [exports.events."auth.login_failed"]
 payload = { type = "object", required = ["reason", "ip_hash"], additionalProperties = false, properties = { reason = { enum = ["password", "unknown_user", "locked"] }, ip_hash = { type = "string" } } }
-description = "A password sign-in failed; the cell counts it as renox_security_events_total{kind=\"login_failed\"} (#659). No email, no user id"
+description = "A password sign-in or a phone sign-up (per-IP cap, reason locked) failed; the cell counts it as renox_security_events_total{kind=\"login_failed\"} (#659). No email, no user id"
 
 [exports.events."auth.agent_token_revoked"]
 payload = { type = "object", required = ["token_hash", "user_id", "at"], additionalProperties = false, properties = { token_hash = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
@@ -88,8 +92,8 @@ args = { type = "object", required = ["to", "template", "args"], properties = { 
 description = "Send one mail (auth sends none itself before the email module, F7): fill it to deliver magic and reset links"
 
 [exports.hooks."auth.after_login"]
-args = { type = "object", required = ["user_id", "resume"], properties = { user_id = { type = "string" }, next = { type = "string" }, resume = { type = "string" } } }
-description = "After the password (or magic link, OAuth, phone, passkey) check, before the session cookie is sent; a filler may halt with its own response (2fa) and later call resumeLogin with `resume`"
+args = { type = "object", required = ["user_id", "method", "resume"], properties = { user_id = { type = "string" }, method = { enum = ["password", "magic", "oauth", "phone", "passkey"] }, next = { type = "string" }, resume = { type = "string" } } }
+description = "After the sign-in check (method: password, magic, oauth, phone, passkey), before the session cookie; a filler may halt (2fa) and later call resumeLogin with `resume`"
 
 [exports.hooks."auth.agent_audit"]
 args = { type = "object", required = ["action", "user_id", "client_name", "scopes", "at"], properties = { action = { enum = ["connect", "revoke"] }, user_id = { type = "string" }, client_name = { type = "string" }, scopes = { type = "array", items = { type = "string" } }, at = { type = "integer" } } }

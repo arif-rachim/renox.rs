@@ -2212,6 +2212,8 @@ Templates are valid HTML with logic expressed as attributes. At deploy time the 
 | Permission | `r-can="action" :resource="x"`, `r-cannot` | `{% if can(...) %}` (see `11-authorization.md`) |
 | Module component | `<billing:plan-badge :user="user" />` | namespaced macro |
 
+A component is inlined, so a line of the compiled template (`templates/<id>.jinja`) is not a line of the file you wrote. The compiler leaves line markers in it, minijinja comments such as `{#@ partials/grid:3 #}` before code that comes from another place; they render nothing, and the renderer maps the line of a render-limit stop or a `render_failed` error back to the file and line you wrote by the nearest marker (#682). An output-size stop is soft: the output stops growing at `max_output_bytes` and the render fails at the next loop start, with its location.
+
 A boolean prints as `true` or `false` in an interpolation (`{{ task.done }}` in text gives `true`). Inside `~`, `join` and list displays a boolean still has minijinja's `True`/`False` form.
 
 ### Attributes whose value is false, none or undefined
@@ -2699,7 +2701,7 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 - `request`, `page`, `action`, each with its own cookie jar per user (`as(user)`), so session and CSRF work as in a browser;
 - `service(module).<name>(...)`, through the broker like app code;
 - a read-only `db` for assertions; it waits up to five seconds on the worker's write lock (`pragma busy_timeout = 5000`), and a test that opens `dbFile` with its own `bun:sqlite` connection should run the same pragma, or it fails with `SQLITE_BUSY` while the worker writes;
-- `job(name, { module?, timeoutMs? })`, which runs a scheduled job now as a tick of its schedule (the rows `renox jobs run` writes; the test worker looks for them every 50 ms) and resolves after the run committed, or rejects with the job's error text (#593). The scheduler runs as in production, so a test should not wait for a schedule: call `job`;
+- `job(name, { module?, timeoutMs?, payload? })`, which runs a scheduled job now as a tick of its schedule (the rows `renox jobs run` writes; the test worker looks for them every 50 ms) and resolves after the run committed, or rejects with the job's error text (#593). With `payload` it writes a queued run as `ctx.jobs.enqueue(name, payload)` does (one new row per call, no coalescing; the job reads `ctx.job.payload`), to run again a job that only enqueued work can start (#770). The scheduler runs as in production, so a test should not wait for a schedule: call `job`;
 - `tool(name, input, { as?, scope?, confirm? })`, which calls an App MCP tool on `/mcp` as the agent of `as` (default the calling user, signed in): it takes an agent token through the `auth` module's OAuth flow once per user and scope, then `tools/call`. A `confirm` tool answers `{ ok, preview, confirmation }`; with `confirm: true` the confirmation is sent back and the final `{ ok, result }` returned; a refusal is `{ ok: false, error: { code, message } }` (`RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_INPUT`; `RENOX_TOOL_ERROR` for a result with `isError`). Without the `auth` module it throws (#593);
 - `snapshot(html, { role })`, with request ids, nonces and CSRF tokens stripped;
 - `installModule(name, source)` and `.upgrade(source)`, which return what `renox check` and the migration plan report;
@@ -2909,6 +2911,18 @@ Tenants never touch Rust. The pain of Rust compile times is confined to the data
    **CI minutes (#189).** Every check sits in one of three jobs: `lint` (path filter, pinned actions, `cargo-deny`, `bun audit`, and the docs checks when docs change) runs on every push and PR, `rust` and `ts` only when their paths change, so a docs-only PR bills one job. On a pull request `rust` tests only the crates that changed and the workspace packages that depend on them (`make rust-test CRATES=...`); a change outside `crates/` (lockfile, toolchain, `ops/`, the workflow) tests the whole workspace, and so does every push to `main`. A push run on `main` is per commit and is never cancelled or replaced while it queues (#619), so every merge keeps its own status and its `renox-worker-ci-packaged` artifact; the cost, two merges in quick succession run twice, is accepted because the runners are not metered (below). `release-worker.yml` runs on `worker-v*` tags, by hand, and once on `main` after a merge that touches the packaging, never on a pull request. Quota decision, taken by the owner on 2026-10-28 when 1,800 of the plan's 2,000 monthly minutes were used: option (c), the repository is public, so standard GitHub-hosted runners are not metered. Rejected: (a) a paid spending limit for overage (USD 0.008 a Linux minute), kept as the fallback if the repository ever goes private again; (b) a self-hosted runner for `rust` on the owner's build machine, which on a public repository would run code from fork pull requests on that machine. The job folding stays because it shortens the PR feedback loop and the concurrency queue.
 7. **Most of the platform is not Rust.** Control plane, CLI, SDK, and all official modules are TypeScript on Bun. Expected split of code we write: roughly 30–40% Rust (data plane glue over Supabase Edge Runtime), 60–70% TypeScript.
 8. **`unsafe` and FFI stay in two places.** V8 and SQLite wrappers only, documented and reviewed. This keeps compile-heavy, hard-to-test code isolated.
+
+### Browser tests
+
+The tests that drive a real Chromium (`control/dashboard/tests/account.browser.test.ts`, `cli/tests/browser/client-events.test.ts`) skip in `make test` and in the PR checks when Playwright or the worker is missing. `journey.yml` runs them with `make journey` on every push to `main`, nightly at 02:23 UTC and by `workflow_dispatch`, on the worker built from `main` (the newest `renox-worker-ci-packaged` of `ci.yml`, else the pinned release) and Playwright 1.63.0, the version `lighthouse.yml` pins too (`.github/scripts/playwright-version.test.ts` keeps them equal). `make journey` sets `RENOX_JOURNEY=1`, under which a browser test fails with "Playwright is required (PLAYWRIGHT_PATH)" instead of skipping; a failed run on `main` opens or comments on an issue labelled `journey`. To run it locally, install Playwright outside the repository (the repository has no Playwright dependency) and point `PLAYWRIGHT_PATH` at it:
+
+```sh
+npm install --prefix ~/.cache/renox-pw --no-save playwright@1.63.0
+~/.cache/renox-pw/node_modules/.bin/playwright install --with-deps chromium
+RENOX_WORKER_PATH=$PWD/target/debug/renox-worker PLAYWRIGHT_PATH=~/.cache/renox-pw/node_modules/playwright make journey
+```
+
+**The developer journey.** `cli/tests/journey.e2e.test.ts` (#587) is one test that walks a new developer through the platform against the real control API (a process, its mail in a file outbox), a controlled `renox-worker`, the real CLI as a process and Chromium: sign up in the dashboard and open the verification link from the mail; `renox login` approved on the dashboard's device page; `renox new journey --template hello` on this repository's SDK and `bun install`; `renox deploy` (live on its hostname); `renox export` (the directory has `worker.toml` and the database); a request's log line on the Logs page; a page whose script throws, grouped on the Client errors page; `renox add auth --yes` and a deploy (`/auth/login` answers); `renox apps rm` (not served, listed as restorable), Restore (served again), `renox apps rm` again; the owner's tenant erasure with the browser's session, after which the CLI's token is refused. The dashboard's server side cannot reach a local API (tenant `fetch` refuses loopback and private addresses, ADR D23), so the Logs, Client errors and Apps pages run their real loaders and the Restore action in the test against the same API, and Chromium checks what the real dashboard renders from that data. It runs in `make journey` and `journey.yml` only (under `RENOX_JOURNEY=1`), in about 15 seconds locally; its budget is 4 minutes.
 
 ### Expected numbers (targets, measured under B20)
 
@@ -3218,7 +3232,16 @@ Roles are the `[authz.default_roles]` of `renox.toml`; branches are `org` organi
    _Screenshot: the invoice list and an invoice with a payment._
 
 6. **Contracts.** An annual maintenance contract lists services at the customer's sites with a number of visits a year. A daily scheduled job makes the next visits as jobs 14 days ahead, and another reminds the customer 30 days before the end and expires the contract after its last day; renewing copies it for the next year.
-7. **Reports.** The owner and the accountant see sales per day, jobs and hours per technician, contracts due for renewal and outstanding invoices by age, and export each as CSV or Excel.
+7. **The customer's own path.** The customer can also do it alone, from a phone, with no account and no call:
+   - **Book.** `/book` (the link the owner shares): the service, the emirate, the area and the address, then a free time of the next 7 days across the branch's technicians, then the name and the WhatsApp number. A one-time code on WhatsApp signs the customer in, and "Confirm booking" makes the customer, the site and the job (`source = self_booking`).
+   - **Confirm.** With "Confirm online bookings automatically" on (`/admin/settings`, "Customer portal"), the job is scheduled at once with the technician of the chosen time. Off (the default), the job waits in the board's New column with a "Booked online" badge and the time it wants; the board's header counts these and links to `/jobs?source=self_booking`. On the job page the dispatcher presses **Confirm** with one of the technicians free at that time, or, when nobody is, uses the schedule form below ("Propose another time"). The customer gets `visit_scheduled` or `booking_moved` on WhatsApp.
+   - **Follow.** `/my` lists the customer's visits; `/my/visits/<id>` shows the time, the technician and, after the visit, the report and its photos.
+   - **Change.** On the same page the customer moves the visit to another free time or cancels it, until the cut-off before the slot (default 12 hours) and up to the number of moves a visit allows (default 2); after that the page shows the branch's phone.
+   - **Invoice.** `/my/invoices` lists the customer's tax invoices with what is still to pay, and `/my/invoices/<number>` shows one with its PDF and the payment instructions while it is open.
+
+   _Screenshot: `/book` step 2 and the job page's "Requested time" on a phone._
+
+8. **Reports.** The owner and the accountant see sales per day, jobs and hours per technician, contracts due for renewal and outstanding invoices by age, and export each as CSV or Excel.
 
    _Screenshot: the reports page._
 
@@ -3381,13 +3404,20 @@ renox secrets set WHATSAPP_VERIFY_TOKEN
 renox secrets set WHATSAPP_APP_SECRET
 ```
 
-3. Register the six message templates of `i18n/whatsapp.*.json` in English and Arabic (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) and wait for Meta's approval; see "WhatsApp (from the `whatsapp` module's README)" in the app's `README.md`.
+3. Register the ten message templates of `i18n/whatsapp.*.json` in English and Arabic (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`, `visit_moved`, `visit_cancelled`, `booking_moved`) and wait for Meta's approval; see "WhatsApp (from the `whatsapp` module's README)" in the app's `README.md`.
 4. In `renox.toml` change the module's config to `sandbox = false`, set `public_url` to the app's address, and run `renox deploy`.
 5. Test with one number first: a customer whose phone is the owner's own, a quotation sent to it, and the message arriving on that phone. Only then tell the staff.
 
 `/admin/whatsapp` (the owner) lists the last 50 messages the app sent, newest first: the time, the recipient (only the last four digits show), the template or the start of the text, and the status (queued, sent, delivered, read or failed). Filter by status (`?status=failed`) or by phone. Codes of sign-in messages are never shown, and there is no resend button.
 
-### 8. The company's own domain
+### 8. Open online booking
+
+1. `/admin/settings`, section "Customer portal": decide with the owner whether online bookings are confirmed automatically ("Confirm online bookings automatically"; off by default, so a dispatcher confirms each one on the job page), until how many hours before a visit a customer may still change it (0 to 168, default 12), how often one visit may be moved (0 to 5, default 2), and the payment instructions in English and Arabic. Save: a number out of range is refused with the field named, and the change is a `settings.update` row in `/admin/audit`.
+2. `/services`: untick "Bookable online" for any service the company does not want booked without a call.
+3. Copy "The booking link to share" from the same section (`https://<the app's address>/book`) and give it to the company: their WhatsApp profile, their website, their next message to customers.
+4. A test booking. With the WhatsApp sandbox still on (step 7), the sign-in code is recorded as sent but never delivered (the `whatsapp` module's README, "Sandbox"), so the test stops at the code: open the link on a phone, check that step 1 offers the company's services and emirates and step 2 their free times, give the owner's own number in step 3, and see the `otp` row for that number on `/admin/whatsapp` (`?phone=`; the code itself is never shown). Once WhatsApp is live, run it to the end with the same number: enter the code, press "Confirm booking", and you should land on `/my` with "We received your booking". On `/dispatch` the job is in New with "Booked online" and the requested time; open it and press Confirm with a free technician, and the `visit_scheduled` message arrives on the owner's phone. Then cancel the test job.
+
+### 9. The company's own domain
 
 ```sh
 renox domains add www.acme-fm.example
@@ -3396,7 +3426,7 @@ renox domains status www.acme-fm.example
 
 `add` prints the CNAME record and the two TXT records to create (use `www.<domain>`, not the apex). Enter them at the company's DNS provider, where they bought the domain. `status` shows `pending` and then `verified`; the time depends on the provider's DNS, from a few minutes to a few hours. When it is verified, set `public_url` to the new address (`app__settings`) and deploy again.
 
-### 9. First-week checklist
+### 10. First-week checklist
 
 - [ ] Day 1: one real job from quotation to paid invoice, with the company's own customer.
 - [ ] The owner and every manager have the second factor on and the recovery codes stored.
@@ -3407,9 +3437,10 @@ renox domains status www.acme-fm.example
 - [ ] A contract was activated and its invoice reached the customer.
 - [ ] A WhatsApp message to one real number arrived (or the sandbox is still on, on purpose).
 - [ ] The company knows who to call: you, and the address for support requests.
+- [ ] A test booking on `/book` reached the board and was confirmed (or the owner chose to confirm automatically).
 - [ ] A date for the one-week review is in both calendars.
 
-### 10. The written exit
+### 11. The written exit
 
 The company's data is theirs: at any time `renox db export` downloads the whole SQLite database (checked by sha256), and `renox export` downloads a runnable copy of the app (database, stored files and the deployed artifact) that `renox-worker --config worker.toml` serves on any host; the self-hosting steps are in `docs/self-host.md`. Secret values are not exported; their names are listed in `secrets.txt`.
 
@@ -3950,6 +3981,7 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 ```ts
 const t = await app();
 await t.job("nightly");                                  // jobs/nightly.ts runs now; resolves after its commit
+await t.job("import", { payload: { batch: 2 } });        // a queued run, as ctx.jobs.enqueue("import", payload) writes it
 const alice = t.as("alice");                             // signed in through the auth module's pages
 const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
 const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }
@@ -3989,7 +4021,7 @@ Source: docs/contracts/errors.md (https://github.com/arif-rachim/renox.rs/blob/m
 
 | | |
 | --- | --- |
-| Version | **0.11.3** (F7, #734: wording; `RENOX_MODULE_SERVICE` from a service call inside a transaction rolls back only that call, for `ops.md` 1.17.0). 0.11.2 (F7, #749: wording; `RENOX_DB_TX_STATE` also for the app's `ctx.db.scoped()` inside a transaction, for `ops.md` 1.15.0). 0.11.1 (F7, #739: wording; the error template's inputs gain `locale`, `dir` and `app_name`, for `artifact.md` 1.9.3). 0.11 (F7, #658: `RENOX_TOOL_CALL`, the log line of every App MCP tool call, for `ops.md` 1.14.1). 0.10 (F2, #640: wording; `RENOX_MODULE_EVAL` is also logged for a lazy module entry, ops 1.14.0). 0.9 (F7, #579: `RENOX_STORAGE_CONFLICT`, a reused upload URL, for `ops.md` 1.10.0). 0.8 (F7, #507: `RENOX_CLI_WORKER_UNAVAILABLE`). 0.7 (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
+| Version | **0.11.5** (F7, #769: wording; `RENOX_MODULE_SERVICE` carries a declared module code as `cause_code` with filtered `cause_details` and `cause_details_truncated`, for `ops.md` 1.21.0). 0.11.4 (F7, #684: wording; `RENOX_TOOL_CALL` carries `count` for `rate_limited`, for `ops.md` 1.18.0). 0.11.3 (F7, #734: wording; `RENOX_MODULE_SERVICE` from a service call inside a transaction rolls back only that call, for `ops.md` 1.17.0). 0.11.2 (F7, #749: wording; `RENOX_DB_TX_STATE` also for the app's `ctx.db.scoped()` inside a transaction, for `ops.md` 1.15.0). 0.11.1 (F7, #739: wording; the error template's inputs gain `locale`, `dir` and `app_name`, for `artifact.md` 1.9.3). 0.11 (F7, #658: `RENOX_TOOL_CALL`, the log line of every App MCP tool call, for `ops.md` 1.14.1). 0.10 (F2, #640: wording; `RENOX_MODULE_EVAL` is also logged for a lazy module entry, ops 1.14.0). 0.9 (F7, #579: `RENOX_STORAGE_CONFLICT`, a reused upload URL, for `ops.md` 1.10.0). 0.8 (F7, #507: `RENOX_CLI_WORKER_UNAVAILABLE`). 0.7 (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
 | Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
 | Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
 | Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
@@ -4106,7 +4138,7 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 | `RENOX_NO_REQUEST` | F1 | — | An op was called outside a live request: at module top level, or from a timer or promise that outlived its request | — | When uncaught at top level: as `RENOX_INTERNAL` with `phase: module_load`; later: one line with `op` | Do I/O inside handlers; do not keep work running after the response | `ops.md` §0 |
 | `RENOX_SECRETS_CONSUMED` | F1 | — | `op_secrets_get_all` was called a second time. Unreachable from tenant code through the public API | — | `op` | Read secrets from `ctx.secrets` | `ops.md` §3 |
 | `RENOX_MODULE_UNDECLARED` | F4 | — | Module code called a service of a module it does not list in `[dependencies]`, ran a hook point it does not export, or emitted an event it does not export | — | Always logged: `module` (the caller), `target` (the module, hook, or event) | Add the dependency (and the `[imports]` entry) to `module.toml`, then `renox install`; `renox check` finds it before deploy | `ops.md` §15.2–15.4; `manifest.md` MF7; `docs/24-threat-model.md` "Module calling a service or hook it did not declare" |
-| `RENOX_MODULE_SERVICE` | F4 | — | A service, hook filler, or in-memory event handler of another module threw. Inside a transaction a service call's own writes were rolled back and the transaction goes on (ops 1.17.0); a hook filler's or handler's throw rolled the whole transaction back | — | When uncaught: `module`, `service` / `hook` / `event`, `cause_code`; the callee's own error is logged with the callee's `module` | Read the callee module's log line for the cause; catch a service's error to answer the user or write on in the same transaction; after a hook filler's or handler's, the transaction is gone | `ops.md` §15.2; failure mode "Module service throws" |
+| `RENOX_MODULE_SERVICE` | F4 | — | A service, hook filler, or in-memory event handler of another module threw. Inside a transaction a service call's own writes were rolled back and the transaction goes on (ops 1.17.0); a hook filler's or handler's throw rolled the whole transaction back | — | When uncaught: `module`, `service` / `hook` / `event`, `cause_code`; the callee's own error is logged with the callee's `module`. A service error whose code the callee declares in `[exports.errors]` (ops 1.21.0, #769) gives that code as `cause_code` and its filtered details as `cause_details` (JSON, at most 2 KiB, secret-named keys removed; `cause_details_truncated: true` when dropped) | Read the callee module's log line for the cause; catch a service's error to answer the user or write on in the same transaction (test `details.cause_code` for a code the callee declares, such as `STEP_UP_REQUIRED`); after a hook filler's or handler's, the transaction is gone | `ops.md` §15.2; failure mode "Module service throws" |
 | `RENOX_EVENT_PAYLOAD` | F4 | — | `ctx.events.emit` got a payload that does not match the event's exported schema, is not JSON-serialisable, or is over 64 KiB | — | When uncaught: `event`, `reason` (`schema` / `not_json` / `too_large`); never the payload | Send what the event's `payload` schema in `module.toml` says; put large data in a table and send its id | `ops.md` §15.4; `manifest.md` section 2 |
 
 | `RENOX_JOB_NOT_FOUND` | F6 | — | `op_jobs_retry` or `op_jobs_cancel` named an id that is not a job row of this tenant | — | When uncaught: `id`, `op` | Reload the list; the row was cancelled or pruned | `ops.md` §20 (1.6.0) |
@@ -4134,7 +4166,7 @@ Answered as JSON-RPC errors by the cell's `/mcp` endpoint (`ops.md` section 19):
 | `RENOX_TOOL_INPUT` | F5 | 400 | `tools/call` arguments fail the tool's declared input schema | The tool input is not valid. | `tool`, `details` `[{ field, reason }]` (never the argument values); `client.name` | The agent reads `details` and retries; the tool's `input` schema is what `tools/list` published | `ops.md` §19 |
 | `RENOX_TOOL_SCOPE` | F5 | 403 | The agent token's scopes do not cover the tool (`tools:*` or `tools:<name>`) | The token does not allow this tool. | `tool`, `token` (id only), `client.name` | The user grants the tool's scope to the agent in the `auth` module's consent screen; `tools/list` shows only covered tools | `ops.md` §19; `docs/20-ai-agents-mcp.md` section 5 |
 | `RENOX_TOOL_CONFIRM` | F5 | 409 | A `confirm: true` tool was called without the confirmation token of its preview, or with one that expired (10 minutes), was already used, or belongs to other arguments or another agent token | The action needs a fresh confirmation. | `tool`, `reason` (`missing` / `expired` / `replayed` / `mismatch`), `client.name` | Call the tool without a confirmation to get a preview and a new token, show the preview to the user, then call again with the token and the same arguments | `ops.md` §19, "Confirmation"; `docs/20-ai-agents-mcp.md` section 2, "Confirmation" |
-| `RENOX_TOOL_CALL` | F7 | — | Not an error: the `info` line the cell writes after every `tools/call` that passed the token check, whatever the outcome (#658) | — (never a response) | `tool`, `client`, `outcome` (`preview` / `ok` / `forbidden` / `input` / `rate_limited` / `failed`), `request_id` | Read the agent's calls with `renox logs`; the `audit` module stores the same call as an `audit__events` row (`mcp.tool_called`) | `ops.md` §19 and §15.4; `docs/20-ai-agents-mcp.md` |
+| `RENOX_TOOL_CALL` | F7 | — | Not an error: the `info` line the cell writes after every `tools/call` that passed the token check, whatever the outcome (#658) | — (never a response) | `tool`, `client`, `outcome` (`preview` / `ok` / `forbidden` / `input` / `rate_limited` / `failed`), `request_id`, `count` (integer, only for `rate_limited`: 1 for the first refusal of a token in its 60 s window, then once at the window's end the refusals after the first; #684) | Read the agent's calls with `renox logs`; the `audit` module stores the same call as an `audit__events` row (`mcp.tool_called`) | `ops.md` §19 and §15.4; `docs/20-ai-agents-mcp.md` |
 
 ### Client events (dev overlay only)
 
@@ -4203,6 +4235,8 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 | 0.11.1 | #739 | Wording (F7): the error template's inputs gain `locale`, `dir` and `app_name`, resolved by the cell from the request alone (`artifact.md` 1.9.3); no code changes |
 | 0.11.2 | #749 | Wording (F7, ops 1.15.0): the `RENOX_DB_TX_STATE` row also covers the app's `ctx.db.scoped()` used inside a transaction, and points to `tx.scoped`; no code added, no status changed |
 | 0.11.3 | #734 | Wording (F7, ops 1.17.0): the `RENOX_MODULE_SERVICE` row says that a service call that throws inside a transaction rolls back only its own writes and the transaction goes on, while a hook filler's or event handler's throw still rolls the whole transaction back; no code added, no status changed |
+| 0.11.4 | #684 | Wording (F7, ops 1.18.0): `RENOX_TOOL_CALL` gains `count` (only for `rate_limited`: 1 for a token's first refusal in its window, then once at the window's end the refusals after the first); no new code |
+| 0.11.5 | #769 | Wording (F7, ops 1.21.0): the `RENOX_MODULE_SERVICE` row names `cause_details` and `cause_details_truncated` for a service error whose code the callee declares in `[exports.errors]`; no code added, no status changed |
 
 ---
 
@@ -4212,12 +4246,12 @@ Source: docs/contracts/manifest.md (https://github.com/arif-rachim/renox.rs/blob
 
 | | |
 | --- | --- |
-| Version | **1.6.2** (F7, #679: patch, MF17 is the one CSP source grammar of app and modules: no `;` or `,`). 1.6.1 (F7, #658: patch, `mcp` a reserved name, MF1). 1.6 (F7, #660: `permissions.csp` and the lock's `approved.csp`; rule MF17; the build merges the approved sources into `security.csp.*`, `artifact.md` 1.9.1). 1.5 (F2, #640: minor; `[module] eager`, ADR D32, for `ops.md` 1.14.0 and `artifact.md` 1.9). 1.4.1 (F7, #629: patch, wording; the app declares events and slot fillers in `renox.toml`, Open 5, `artifact.md` 1.8). 1.4 (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Version | **1.7.0** (F7, #769: minor; `[exports.errors]` in `module.toml`, code → description; rule MF18: a code matches `^[A-Z][A-Z0-9_]{2,63}$`, never `RENOX_*`, at most 32; for `ops.md` 1.21.0 section 15.2 and `artifact.md` 1.11). 1.6.2 (F7, #679: patch, MF17 is the one CSP source grammar of app and modules: no `;` or `,`). 1.6.1 (F7, #658: patch, `mcp` a reserved name, MF1). 1.6 (F7, #660: `permissions.csp` and the lock's `approved.csp`; rule MF17; the build merges the approved sources into `security.csp.*`, `artifact.md` 1.9.1). 1.5 (F2, #640: minor; `[module] eager`, ADR D32, for `ops.md` 1.14.0 and `artifact.md` 1.9). 1.4.1 (F7, #629: patch, wording; the app declares events and slot fillers in `renox.toml`, Open 5, `artifact.md` 1.8). 1.4 (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
 | Examples | [`examples/manifest/`](examples/manifest/): single files and whole projects (section 8) |
-| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF17) |
+| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF18) |
 | Sources | `docs/10-modules.md` (the module system), `docs/18-build-plan.md` (catalog, definition of done for a module), `docs/13-decisions.md` D12 (isolation modes), D14 (outbox), D17 (forward-only migrations, versioned views), `docs/06-data.md` (authorizer and prefixes), `docs/24-threat-model.md` (module publisher boundary) |
 
 A module is a mini app with the same folder structure as an app (`docs/10-modules.md`). Its `module.toml` says what it is, what it needs, and what it offers. A tenant installs modules in `renox.toml [modules]`; the CLI resolves them, asks the tenant to approve their permissions, and records the result in `renox.lock`. The lock is the only input the artifact takes from this contract: what the runtime enforces is what the tenant approved, never what a manifest asks for later.
@@ -4392,6 +4426,7 @@ The module's public API, versioned with `version` (`docs/10-modules.md`, rule 3)
 | `services` | `{ <export name> = "<one-line doc>" }` | Named exports of `services.ts`. The name is a JavaScript identifier; the signature comes from the TypeScript source (#236) |
 | `events` | `{ "<name>.<event>" = { payload = <schema>, description? } }` | Events the module emits. The name starts with this module's name (MF6). The payload schema is JSON Schema with the keyword subset of `validate.ts` (`README.md`, "Checking"); `op_events_emit` validates against it (`ops.md` 1.3.0, #226) |
 | `hooks` | `{ "<name>.<hook>" = { args = <schema>, result? = <schema>, description? } }` | Hook points the module runs with `ctx.hooks.run`. Same naming and schema rules as events (MF6) |
+| `errors` (1.7.0, #769) | `{ <CODE> = "<one-line description>" }` | The error codes the module's services throw to their callers. A code matches `^[A-Z][A-Z0-9_]{2,63}$` and does not start with `RENOX_` (the platform's codes); at most 32 (MF18). When a service throws an error whose `code` is listed here, a caller in another module or the app gets it as `details.cause_code` of its `ModuleServiceError`, with the error's `details` (JSON only, at most 2 KiB, secret-named keys removed) as `details.cause_details` (`ops.md` section 15.2, "Errors"). A code not listed here crosses as before: message only. The list is part of the public API: removing a code a caller may test for is a breaking change of the module (`docs/10-modules.md`, rule 3). `renox build` copies the codes into the artifact's `exports.errors` (`artifact.md`, "Modules") |
 
 ### `[imports]`
 
@@ -4543,8 +4578,9 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 | MF15 | **Registry signatures** (1.2). A lock entry has `key_id` and `signature` exactly when its `source` is `registry:`; the source's `<name>` is the entry's `name`; the manifest of a registry module has `[publisher]` with the source's publisher and the lock's `key_id`; the signature verifies over the locked hash (section 5, "Registry modules") | single file (lock); the publisher and signature checks run in the CLI at install and in `renox check` (they need the registry tree and key) |
 | MF16 | **App tables** (1.3). Every `renox.toml` `app_tables` entry and every lock `approved.app_tables` entry starts with `app__`; the lock's `app_tables` is sorted and, when not empty, has `app_access`; the lock's `app_tables` is the `renox.toml` grant; a module granted `app_tables` asks for `permissions.app_access` | single file, project |
 | MF17 | **CSP sources** (1.6). Every value under `permissions.csp.<directive>` (in the manifest and in the lock's `approved`) is an `https://` origin with an optional `*.` host wildcard and path (no `;` or `,`, which separate directives and policies in the header), `data:`, or `blob:`; the directive is one of `script_src`, `style_src`, `img_src`, `connect_src`, `frame_src`, `font_src`; `'unsafe-inline'` and `'unsafe-eval'` are never accepted, whatever `allow_unsafe` says in `renox.toml`. The merged policy of an app stays within 32 sources per directive (`artifact.md`, "Security"); a build that exceeds it names the module | single file |
+| MF18 | **Error codes** (1.7.0, #769). Every `[exports.errors]` key matches `^[A-Z][A-Z0-9_]{2,63}$` and does not start with `RENOX_`; a manifest declares at most 32 codes | single file |
 
-Every rejection names the rule (`MF1`–`MF17`), the file and key, and a one-line reason, and never a filesystem path outside the app.
+Every rejection names the rule (`MF1`–`MF18`), the file and key, and a one-line reason, and never a filesystem path outside the app.
 
 ## 7. What the other F4 contracts take from here
 
@@ -4599,6 +4635,7 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | 1.6 | #660 | Minor (no lock version bump; the new key is optional). `[permissions] csp` in `module.toml` (`script_src`, `style_src`, `img_src`, `connect_src`, `frame_src`, `font_src`) and the lock's `approved.csp`; rule MF17; MF12 covers `csp`; `renox approve` shows the sources per directive. `renox build` merges the approved sources into the artifact's `security.csp.*` (`artifact.md` 1.9.1); the gateway is unchanged |
 | 1.6.1 | #658 | Patch (one more reserved name, no key changes). MF1: `mcp` is reserved, the namespace of the platform event `mcp.tool_called` (`ops.md` section 15.4), so a module cannot emit it and forge an App MCP audit row |
 | 1.6.2 | #679 | Patch (no key, rule or lock change). MF17 is now the single grammar of every CSP source, the app's `renox.toml [security].csp.*` included (`artifact.md` 1.9.2): no `;` or `,`. `renox check` refuses an app source with the MF17 message; the gateway drops one at load with a platform warning |
+| 1.7.0 | #769 | Minor (no lock version bump; the new key is optional). `[exports.errors]` in `module.toml`: the codes a module's services throw to callers, which reach them as `cause_code` with filtered `cause_details` (`ops.md` 1.21.0 section 15.2); rule MF18; `renox build` copies the codes into the artifact's `exports.errors` (`artifact.md` 1.11) |
 
 ---
 
@@ -4855,7 +4892,7 @@ These events become rows with no code in the app (`hooks.ts`, `on`):
 | `org.created`, `org.member_added` | The user |
 | `org.member_removed` | `by`, the user who removed the member |
 | `twofa.reset` (#735) | `by`, the administrator who reset the second factor; `resource_type` `twofa:User`, `resource_id` the user whose factors were deleted |
-| `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome; `details.grant_id` is the owner connector grant the token was minted under, when the event carries it (#748) |
+| `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome; `details.grant_id` is the owner connector grant the token was minted under, when the event carries it (#748); `details.count` (#684, `rate_limited` only) is how many refused calls the row stands for: the cell audits the first refusal of a token in a one-minute rate window (`count` 1) and writes one more row when the window ends, with the refusals after the first |
 
 ## Append-only
 
@@ -4920,6 +4957,8 @@ The pages are under the mount: `/auth/login`, `/auth/register`, `/auth/account`,
 | `session_absolute_days` | 30 | A session ends this many days after sign-in, used or not; the cookie's `Max-Age` |
 | `password_min_length` | 12 | At register, password change, and reset |
 | `login_path` | `/auth/login` | Where `requireUser` and `loginUrl` send a signed-out visitor; change it with the mount |
+| `phone_login` | `false` | Phone-first sign-in with a one-time code (below) |
+| `phone_signup` | `false` | With `phone_login`: a phone with no account also gets a code, and verifying it creates the account (no email, no password; below) |
 | `google_client_id`, `github_client_id`, `microsoft_client_id` | `""` | OAuth client ids; a provider is on when its id and its secret are set |
 
 ## Permissions
@@ -4942,6 +4981,9 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `currentUser()` | The signed-in user of this request, or `null` |
 | `currentSession()` | `{ id, user }` of the live session, or `null`. `id` is not the cookie token: other modules key per-session state by it (org's active organisation) |
 | `requireUser()` | The user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`; through the broker, `RENOX_MODULE_SERVICE`) |
+| `setDisplayName(name)` | Sets the signed-in user's display name (1 to 80 characters, trimmed): `{ display_name }` or `{ error }`; `AUTH_REQUIRED` when signed out. For a phone-only account, which starts with none (#773) |
+| `hasPassword()` | Whether the signed-in user has a password: `false` for an account made by phone sign-up, and when signed out (#773) |
+| `verifiedPhone()` | The signed-in user's phone in E.164 when it is verified, else `null`; `null` when signed out. An app links its own records to the person by it (#794) |
 | `loginUrl(next?)` | `/auth/login?next=…`; `next` kept only when it is a path of the app |
 | `register({ email, password, display_name? })` | `{ message }` (a confirmation link is mailed; the same message when the email already has an account, which gets a mail saying so) or `{ error }` for a bad email or password |
 | `login({ email, password })` | `{ user, cookie }` or `{ error }`: the same error for an unknown email, a wrong password, and a locked account |
@@ -4972,9 +5014,9 @@ export async function load(ctx) {
 
 | Event | Payload |
 | --- | --- |
-| `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" }` |
+| `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" \| "phone" }` |
 | `auth.login` | `{ user_id, at }` |
-| `auth.login_failed` | `{ reason: "password" \| "unknown_user" \| "locked", ip_hash }`: no email, no user id; in memory (no outbox row), and the runtime counts it at the emit as `renox_security_events_total{kind="login_failed"}` (#659) |
+| `auth.login_failed` | `{ reason: "password" \| "unknown_user" \| "locked", ip_hash }` (`locked` also counts a phone sign-up refused past the per-IP account cap): no email, no user id; in memory (no outbox row), and the runtime counts it at the emit as `renox_security_events_total{kind="login_failed"}` (#659) |
 | `auth.password_changed` | `{ user_id, at }` (a reset) |
 | `auth.logout` | `{ user_id, at }`: the cell drops the principal from its cache |
 | `auth.agent_token_revoked` | `{ token_hash, user_id, at }`: the cell drops the token from its `/mcp` cache |
@@ -4986,7 +5028,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | Hook | When | A filler may |
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
-| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, next?, resume }`) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
+| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, method, next?, resume }`; `method` is `password`, `magic`, `oauth` (UAE PASS too), `phone` or `passkey`, #794) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
 | `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
 | `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
@@ -5039,11 +5081,16 @@ Every method ends the same way as the password flow. The hook `auth.after_login`
 
 ### Phone (`phone_login = true`)
 
-- **Pages.** `<mount>/phone` asks for the number and sends a code; `<mount>/phone/verify` takes the code. The account page adds or changes the phone with a code to the new number. A phone signs in only once it is verified.
+- **Pages.** `<mount>/phone` asks for the number and sends a code (`?phone=` pre-fills a valid number, shown in E.164, so an app that already asked for it can pass it on, #796); `<mount>/phone/verify` takes the code. The account page adds or changes the phone with a code to the new number. A phone signs in only once it is verified.
 - **Numbers.** UAE numbers are accepted as `+971 5x xxx xxxx`, `05x xxx xxxx` or `00971…`; numbers in any other E.164 form are accepted too.
 - **Codes.** A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. It is stored as argon2id.
-- **Same answer.** The sign-in request answers the same whether or not a user has the number, and sends nothing for an unknown one.
+- **Same answer.** The sign-in request answers the same whether or not a user has the number, and sends nothing for an unknown one (unless `phone_signup` is on, below).
 - **Buckets.** At most 5 codes per number and 30 per IP address in 15 minutes.
+- **Sign-up (`phone_signup = true`, #773).** It has an effect only with `phone_login = true`; `renox check` does not warn about the pair, so set both. A number with no account then gets a code too, and the correct code creates the account in the same request: the phone verified, no email, no password, an empty `display_name`. Then the normal path: `auth.after_login`, a session, the redirect. There is no separate register page: the sign-in page says "New here? Enter your number and we will set up your account."
+  - *Same answer.* A known and an unknown number get the same answer, the same buckets, one argon2 run and one `auth.send_otp` call each. The pending code of a new number is kept in `auth__phone_signups` (argon2id, no user id), never in `auth__public_users_v1`; five wrong attempts lock it.
+  - *Account cap.* At most 3 accounts an hour and 20 a day per IP address. Past it a request for a new number answers the generic message and sends nothing; the cap is checked again where the account would be created (a correct code past it creates nothing and answers the generic error, counted as `auth.login_failed` with `reason: "locked"`).
+  - *No password.* The account has a placeholder email (no `@`, shown as `""` by `currentUser` and the public view) and a placeholder password hash: `login`, magic link and password reset never match it, and nothing is mailed. `auth.user_registered` has `source: "phone"`.
+  - *Two services.* `setDisplayName(name)` sets the signed-in user's name (1 to 80 characters, trimmed), so an app can ask a phone-only user for it once. `hasPassword()` tells a phone-only account from one with a password. (`has_password` is not a `principal` attribute: the platform's Cedar schema fixes the attributes, so adding one needs a change in `renox-authz`.)
 - **Delivery.** Codes go out through the hook `auth.send_otp`. Install `whatsapp` (#290), which fills it. auth cannot call an optional module, and a hook needs no dependency.
 
 ### Passkeys (`passkeys = true`)
@@ -5395,6 +5442,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `from_name` | (empty) | The sender's display name: mails arrive as `"Name" <address>`. At most 80 characters, no `<`, `>` or line breaks; `"` and `\` are escaped. A message's own `from_name` wins |
 | `ses_region` | `me-central-1` | The SES region |
 | `sends_per_minute` | 120 | Past it, `send` refuses (`RATE_LIMITED`) |
+| `app_url` | (empty) | The app's own origin, `https://` and nothing after the host (no path, query or user info), at most 200 characters. It completes a link such as `/org/accept/<token>` when the mail is queued where there is no request origin (an App MCP tool, a job). Empty or invalid: such a link is dropped and one warning `EMAIL_LINK_NO_ORIGIN` is logged |
 | `base_path` | `/email` | Where the log page is mounted |
 
 ## Services
@@ -5407,7 +5455,8 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 
 **Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`, `org_invite`.
-- The values are `display_name`, `url` (only `https`, or `http` on localhost) and `expires_minutes`.
+- The values are `display_name`, `url` and `expires_minutes`.
+- `url` is an absolute `https` link (or `http` on localhost), or a path of the app: one leading `/`, not `//`, no `\`, no control character, at most 2,000 characters. A path is completed with the app's origin: the origin of the request that queues the mail (a page or a route, so a custom domain gives the custom host), else the `app_url` config; the result must have exactly that origin. With neither origin the link is dropped (the mail goes without its button) and one warning `EMAIL_LINK_NO_ORIGIN` is logged. Any other relative value and any other scheme is dropped.
 - Every value is escaped, and the HTML is a two-column table: one column `lang="en" dir="ltr"`, the other `lang="ar" dir="rtl"`.
 - A different wording means a new template here.
 
@@ -5939,7 +5988,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
 | `org.renamed` | `{ org_id, name }` | event: an admin or owner renamed the organisation; the slug stays |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
-| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
+| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. Without a request origin (an App MCP request), `url` is the app path `/org/accept/<token>` and the `email` module prefixes the app's host (its rule: the request origin that queued the mail, else its `app_url` config; with neither the mail goes without the button). `locale` is the organisation's (`null` when unset) |
 
 ## App MCP tool
 
@@ -6307,9 +6356,10 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `sendOtp(phone)` | `{ sent: true, expires_in: 300 }`, the same answer for every valid phone. Another call within 30 s sends nothing new |
 | `verifyOtp(phone, code)` | `{ ok }`. A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. A wrong, expired, used or exhausted code, an unknown phone and a malformed code all give `{ ok: false }` |
 | `linkPhone(userId, phone)` | `{ ok }`. Makes the phone the user's WhatsApp contact, but only within 10 minutes after `verifyOtp` succeeded for it |
-| `inbox({ phone?, direction?, limit? })` | Messages newest first. An OTP's body shows as `[otp]` |
-| `message(id)` | One stored message by id, shaped like an `inbox()` row, or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
-| `outbox(limit?)` | Outgoing messages newest first, read-only, with status and body. An OTP's body shows as `[otp]` |
+| `inbox({ phone?, direction?, limit? })` | Messages newest first, rows `{ id, direction, kind, phone, body, status, at, error }`. An OTP's body shows as `[otp]`. `error` is the provider's failure reason (for example `400 (131026)`) of a failed send, or of one the outbox is retrying; `null` otherwise. It is redacted (a secret or a token-looking value shows as `[redacted]`) and at most 200 characters, so an app can show it |
+| `message(id)` | One stored message by id, shaped like an `inbox()` row (with `error`), or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
+| `outbox(limit?)` | Outgoing messages newest first, read-only, with status, body and `error` (as for `inbox()`). An OTP's body shows as `[otp]` |
+| `mode()` | `{ sandbox }`, whether the module runs with `sandbox = true`. An app cannot read a module's config, so a dev page or an owner's banner asks here; it answers on an empty outbox too |
 | `chatLink(phone, text)` | `{ url }`, a `wa.me` link with a prefilled message |
 
 Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.

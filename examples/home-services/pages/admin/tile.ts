@@ -1,5 +1,5 @@
-// GET /admin/tile: the active branch's three numbers (jobs today, invoices not
-// paid yet, contracts ending this month), `settings.read` (the owner). The
+// GET /admin/tile: the active branch's four numbers (jobs today, invoices not
+// paid yet, contracts ending this month, online bookings to confirm), `settings.read` (the owner). The
 // `admin` module's dashboard at /admin shows them: the app's filler of its
 // `admin.dashboard` slot (partials/admin-tile.html) asks for this page's
 // `tile` fragment with htmx (HX-Target home-services-tile), because a filler

@@ -5,7 +5,7 @@
 RUST_MEMBERS := $(wildcard bench/spike/*/Cargo.toml crates/*/Cargo.toml)
 TS_PACKAGES := $(wildcard sdk/package.json cli/package.json control/*/package.json packages/*/package.json modules/*/package.json examples/*/package.json bench/package.json)
 
-.PHONY: check test fmt bench lighthouse rust-check rust-test ts-check ts-test docs-check
+.PHONY: check test fmt bench lighthouse journey rust-check rust-test ts-check ts-test docs-check
 
 check: rust-check ts-check docs-check
 
@@ -69,8 +69,23 @@ ifndef ID
 endif
 	bench/run.sh $(ID) $(ARGS)
 
-# Lighthouse of the home-services dispatch board and visit page (bench/lighthouse, #725);
+# Lighthouse of the home-services dispatch board, visit page and /book step 1 (bench/lighthouse, #725, #779);
 # with the busy-day seed (200 jobs today, #728); needs RENOX_WORKER_PATH and Playwright's Chromium;
 # not part of `make test`.
 lighthouse:
 	bun bench/lighthouse/run.ts --assert --busy
+
+# The real-browser tests and the developer journey in Chromium (#586, #587):
+# what journey.yml runs on main and nightly. RENOX_JOURNEY=1 makes a browser
+# test fail instead of skip; not part of `make test`.
+JOURNEY_TESTS := control/dashboard/tests/account.browser.test.ts cli/tests/browser/client-events.test.ts
+journey:
+ifeq ($(RENOX_WORKER_PATH),)
+	@echo "journey: RENOX_WORKER_PATH is not set (cargo build -p renox-cell --bin renox-worker, or bun cli/scripts/fetch-worker.ts)" >&2; exit 1
+endif
+ifeq ($(PLAYWRIGHT_PATH),)
+	@echo "journey: PLAYWRIGHT_PATH is not set (docs/12-developer-experience.md, \"Browser tests\")" >&2; exit 1
+endif
+	RENOX_JOURNEY=1 bun test $(JOURNEY_TESTS)
+	# Its own process: the dashboards and workers it starts never meet another file's ports.
+	RENOX_JOURNEY=1 bun test cli/tests/journey.e2e.test.ts

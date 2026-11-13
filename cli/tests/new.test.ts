@@ -75,8 +75,11 @@ test("--template home-services writes examples/home-services, and the new app pa
   for (const f of templateFiles()) {
     const want = readFileSync(join(EXAMPLE_DIR, f));
     const got = readFileSync(join(dir, f));
-    // renox.toml carries the new app's name; every other file, binaries included, is the example's byte for byte.
-    if (f === "renox.toml") expect(got.toString("utf8")).toBe(want.toString("utf8").replace('name = "home-services"', 'name = "fixit"'));
+    // renox.toml carries the new app's name, and renox.toml and renox.lock the email module's app_url on the new
+    // app's own host (#765); every other file, binaries included, is the example's byte for byte.
+    const hosted = (text: string) => text.replaceAll('app_url = "https://home-services.renoxium.app"', 'app_url = "https://fixit.renoxium.app"');
+    if (f === "renox.toml") expect(got.toString("utf8")).toBe(hosted(want.toString("utf8").replace('name = "home-services"', 'name = "fixit"')));
+    else if (f === "renox.lock") expect(got.toString("utf8")).toBe(hosted(want.toString("utf8")));
     else expect(got.equals(want), f).toBe(true);
   }
   expect(readFileSync(join(dir, "README.md"), "utf8")).toStartWith("# Home services");

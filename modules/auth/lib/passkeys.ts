@@ -8,7 +8,7 @@
 
 import { base64url, fromBase64url, verifyAssertion, verifyRegistration, WebAuthnError } from "@renoxium/sdk";
 
-import { afterLogin, type AuthCtx, now, randomHex, startSession, type User } from "./core.ts";
+import { afterLogin, type AuthCtx, now, randomHex, startSession, type User, USER_COLUMNS } from "./core.ts";
 
 export const CHALLENGE_TTL_SECONDS = 5 * 60;
 export const GENERIC_PASSKEY_ERROR = "That passkey could not be used. Try again, or sign in another way.";
@@ -109,9 +109,9 @@ export async function finishLogin(ctx: Ctx, input: { credentialId: unknown; clie
   // A cloned authenticator: the counter did not grow (0 = the authenticator keeps none).
   if ((counter !== 0 || pk.counter !== 0) && counter <= pk.counter) return fail;
   await ctx.db.execute("update auth__passkeys set counter = ?, last_used_at = ? where id = ?", [counter, now(), pk.id]);
-  const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where id = ?", [pk.user_id]);
+  const user = await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where id = ?`, [pk.user_id]);
   if (user === null) return fail;
-  const hook = await afterLogin(ctx, user.id, next);
+  const hook = await afterLogin(ctx, user.id, "passkey", next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });

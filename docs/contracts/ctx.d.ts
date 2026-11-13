@@ -179,6 +179,14 @@ export declare class ModuleServiceError extends RenoxError {
     readonly hook?: string;
     readonly event?: string;
     readonly cause_code: string | null;
+    /**
+     * ops.md 1.21.0 (#769), a service call only: the callee error's `details` when its
+     * `code` is declared in the callee's `[exports.errors]`; JSON, at most 2 KiB,
+     * every key containing token, secret, password, key or authorization removed.
+     */
+    readonly cause_details?: unknown;
+    /** #769: the declared error's details were over 2 KiB or not JSON, and were dropped. */
+    readonly cause_details_truncated?: true;
   };
 }
 export type EventPayloadReason = "schema" | "not_json" | "too_large";
@@ -269,11 +277,11 @@ export interface Db extends DbStatements {
    * while a transaction is current (a service called from an action), it is a
    * savepoint instead (section 1, "Savepoints", 1.3.0). Inside `fn`, use
    * `tx.scoped(scope)` for scoped statements (1.15.0): the app's
-   * `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. At run time
-   * `tx` is a `TxDb`; the parameter is still typed `DbStatements` so that
-   * existing `Db` fakes keep compiling (#749), so write `(tx as TxDb).scoped(...)`.
+   * `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. `tx` is a
+   * `TxDb` (1.17.1, #756; before, typed `DbStatements` so that existing `Db`
+   * fakes kept compiling): a fake passes `{ ...statements, scoped: () => statements }`.
    */
-  transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: TxDb) => Promise<T>): Promise<T>;
   /**
    * A `Db` whose statements carry `scope` (section 1, "Scoped statements";
    * section 17, "db.scoped()", 1.5.0): owned tables get their owner
@@ -356,6 +364,12 @@ export interface Ctx {
   readonly deadline: Deadline;
   /** The module this ctx is bound to (section 15.1, 1.3.0); "app" for the app. */
   readonly module: string;
+  /**
+   * Who called the service this code runs in (section 15.2, "Caller"; #763): "app" or the calling
+   * module's name, set by the broker only (a callee cannot change it). A module's own page,
+   * action, job, event handler, hook filler or tool sees its own name; the app's own code `undefined`.
+   */
+  readonly caller?: string;
   /** The module's resolved `[config]` (section 15.5); `{}` for the app. */
   readonly config: ModuleConfig;
   /** Service proxies of the installed modules, as `renox:modules` (section 15.2). */

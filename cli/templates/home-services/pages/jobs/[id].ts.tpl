@@ -8,6 +8,16 @@
 // ?/cancel and ?/status need `job.dispatch`, ?/summary (the visit's report
 // summary) `job.write`; a refusal of the rules answers
 // 409 (a taken slot names the next free one) or 422 with the reason.
+//
+// A job booked online (`source = self_booking`, #779) carries a "Booked online"
+// badge. While it is `new` it keeps the customer's requested time, and the
+// page shows it with two ways on: POST ?/confirm (`job.dispatch`) books that
+// time with one of the branch's technicians who are free then (the slot
+// search of lib/booking-sync.ts; with none free the button is disabled and
+// the page says so) through the staff schedule path, so the job is
+// `scheduled` and the customer gets the usual scheduled message; or the
+// schedule form below at another time ("Propose another time"), after which
+// the customer's message is `booking_moved`.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { storage } from "renox:modules";
 
@@ -20,7 +30,7 @@ import { summarySchema } from "../../lib/visit-forms";
 import { setSummary } from "../../lib/visits";
 import { assignSchema, scheduleSchema, statusSchema } from "../../lib/job-forms";
 import { invoiceOfJob } from "../../lib/invoices";
-import { assign, eventsOf, findJob, jobResource, schedule, TRANSITIONS, transition, type JobRow, type Outcome } from "../../lib/jobs";
+import { assign, eventsOf, findJob, jobResource, scheduleJob, TRANSITIONS, transition, type JobRow, type Outcome } from "../../lib/jobs";
 import { shell } from "../../lib/page";
 import { invalid } from "../../lib/invalid";
 import { day } from "../../lib/quotes";
@@ -28,6 +38,11 @@ import { branchOf, noBranch, scopedDb, type Branch } from "../../lib/scope";
 import { techniciansOf } from "../../lib/technicians";
 
 export const guard = { action: "job.read" };
+
+/** Whether the job was booked online (/book, #779). */
+const online = (job: JobRow): boolean => job.source === "self_booking";
+/** The self-booking's requested start in unix ms, while it waits for the dispatcher; else null. */
+const requestedMs = (job: JobRow): number | null => (online(job) && job.status === "new" && job.scheduled_start !== null ? job.scheduled_start * 1000 : null);
 
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 const when = (seconds: number): string => `${day(seconds)} ${clock(seconds)}`;
@@ -58,6 +73,19 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
     const staff = pickTech === "" ? technicians.map((t) => t.id) : [pickTech];
     const found = await slotsOn(bookingService(service.code), pickDay, staff);
     slots = found.map((s) => ({ value: `${s.staff}@${s.start}`, label: `${clock(Math.floor(s.start / 1000))}–${clock(Math.floor(s.end / 1000))} · ${names.get(s.staff) ?? s.staff}` }));
+  }
+  // A self-booking's requested time: the technicians free at exactly that start (none once it has passed).
+  const wantMs = requestedMs(job);
+  let requested = null;
+  if (wantMs !== null) {
+    let free: { id: string; name: string }[] = [];
+    if (dispatcher && service !== null && wantMs > Date.now()) {
+      await ensureSynced(ctx.db, branch, technicians, service.code);
+      const found = await slotsOn(bookingService(service.code), day(Math.floor(wantMs / 1000)), technicians.map((t) => t.id));
+      const ids = new Set(found.filter((s) => s.start === wantMs).map((s) => s.staff));
+      free = technicians.filter((t) => ids.has(t.id)).map((t) => ({ id: t.id, name: t.name }));
+    }
+    requested = { start: when(Math.floor(wantMs / 1000)), end: clock(job.scheduled_end ?? Math.floor(wantMs / 1000) + 3600), free, propose: `/jobs/${job.id}?day=${day(Math.floor(wantMs / 1000))}#schedule` };
   }
   // The visit, if the technician has checked in: read by everyone who reads the job; `job.write` edits the summary.
   const visitRow = await visitOfJob(scoped, job.id);
@@ -118,6 +146,8 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
       note: e.note,
       by: e.by_user_id === null ? "" : (names.get(e.by_user_id) ?? ""),
     })),
+    online: online(job),
+    requested,
     can_dispatch: dispatcher,
     can_schedule: dispatcher && open,
     can_cancel: dispatcher && TRANSITIONS[job.status].includes("cancelled"),
@@ -189,7 +219,35 @@ export const actions = {
     if (refused !== null) return refused;
     const input = await check(ctx.form, scheduleSchema);
     if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "schedule");
-    return answer(await schedule(ctx, ctx.params.id, input.value.technician, input.value.start, input.value.note), `/jobs/${ctx.params.id}`);
+    const branch = await branchOf(ctx);
+    if (branch === null) return noBranch();
+    const sdb = scopedDb(ctx.db, branch);
+    const job = await findJob(sdb, ctx.params.id);
+    if (job === null) return plain(404, "Job not found");
+    // Another time than the one a self-booking asked for: the customer hears that their booking moved (#779).
+    const wanted = requestedMs(job);
+    const message = wanted !== null && wanted !== input.value.start ? "booking_moved" : "visit_scheduled";
+    return answer(await scheduleJob(ctx, branch, sdb, job, input.value.technician, input.value.start, { note: input.value.note, message }), `/jobs/${ctx.params.id}`);
+  },
+
+  /** A self-booking confirmed as asked: its requested time, booked with a technician free then (#779). */
+  async confirm(ctx: ActionContext) {
+    const page = await shell(ctx);
+    const refused = await denied(ctx);
+    if (refused !== null) return refused;
+    const input = await check(ctx.form, assignSchema);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors, "confirm");
+    const branch = await branchOf(ctx);
+    if (branch === null) return noBranch();
+    const sdb = scopedDb(ctx.db, branch);
+    const job = await findJob(sdb, ctx.params.id);
+    if (job === null) return plain(404, "Job not found");
+    const wanted = requestedMs(job);
+    if (wanted === null) return plain(409, "This job is not an online booking waiting for confirmation.");
+    const when = `${day(Math.floor(wanted / 1000))} ${clock(Math.floor(wanted / 1000))}`;
+    const tech = (await techniciansOf(ctx, branch)).find((t) => t.id === input.value.technician);
+    const event = `confirmed the online booking for ${when}${tech === undefined ? "" : ` with ${tech.name}`}`;
+    return answer(await scheduleJob(ctx, branch, sdb, job, input.value.technician, wanted, { event }), `/jobs/${ctx.params.id}`);
   },
 
   async assign(ctx: ActionContext) {

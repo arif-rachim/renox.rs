@@ -30,6 +30,7 @@ Node worker (one Rust process tree per node)
 | Limit | Mechanism | Default (free / paid) |
 | --- | --- | --- |
 | CPU per request | Watchdog thread → `TerminateExecution`; isolate recycled afterwards | 50 ms / 500 ms |
+| CPU per job attempt (scheduled or queued job, `ops.md` section 20) | The same watchdog, with the job budget; a tenant runs one job attempt at a time | 2,000 ms / 10,000 ms |
 | Wall-clock per request | Deadline in context; I/O cancelled | 30 s / 60 s |
 | Memory | V8 heap limit per isolate + cgroup per process | 128 MB / 512 MB |
 | Concurrent requests | Semaphore per deployment | 50 / 500 |

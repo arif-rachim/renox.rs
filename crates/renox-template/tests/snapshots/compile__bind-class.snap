@@ -3,8 +3,8 @@ source: crates/renox-template/tests/compile.rs
 expression: text
 ---
 == pages/index (Page)
-<li class="card{% if p.stock == 0 %} card--empty{% endif %}{% if p.featured %} featured{% endif %}">a</li>
-<li class="{% if tab == 'home' %}active{% endif %}">b</li>
-<li class="x {{ p.extra_class }}">c</li>
+{#@ pages/index:1 #}<li class="card{% if p.stock == 0 %} card--empty{% endif %}{% if p.featured %} featured{% endif %}">a</li>
+{#@ pages/index:2 #}<li class="{% if tab == 'home' %}active{% endif %}">b</li>
+{#@ pages/index:3 #}<li class="x {{ p.extra_class }}">c</li>
 
 -- fragments: {}

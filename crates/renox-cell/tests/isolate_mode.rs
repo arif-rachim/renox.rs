@@ -12,6 +12,9 @@
 //! its own (B12-style: the bomb ends the module's isolate, the app's keeps
 //! answering); and the caller's meter record carries the callee's CPU.
 //! `docs/24-threat-model.md` D, "Malicious or compromised marketplace module".
+//! #763: each callee gets its caller (`ctx.caller`) from the broker, across
+//! isolates both ways (`ledger`, a second `isolate` module, and `rates`, a
+//! `shared` one).
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
@@ -91,6 +94,15 @@ export async function GET(ctx) {
       });
       return Response.json(out);
     }
+    if (op === "caller") {
+      return Response.json({
+        own: ctx.caller === undefined ? "undefined" : ctx.caller,
+        tax: await tax.who(),
+        chain: await tax.chain(),
+        tamper: await tax.tamper(),
+        after: await tax.who(),
+      });
+    }
     if (op === "ping") return Response.json({ ok: true, counter: ++appCounter, marker: globalThis.__appMarker });
   } catch (e) {
     return Response.json({ error: e.code ?? e.message, details: e.details ?? null });
@@ -101,6 +113,20 @@ export async function GET(ctx) {
 
 /// The `isolate` module: probes what it can reach, echoes, spins, explodes.
 const TAX: &str = r#"
+import { ledger, rates } from "renox:modules";
+export async function who(ctx) { return { caller: ctx.caller, module: ctx.module }; }
+export async function chain(ctx) {
+  return { mine: ctx.caller, rates: await rates.who(), ledger: await ledger.viaRates(), after: ctx.caller };
+}
+export async function tamper(ctx) {
+  const t = {};
+  try { ctx.caller = "app"; t.assign = "allowed"; } catch (e) { t.assign = e.name; }
+  try { Object.defineProperty(ctx, "caller", { value: "app" }); t.define = "allowed"; } catch (e) { t.define = e.name; }
+  t.still = ctx.caller;
+  t.ledger = await ledger.who();
+  t.rates = await rates.who();
+  return t;
+}
 const code = async (f) => { try { await f(); return "allowed"; } catch (e) { return e.code ?? e.name; } };
 export async function probe(ctx) {
   return {
@@ -127,25 +153,50 @@ export async function addLineThenFail(ctx, id) {
 }
 "#;
 
+/// #763: a second `isolate` module and a `shared` one, for `ctx.caller`
+/// across isolates both ways.
+const LEDGER: &str = r#"
+import { rates } from "renox:modules";
+export async function who(ctx) { return { caller: ctx.caller, module: ctx.module }; }
+export async function viaRates(ctx) { return { caller: ctx.caller, rates: await rates.who(), after: ctx.caller }; }
+"#;
+
+const RATES: &str = r#"
+export async function who(ctx) { return { caller: ctx.caller, module: ctx.module }; }
+"#;
+
 fn artifact(store: &Path) -> String {
     let tmp = scratch("artifact");
     let perms = serde_json::json!({ "tables": "tax__*", "network": [], "secrets": ["TAX_KEY"], "slots": [], "hooks": [] });
+    let other = |m: &str| serde_json::json!({ "tables": format!("{m}__*"), "network": [], "secrets": [], "slots": [], "hooks": [] });
     let manifest = serde_json::json!({
         "artifact": { "version": 1 },
         "app": { "name": "iso", "timezone": "Asia/Dubai" },
         "code": { "format": "esm-dir", "entry": {
             "functions/f": "functions/f.js",
             "modules/tax/services": "modules/tax/services.js",
+            "modules/ledger/services": "modules/ledger/services.js",
+            "modules/rates/services": "modules/rates/services.js",
         } },
         "routes": [
             { "kind": "function", "method": "GET", "path": "/", "module": "functions/f", "export": "GET" },
         ],
         "permissions": { "network": [], "secrets": ["APP_KEY"] },
         "modules": [{
+            "name": "rates", "version": "1.0.0", "hash": "0".repeat(64), "source": "registry:gulfsoft/rates",
+            "mount": "/rates", "isolation": "shared", "dependencies": [], "config": {},
+            "permissions": other("rates"), "approved": other("rates"),
+            "exports": { "services": ["who"] },
+        }, {
+            "name": "ledger", "version": "1.0.0", "hash": "0".repeat(64), "source": "registry:gulfsoft/ledger",
+            "mount": "/ledger", "isolation": "isolate", "dependencies": ["rates"], "config": {},
+            "permissions": other("ledger"), "approved": other("ledger"),
+            "exports": { "services": ["who", "viaRates"] },
+        }, {
             "name": "tax", "version": "2.1.0", "hash": "0".repeat(64), "source": "registry:gulfsoft/tax",
-            "mount": "/tax", "isolation": "isolate", "dependencies": [], "config": {},
+            "mount": "/tax", "isolation": "isolate", "dependencies": ["ledger", "rates"], "config": {},
             "permissions": perms, "approved": perms,
-            "exports": { "services": ["probe", "echo", "big", "spin", "bomb", "addLine", "addLineThenFail"] },
+            "exports": { "services": ["probe", "echo", "big", "spin", "bomb", "addLine", "addLineThenFail", "who", "chain", "tamper"] },
         }],
     });
     let files: Vec<(&str, String)> = vec![
@@ -155,6 +206,8 @@ fn artifact(store: &Path) -> String {
         ),
         ("code/functions/f.js", APP.into()),
         ("code/modules/tax/services.js", TAX.into()),
+        ("code/modules/ledger/services.js", LEDGER.into()),
+        ("code/modules/rates/services.js", RATES.into()),
     ];
     for (p, src) in &files {
         let path = tmp.join(p);
@@ -458,4 +511,45 @@ async fn the_modules_heap_limit_is_its_own_and_its_cpu_is_on_the_callers_record(
             .await
             .contains("renox_module_isolates 1")
     );
+}
+
+/// #763 (ops.md 1.19.0 section 15.2, "Caller"): the broker gives each callee
+/// its caller across isolates both ways. The app's call into `tax` (its own
+/// isolate) gives `"app"`; `tax` into the `shared` `rates` (back in the
+/// app's isolate) gives `"tax"`; the nested `tax` -> `ledger` (another
+/// isolate) -> `rates` gives `"tax"` to `ledger` and `"ledger"` to `rates`.
+/// A callee that assigns or redefines `ctx.caller` fails, and its next
+/// callees, and the app's next call, still see what the broker sets.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_callee_gets_its_caller_from_the_broker_across_isolates() {
+    let (_data, n) = setup("caller");
+    let (_, v) = n.get("op=caller").await;
+    assert_eq!(v["own"], "undefined", "the app's own handler: {v}");
+    assert_eq!(
+        v["tax"],
+        serde_json::json!({ "caller": "app", "module": "tax" }),
+        "{v}"
+    );
+    let c = &v["chain"];
+    assert_eq!(c["mine"], "app", "{v}");
+    assert_eq!(c["after"], "app", "{v}");
+    assert_eq!(
+        c["rates"],
+        serde_json::json!({ "caller": "tax", "module": "rates" }),
+        "{v}"
+    );
+    assert_eq!(c["ledger"]["caller"], "tax", "{v}");
+    assert_eq!(c["ledger"]["after"], "tax", "{v}");
+    assert_eq!(
+        c["ledger"]["rates"],
+        serde_json::json!({ "caller": "ledger", "module": "rates" }),
+        "{v}"
+    );
+    let t = &v["tamper"];
+    assert_eq!(t["assign"], "TypeError", "{v}");
+    assert_eq!(t["define"], "TypeError", "{v}");
+    assert_eq!(t["still"], "app", "{v}");
+    assert_eq!(t["ledger"]["caller"], "tax", "{v}");
+    assert_eq!(t["rates"]["caller"], "tax", "{v}");
+    assert_eq!(v["after"]["caller"], "app", "{v}");
 }

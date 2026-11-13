@@ -12,6 +12,18 @@ use minijinja::Value;
 use renox_template::{RenderContext, RenderError, RenderLimits, RenderTarget, Renderer};
 use serde_json::json;
 
+/// The tests of this file run one at a time: B13 times a render against 50 ms,
+/// and the other renders of this binary (fuel, output, timeout) running beside
+/// it on a small CI runner made it miss by a few ms. Same rule as
+/// `crates/renox-runtime/tests/limits.rs` (`SERIAL`).
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn value(v: serde_json::Value) -> Value {
     serde_json::from_value(v).unwrap()
 }
@@ -27,6 +39,7 @@ fn nested_loops_data(n: usize) -> Value {
 /// within 50 ms, and the renderer keeps serving afterwards.
 #[test]
 fn b13_nested_loops_stop_at_fuel_within_50_ms() {
+    let _serial = serial();
     let c = compile_fixture("evil-nested-loops").unwrap();
     let r = Renderer::new(c.sources()).unwrap();
     let data = nested_loops_data(10_000);
@@ -71,6 +84,7 @@ fn b13_nested_loops_stop_at_fuel_within_50_ms() {
 /// start, before any item runs.
 #[test]
 fn iteration_limit() {
+    let _serial = serial();
     let c = compile_files(&[("pages/index.html", "<p r-for=\"x in xs\">{{ x }}</p>")]).unwrap();
     let r = Renderer::new(c.sources()).unwrap();
     let limits = RenderLimits {
@@ -123,10 +137,11 @@ fn iteration_limit() {
 
 /// #657 (`docs/23-failure-modes.md`, "Template nested loops / huge
 /// output"): a fuel stop in a layout names the layout and its line, not the
-/// page that uses it. (A component is inlined into the page at compile
-/// time, so a stop inside one names the page.)
+/// page that uses it. (A stop inside a component:
+/// `fuel_stop_in_a_component_names_the_component_and_line`.)
 #[test]
 fn fuel_stop_names_the_innermost_template_and_line() {
+    let _serial = serial();
     let c = compile_files(&[
         (
             "pages/_layouts/main.html",
@@ -161,6 +176,7 @@ fn fuel_stop_names_the_innermost_template_and_line() {
 /// Output size limit: output past the limit stops the render.
 #[test]
 fn output_size_limit() {
+    let _serial = serial();
     let c = compile_fixture("evil-nested-loops").unwrap();
     let r = Renderer::new(c.sources()).unwrap();
     let limits = RenderLimits {
@@ -179,9 +195,10 @@ fn output_size_limit() {
         panic!("expected OutputSize, got {e:?}");
     };
     assert!(stats.fuel_used > 0, "fuel seen at the last loop start");
-    // No location here: minijinja replaces a writer's error, and the line
-    // it carried, with its own `WriteFailure` (#657 follow-up); the cell
-    // logs the page id instead.
+    // A soft stop (#682): the writer drops the bytes and the next loop start
+    // fails with a location.
+    assert_eq!(stats.template.as_deref(), Some("pages/index"), "{stats:?}");
+    assert!(stats.line.is_some_and(|l| l > 0), "{stats:?}");
     // Fragments are capped too.
     let shop = compile_fixture("shop").unwrap();
     let r = Renderer::new(shop.sources()).unwrap();
@@ -202,10 +219,92 @@ fn output_size_limit() {
     assert!(matches!(e, RenderError::OutputSize(_)), "{e:?}");
 }
 
+/// #682: the output stays capped at `max_output_bytes` even though the
+/// render goes on to the next loop start, and a page without a loop after the
+/// cap is still an output-size stop.
+#[test]
+fn output_never_exceeds_the_limit() {
+    let _serial = serial();
+    let c = compile_fixture("evil-nested-loops").unwrap();
+    let r = Renderer::new(c.sources()).unwrap();
+    let limits = RenderLimits {
+        max_output_bytes: 1024,
+        ..RenderLimits::DEFAULT
+    };
+    let mut out = Vec::new();
+    let e = r
+        .render_to(
+            RenderTarget::Page("pages/index"),
+            nested_loops_data(100),
+            &RenderContext::default(),
+            &limits,
+            &mut out,
+        )
+        .unwrap_err();
+    assert!(matches!(e, RenderError::OutputSize(_)), "{e:?}");
+    assert!(
+        !out.is_empty() && out.len() <= limits.max_output_bytes,
+        "{} bytes",
+        out.len()
+    );
+
+    let c = compile_files(&[("pages/index.html", "<p>{{ text }}</p>\n<p>{{ text }}</p>")]).unwrap();
+    let r = Renderer::new(c.sources()).unwrap();
+    let mut out = Vec::new();
+    let e = r
+        .render_to(
+            RenderTarget::Page("pages/index"),
+            value(json!({ "text": "x".repeat(800) })),
+            &RenderContext::default(),
+            &limits,
+            &mut out,
+        )
+        .unwrap_err();
+    assert!(matches!(e, RenderError::OutputSize(_)), "{e:?}");
+    assert!(out.len() <= limits.max_output_bytes, "{} bytes", out.len());
+}
+
+/// #682: a stop inside an inlined component names the component's file and
+/// its line, through the compiler's line markers.
+#[test]
+fn fuel_stop_in_a_component_names_the_component_and_line() {
+    let _serial = serial();
+    let c = compile_files(&[
+        (
+            "partials/grid.html",
+            "<r-props rows=\"list\" cols=\"list\" />\n<table>\n<tr r-for=\"a in rows\"><td r-for=\"b in cols\">{{ a }}{{ b }}</td></tr>\n</table>",
+        ),
+        (
+            "pages/index.html",
+            "<h1>grid</h1>\n\n<p>before</p>\n<x-grid :rows=\"rows\" :cols=\"cols\" />\n<p>after</p>",
+        ),
+    ])
+    .unwrap();
+    let r = Renderer::new(c.sources()).unwrap();
+    let e = r
+        .render(
+            RenderTarget::Page("pages/index"),
+            nested_loops_data(10_000),
+            &RenderContext::default(),
+            &RenderLimits::DEFAULT,
+        )
+        .unwrap_err();
+    let RenderError::Fuel(stats) = e else {
+        panic!("expected Fuel, got {e:?}");
+    };
+    assert_eq!(
+        stats.template.as_deref(),
+        Some("partials/grid"),
+        "{stats:?}"
+    );
+    assert_eq!(stats.line, Some(3), "{stats:?}");
+}
+
 /// Include depth: a page with a layout is depth 1; an include cycle is
 /// infinitely deep and refused before rendering.
 #[test]
 fn include_depth_limit() {
+    let _serial = serial();
     let c = compile_fixture("layout").unwrap();
     let r = Renderer::new(c.sources()).unwrap();
     assert_eq!(r.depth("pages/index"), Some(1));
@@ -243,6 +342,7 @@ fn include_depth_limit() {
 /// Render timeout: checked at every write and loop start.
 #[test]
 fn render_timeout() {
+    let _serial = serial();
     let c = compile_fixture("evil-nested-loops").unwrap();
     let r = Renderer::new(c.sources()).unwrap();
     let limits = RenderLimits {
@@ -273,6 +373,7 @@ fn render_timeout() {
 /// error template stops at its small fuel budget.
 #[test]
 fn error_page_budget() {
+    let _serial = serial();
     let c = compile_files(&[(
         "pages/_error.html",
         "<h1>{{ status }}</h1><p r-for=\"x in xs\">{{ x }}</p>",

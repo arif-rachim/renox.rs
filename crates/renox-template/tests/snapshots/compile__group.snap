@@ -4,11 +4,11 @@ expression: text
 ---
 == pages/index (Page)
 <dl>
-  {% for item in (specs) | __loop %}
-    <dt dir="auto">{{ item.key }}</dt>
-    <dd dir="auto">{{ item.value }}</dd>
+  {#@ pages/index:2 #}{% for item in (specs) | __loop %}
+    <dt dir="auto">{#@ pages/index:3 #}{{ item.key }}</dt>
+    <dd dir="auto">{#@ pages/index:4 #}{{ item.value }}</dd>
   {% endfor %}
-  {% if warranty %}<dt>Warranty</dt><dd dir="auto">{{ warranty }}</dd>{% endif %}
+  {#@ pages/index:6 #}{% if warranty %}<dt>Warranty</dt><dd dir="auto">{{ warranty }}</dd>{% endif %}
 </dl>
 
 -- fragments: {}

@@ -28,5 +28,25 @@
     "template": "amc_renewal",
     "subject": "Your maintenance contract {number} ends on {ends}",
     "body": "Hello {name}, your maintenance contract {number} ends on {ends}. Reply to this message and we will renew it for you."
+  },
+  "booking_received": {
+    "template": "booking_received",
+    "subject": "We received your booking {job}",
+    "body": "Hello {name}, we received your booking {job} for {when}. We will confirm it shortly."
+  },
+  "visit_moved": {
+    "template": "visit_moved",
+    "subject": "Your visit {job} is moved",
+    "body": "Hello {name}, your visit {job} is now on {when}."
+  },
+  "visit_cancelled": {
+    "template": "visit_cancelled",
+    "subject": "Your visit {job} is cancelled",
+    "body": "Hello {name}, your visit {job} is cancelled."
+  },
+  "booking_moved": {
+    "template": "booking_moved",
+    "subject": "We moved your booking {job}",
+    "body": "Hello {name}, we moved your booking {job} to {when}. Reply if this does not suit you."
   }
 }
