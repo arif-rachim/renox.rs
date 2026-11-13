@@ -1,7 +1,8 @@
 // Test only: the 2fa `reset` service for the user in the body. A service error
 // reaches the caller as RENOX_MODULE_SERVICE with the service's own code in
-// details.cause_code when it is a platform error (RENOX_FORBIDDEN), else null
-// and only the message survives; both come back as JSON.
+// details.cause_code: a platform error's (RENOX_FORBIDDEN), or one twofa
+// declares in [exports.errors] (#769: SELF_RESET, INVALID, ...); both come
+// back as JSON.
 import { twofa } from "renox:modules";
 
 export async function POST({ req }) {

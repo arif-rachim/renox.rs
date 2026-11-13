@@ -253,7 +253,15 @@ export type ModuleServiceErrorDetails = {
   readonly service?: string;
   readonly hook?: string;
   readonly event?: string;
+  /** The callee error's code: a `RENOX_*` code, or (#769) one the callee declares in `[exports.errors]`; else null. */
   readonly cause_code: string | null;
+  /**
+   * ops.md section 15.2, "Errors" (#769), a service call only: the details of an error
+   * whose code the callee declares; JSON, at most 2 KiB, secret-named keys removed.
+   */
+  readonly cause_details?: unknown;
+  /** #769: the declared error's details were over 2 KiB or not JSON, and were dropped. */
+  readonly cause_details_truncated?: true;
 };
 
 /**

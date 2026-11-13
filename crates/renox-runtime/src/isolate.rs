@@ -281,8 +281,13 @@ impl Invoke {
 pub enum InvokeOutcome {
     /// The value as JSON text.
     Ok(String),
-    /// The code threw; its `code` when it was a `RenoxError`.
-    Threw { code: Option<String> },
+    /// The code threw; its `code` when it was a `RenoxError`, and (#769)
+    /// for a cross-isolate service call, what the callee's bootstrap
+    /// reported of a declared error (checked again by the host).
+    Threw {
+        code: Option<String>,
+        cause: Option<crate::ops::modules::RawCause>,
+    },
     /// The tool's output is over 256 KB of JSON (ops.md section 19).
     OutputTooLarge,
     /// No such tool or service.
@@ -1547,6 +1552,7 @@ impl Pool {
             }
         };
         let deadline = call.deadline;
+        let target = call.target.clone();
         let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let (reply_tx, reply_rx) = oneshot::channel();
         let job = DispatchJob {
@@ -1598,7 +1604,18 @@ impl Pool {
                     }
                     InvokeOutcome::Ok(json) => CrossResult::Ok(json),
                     InvokeOutcome::OutputTooLarge => CrossResult::TooLarge,
-                    InvokeOutcome::Threw { code } => CrossResult::Threw { code },
+                    // #769: the trusted side of a declared error: the code
+                    // must be in the callee's `exports.errors` (artifact),
+                    // the details are filtered and redacted here again.
+                    InvokeOutcome::Threw { code, cause } => CrossResult::Threw {
+                        code,
+                        cause: cause.and_then(|raw| {
+                            let redactor =
+                                crate::ops::secrets::Redactor::new(self.spec.secrets.values());
+                            self.modules
+                                .declared_cause(&target, &raw, |s| redactor.redact(s).into_owned())
+                        }),
+                    },
                     InvokeOutcome::NoHandler | InvokeOutcome::Forbidden => CrossResult::NoHandler,
                     InvokeOutcome::Failed(code) => CrossResult::Failed(code.as_str().to_string()),
                 };
@@ -3263,6 +3280,12 @@ struct JsOutcome {
     /// `RENOX_DB_SCOPE`: the error's details and a principal summary, as
     /// JSON, for the tenant log (the dev overlay reads them, #294).
     details_json: Option<String>,
+    /// `KIND_THROW` of a cross-isolate service call (#769): the declared
+    /// code, its filtered details as JSON, and whether they were dropped.
+    /// Untrusted: the host checks them again (`ModuleRegistry::declared_cause`).
+    cause_code: Option<String>,
+    cause_details_json: Option<String>,
+    cause_details_truncated: Option<bool>,
 }
 
 const KIND_OK: u8 = 0;
@@ -4508,10 +4531,24 @@ fn finish_invoke(
         Ok(o) => (
             InvokeOutcome::Threw {
                 code: o.code.clone(),
+                cause: o
+                    .cause_code
+                    .clone()
+                    .map(|code| crate::ops::modules::RawCause {
+                        code,
+                        details_json: o.cause_details_json.clone(),
+                        truncated: o.cause_details_truncated == Some(true),
+                    }),
             },
             MeterStatus::Error,
         ),
-        Err(_) => (InvokeOutcome::Threw { code: None }, MeterStatus::Error),
+        Err(_) => (
+            InvokeOutcome::Threw {
+                code: None,
+                cause: None,
+            },
+            MeterStatus::Error,
+        ),
     };
     if matches!(result, InvokeOutcome::Threw { .. }) {
         let mut f = serde_json::Map::new();

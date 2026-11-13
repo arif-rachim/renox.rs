@@ -112,6 +112,7 @@ const {
   ReflectDeleteProperty,
   SafeArrayIterator,
   String,
+  StringPrototypeCharCodeAt,
   StringPrototypeIsWellFormed,
   StringPrototypeStartsWith,
   StringPrototypeToLowerCase,
@@ -972,7 +973,11 @@ async function crossCall(kind, target, name, args) {
       dropCall(call);
       await rollbackTx(false);
     }
-    throw new ModuleServiceError(`${target}.${name} failed`, { module: target, service: name, cause_code: details.cause_code ?? null });
+    // #769: the host filtered a declared cause (code, details) again before it crossed back.
+    const out = { module: target, service: name, cause_code: details.cause_code ?? null };
+    if (details.cause_details !== undefined && details.cause_details !== null) out.cause_details = details.cause_details;
+    if (details.cause_details_truncated === true) out.cause_details_truncated = true;
+    throw new ModuleServiceError(`${target}.${name} failed`, out);
   }
   await closeCall(call);
   return JSONParse(out);
@@ -1203,7 +1208,77 @@ async function calleeFailed(e, details, label, undo = rollbackCurrent) {
   within([[moduleVar, details.module]], () =>
     writeLog("error", `${label} threw`, { error: describeThrow(e), code: "RENOX_MODULE_SERVICE" }),
   );
-  return new ModuleServiceError(`${label} failed: ${safeString(e?.message ?? e)}`, { ...details, cause_code: cause });
+  // ops.md section 15.2, "Errors" (#769): a service's declared code crosses with its filtered details.
+  const declared = details.service !== undefined ? declaredCause(e, details.module) : null;
+  return new ModuleServiceError(`${label} failed: ${safeString(e?.message ?? e)}`, { ...details, ...causeFields(cause, declared) });
+}
+
+/**
+ * ops.md section 15.2, "Errors" (#769): the most UTF-8 bytes of a
+ * declared error's details that reach the caller, after serialisation.
+ */
+const MAX_CAUSE_DETAILS = 2048;
+/** manifest.md MF18: a module's own error code. */
+const MODULE_ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
+/** A key named like a secret (contains one of these, any case): its value never crosses. */
+const SECRET_KEY = /token|secret|password|key|authorization/i;
+
+function causeReplacer(key, value) {
+  // `this` is the holder; an array's keys are indices, never a secret's name.
+  if (key !== "" && !ArrayIsArray(this) && RegExpPrototypeTest(SECRET_KEY, key)) return undefined;
+  if (typeof value === "bigint") return String(value);
+  return value;
+}
+
+function utf8Length(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = StringPrototypeCharCodeAt(s, i);
+    // JSON.stringify escapes lone surrogates, so a surrogate is half of a 4-byte pair.
+    n += c < 0x80 ? 1 : c < 0x800 || (c >= 0xd800 && c <= 0xdfff) ? 2 : 3;
+  }
+  return n;
+}
+
+/**
+ * The callee error's code when `module` declares it in `[exports.errors]`
+ * (the artifact's `exports.errors`, never the error's say), and its
+ * `details` as JSON only: secret-named keys removed at every depth, at
+ * most MAX_CAUSE_DETAILS bytes, else dropped (`truncated`). Null for any
+ * other error: a `RENOX_*` code, an undeclared code, no code.
+ * `{ code, json, truncated }`; `json` is undefined without details.
+ */
+function declaredCause(e, module) {
+  let code;
+  let raw;
+  try {
+    code = e?.code;
+    if (typeof code !== "string" || StringPrototypeStartsWith(code, "RENOX_") || !RegExpPrototypeTest(MODULE_ERROR_CODE, code)) return null;
+    if (!ArrayPrototypeIncludes(infoOf(module)?.exports?.errors ?? [], code)) return null;
+    raw = e.details;
+  } catch {
+    return null;
+  }
+  if (raw === undefined || raw === null) return { code, json: undefined, truncated: false };
+  let json;
+  try {
+    json = JSONStringify(raw, causeReplacer);
+  } catch {
+    // A cycle, bytes, a throwing getter or toJSON: not JSON, nothing crosses.
+    return { code, json: undefined, truncated: true };
+  }
+  if (typeof json !== "string") return { code, json: undefined, truncated: false };
+  if (utf8Length(json) > MAX_CAUSE_DETAILS) return { code, json: undefined, truncated: true };
+  return { code, json, truncated: false };
+}
+
+/** The `cause_*` fields of a ModuleServiceError's details from a RENOX_ code and a declared cause. */
+function causeFields(renoxCode, declared) {
+  if (declared === null) return { cause_code: renoxCode };
+  const out = { cause_code: declared.code };
+  if (declared.json !== undefined) out.cause_details = JSONParse(declared.json);
+  if (declared.truncated) out.cause_details_truncated = true;
+  return out;
 }
 
 /** `<target>.<service>(...args)` from the module whose code runs. */
@@ -2656,7 +2731,20 @@ function invoke(token, env, handler, owner) {
       if (json.length > MAX_TOOL_OUTPUT) return { kind: KIND_INVOKE, result: "output_too_large" };
       return { kind: KIND_INVOKE, result: "ok", data_json: json };
     };
-    return PromisePrototypeThen(go(), undefined, describeThrow);
+    return PromisePrototypeThen(go(), undefined, (e) => {
+      const d = describeThrow(e);
+      // #769: a service of an `isolate` module threw a declared code; the
+      // host checks it against the artifact and filters the details again.
+      if (env.kind === "cross" && env.what === "service") {
+        const c = declaredCause(e, env.module);
+        if (c !== null) {
+          d.cause_code = c.code;
+          if (c.json !== undefined) d.cause_details_json = c.json;
+          if (c.truncated) d.cause_details_truncated = true;
+        }
+      }
+      return d;
+    });
   } finally {
     core.setAsyncContext(previous);
   }

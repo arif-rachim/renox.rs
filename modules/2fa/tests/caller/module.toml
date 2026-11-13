@@ -1,0 +1,15 @@
+# Test only (#769): a module that calls twofa, so the 2fa tests see what a
+# caller in another module gets from a declared error (STEP_UP_REQUIRED).
+[module]
+name = "twofa_probe"
+version = "0.1.0"
+description = "Test only: calls twofa.requireRecent and reports the error it caught"
+
+[dependencies]
+twofa = "^1.0"
+
+[imports]
+services = ["twofa.requireRecent"]
+
+[exports.services]
+stepUp = "Calls twofa.requireRecent and returns what a caller sees of its error"

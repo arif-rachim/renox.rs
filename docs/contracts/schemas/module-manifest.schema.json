@@ -148,6 +148,15 @@
             }
           }
         },
+        "errors": {
+          "type": "object",
+          "description": "1.7.0 (#769): error code -> one-line description. The codes of this module whose error, thrown by one of its services, reaches the caller as details.cause_code with its filtered details (ops.md section 15.2, \"Errors\"). The code grammar and the limit of 32 are MF18.",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
         "hooks": {
           "type": "object",
           "description": "Hook point this module runs with ctx.hooks.run -> argument and result shape.",

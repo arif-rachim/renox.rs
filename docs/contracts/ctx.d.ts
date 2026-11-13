@@ -179,6 +179,14 @@ export declare class ModuleServiceError extends RenoxError {
     readonly hook?: string;
     readonly event?: string;
     readonly cause_code: string | null;
+    /**
+     * ops.md 1.21.0 (#769), a service call only: the callee error's `details` when its
+     * `code` is declared in the callee's `[exports.errors]`; JSON, at most 2 KiB,
+     * every key containing token, secret, password, key or authorization removed.
+     */
+    readonly cause_details?: unknown;
+    /** #769: the declared error's details were over 2 KiB or not JSON, and were dropped. */
+    readonly cause_details_truncated?: true;
   };
 }
 export type EventPayloadReason = "schema" | "not_json" | "too_large";

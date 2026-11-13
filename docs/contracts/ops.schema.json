@@ -2195,6 +2195,19 @@
                 "$ref": "#/$defs/dottedName"
               }
             },
+            "errors": {
+              "type": "array",
+              "description": "#769: the module's declared error codes (artifact.md, \"Modules\"): the broker lets only these cross as cause_code (section 15.2, \"Errors\")",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+                "not": {
+                  "pattern": "^RENOX_"
+                }
+              }
+            },
             "views": {
               "type": "array",
               "maxItems": 64,
