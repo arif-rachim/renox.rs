@@ -4,12 +4,12 @@ expression: text
 ---
 == pages/index (Page)
 <ul>
-  {% for p in (products) | __loop %}<li dir="auto">
+  {#@ pages/index:2 #}{% for p in (products) | __loop %}<li dir="auto">{#@ pages/index:3 #}
     {{ p.name }}
-    {% if can("cart.add", p) %}<button hx-post="?/addToCart">Add</button>{% endif %}
-    {% if not can("cart.add", p) %}<span>Sign in to buy</span>{% endif %}
+    {#@ pages/index:4 #}{% if can("cart.add", p) %}<button hx-post="?/addToCart">Add</button>{% endif %}
+    {#@ pages/index:5 #}{% if not can("cart.add", p) %}<span>Sign in to buy</span>{% endif %}
   </li>{% endfor %}
 </ul>
-{% if can("admin.access", none) %}<a href="/admin">Admin</a>{% endif %}
+{#@ pages/index:8 #}{% if can("admin.access", none) %}<a href="/admin">Admin</a>{% endif %}
 
 -- fragments: {}

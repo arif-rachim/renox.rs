@@ -368,6 +368,11 @@ impl fmt::Debug for Scope {
 }
 
 impl Scope {
+    /// Whether the output went past its limit.
+    fn output_full(&self) -> bool {
+        *self.stop.lock().expect("stop lock") == Some(Stop::OutputSize)
+    }
+
     fn stop(&self, why: Stop) {
         let mut s = self.stop.lock().expect("stop lock");
         s.get_or_insert(why);
@@ -434,6 +439,14 @@ fn loop_guard(state: &State, value: Value) -> Result<Value, Error> {
     if Instant::now() >= scope.deadline {
         scope.stop(Stop::Timeout);
         return Err(Error::new(ErrorKind::InvalidOperation, "render time limit"));
+    }
+    if scope.output_full() {
+        // The writer dropped bytes past the limit (`LimitedWriter`); this is
+        // the first point that can fail with a location.
+        return Err(Error::new(
+            ErrorKind::InvalidOperation,
+            "render output limit",
+        ));
     }
     let n = match value.len() {
         Some(n) => n as u64,
@@ -505,25 +518,28 @@ fn resource_key(resource: &serde_json::Value) -> String {
     }
 }
 
-/// Writes into the caller's sink, refusing bytes past the output limit and
-/// any write after the deadline.
+/// Writes into the caller's sink. Bytes past the output limit are dropped
+/// (the output stays capped) and recorded as `Stop::OutputSize` on the
+/// scope: the render goes on until `loop_guard` fails with a location, or
+/// ends (a soft stop, #682). A write after the deadline fails.
 struct LimitedWriter<'w> {
     inner: &'w mut dyn Write,
     written: usize,
     max: usize,
     deadline: Instant,
     stop: Option<Stop>,
+    scope: Arc<Scope>,
 }
 
 impl Write for LimitedWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.written + buf.len() > self.max {
-            self.stop = Some(Stop::OutputSize);
-            return Err(io::Error::other("render output limit"));
-        }
         if Instant::now() >= self.deadline {
             self.stop = Some(Stop::Timeout);
             return Err(io::Error::other("render time limit"));
+        }
+        if self.written + buf.len() > self.max || self.scope.output_full() {
+            self.scope.stop(Stop::OutputSize);
+            return Ok(buf.len());
         }
         self.written += buf.len();
         self.inner.write_all(buf)?;
@@ -550,6 +566,8 @@ pub struct Renderer {
     /// Templates that reach (through extends and include) an `r-can` with a
     /// resource: their output depends on the user beyond the action set.
     user_specific: BTreeSet<String>,
+    /// The line markers of each template (`source_map`).
+    marks: HashMap<String, Vec<crate::source_map::Entry>>,
 }
 
 impl fmt::Debug for Renderer {
@@ -699,7 +717,9 @@ impl Renderer {
         let mut refs: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut actions = BTreeSet::new();
         let mut with_resource = BTreeSet::new();
+        let mut marks = HashMap::new();
         for (id, source) in sources {
+            marks.insert(id.to_string(), crate::source_map::parse(source));
             for (action, resource) in crate::can_calls(source) {
                 if resource {
                     with_resource.insert(id.to_string());
@@ -737,6 +757,23 @@ impl Renderer {
             catalogs: None,
             actions,
             user_specific,
+            marks,
+        })
+    }
+
+    /// The template and line an error is at, in the files the tenant wrote:
+    /// the compiled line mapped by the line markers (`source_map`), so a stop
+    /// inside an inlined component names the component's file.
+    fn locate(&self, e: &Error) -> Option<(String, u32)> {
+        let name = e.name()?;
+        let line = u32::try_from(e.line()?).ok()?;
+        let mapped = self
+            .marks
+            .get(name)
+            .and_then(|entries| crate::source_map::locate(entries, line));
+        Some(match mapped {
+            Some((id, line)) => (id.to_string(), line),
+            None => (name.to_string(), line),
         })
     }
 
@@ -965,6 +1002,7 @@ impl Renderer {
             max: limits.max_output_bytes,
             deadline,
             stop: None,
+            scope: scope.clone(),
         };
         let result = if blocks_only {
             // Evaluate without emitting (the page's own output is dropped),
@@ -999,34 +1037,42 @@ impl Renderer {
             line: None,
         };
         match result {
-            Ok(levels) => Ok(stats_at(
-                levels.map_or(0, |(c, _)| c).saturating_add(can_fuel),
-            )),
+            Ok(levels) => {
+                let fuel = levels.map_or(0, |(c, _)| c).saturating_add(can_fuel);
+                if scope.output_full() {
+                    // The render ended before a point that could fail with a
+                    // location.
+                    return Err(RenderError::OutputSize(stats_at(fuel)));
+                }
+                Ok(stats_at(fuel))
+            }
             Err((e, block)) => {
                 let stop = *scope.stop.lock().expect("stop lock");
                 let stop = stop.or(writer.stop);
                 // Where a limit stopped the render, for the log and the overlay.
                 let located = |mut stats: RenderStats| {
-                    stats.template = e.name().map(str::to_string);
-                    stats.line = e.line().and_then(|l| u32::try_from(l).ok());
+                    if let Some((name, line)) = self.locate(&e) {
+                        stats.template = Some(name);
+                        stats.line = Some(line);
+                    }
                     stats
                 };
                 Err(match (e.kind(), stop) {
+                    (_, Some(Stop::OutputSize)) => {
+                        RenderError::OutputSize(located(stats_at(fuel_seen)))
+                    }
                     (ErrorKind::OutOfFuel, _) | (_, Some(Stop::Fuel)) => {
                         RenderError::Fuel(located(stats_at(limits.fuel)))
                     }
                     (_, Some(Stop::Iterations)) => {
                         RenderError::Iterations(located(stats_at(fuel_seen)))
                     }
-                    (_, Some(Stop::OutputSize)) => {
-                        RenderError::OutputSize(located(stats_at(fuel_seen)))
-                    }
                     (_, Some(Stop::Timeout)) => RenderError::Timeout(stats_at(fuel_seen)),
                     (ErrorKind::UnknownBlock, _) => {
                         RenderError::NotFound(format!("{template}#{}", block.unwrap_or_default()))
                     }
                     _ => RenderError::Failed {
-                        message: describe(&e),
+                        message: describe(&e, self.locate(&e)),
                         stats: stats_at(fuel_seen),
                     },
                 })
@@ -1050,12 +1096,12 @@ impl Write for LimitedWriterRef<'_, '_> {
 }
 
 /// One line for the tenant log: the error and where it happened.
-fn describe(e: &Error) -> String {
-    let mut s = e.to_string();
-    if let (Some(name), Some(line)) = (e.name(), e.line()) {
-        s = format!("{name}:{line}: {s}");
+fn describe(e: &Error, at: Option<(String, u32)>) -> String {
+    let s = e.to_string();
+    match at {
+        Some((name, line)) => format!("{name}:{line}: {s}"),
+        None => s,
     }
-    s
 }
 
 /// Whether `id`, or a template it extends or includes, is in `marked`.

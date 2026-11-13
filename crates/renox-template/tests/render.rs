@@ -595,3 +595,33 @@ fn platform_components_carry_csrf_and_nonce() {
     let bad = compile_files(&[("pages/x.html", r#"<x-form action="add-to-cart"></x-form>"#)]);
     assert!(bad.is_err());
 }
+
+/// #682: a `render_failed` error inside an inlined component names the
+/// component's file and line, not the compiled page's.
+#[test]
+fn render_failed_in_a_component_names_the_component_and_line() {
+    let c = compile_files(&[
+        (
+            "partials/ratio.html",
+            "<r-props a=\"number\" b=\"number\" />\n<p>ok</p>\n<b>{{ a / b }}</b>",
+        ),
+        (
+            "pages/index.html",
+            "<h1>x</h1>\n\n<x-ratio :a=\"1\" :b=\"zero\" />\n<p>after</p>",
+        ),
+    ])
+    .unwrap();
+    let data: Value = serde_json::from_value(json!({ "zero": 0 })).unwrap();
+    let e = renderer(&c)
+        .render(
+            RenderTarget::Page("pages/index"),
+            data,
+            &RenderContext::default(),
+            &RenderLimits::DEFAULT,
+        )
+        .unwrap_err();
+    let RenderError::Failed { message, .. } = e else {
+        panic!("expected Failed, got {e:?}");
+    };
+    assert!(message.starts_with("partials/ratio:3: "), "{message}");
+}
