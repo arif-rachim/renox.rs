@@ -149,8 +149,10 @@ describe("failover (FO1-FO6)", () => {
     );
     // The moved tenants are pinned: they do not move back to node-a.
     expect(await nodeOf(t0)).toEqual([order(t0)[0] as string]);
-    const pending = await h.db.query("select tenant_id from failovers where status = 'moved' and dropped_at is null");
-    expect(pending).toEqual([]);
+    // dropMovedTenants marks a row dropped after its DELETE answers, so the last mark may land after the call is seen.
+    const pendingSql = "select tenant_id from failovers where status = 'moved' and dropped_at is null";
+    await until(async () => (await h.db.query(pendingSql)).length === 0);
+    expect(await h.db.query(pendingSql)).toEqual([]);
   });
 
   test("getBackups reports the node's status and the last failover; stale when the node does not answer", async () => {
