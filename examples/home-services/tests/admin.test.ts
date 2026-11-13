@@ -634,7 +634,8 @@ describe("weekly working hours (/admin/branches)", () => {
     // The page says how many jobs are outside (the seed's own jobs near this Friday may be too), with the link that lists them.
     const page = await owner.page(located(res));
     expect(page.html).toContain('id="hours-saved"');
-    const said = /(\d+) scheduled jobs are outside the new hours/u.exec(page.html);
+    // One job reads "1 scheduled job is" (i18n outside_one), as on a Friday once the seed's 10:00 job is past (#800).
+    const said = /(\d+) scheduled jobs? (?:is|are) outside the new hours/u.exec(page.html);
     expect(said).not.toBeNull();
     expect(page.html).toContain('href="/jobs?branch=br_dubai&amp;outside_hours=1"');
     const list = await owner.page("/jobs?branch=br_dubai&outside_hours=1");
