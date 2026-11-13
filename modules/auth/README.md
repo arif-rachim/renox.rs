@@ -151,7 +151,7 @@ Every method ends the same way as the password flow. The hook `auth.after_login`
 
 ### Phone (`phone_login = true`)
 
-- **Pages.** `<mount>/phone` asks for the number and sends a code; `<mount>/phone/verify` takes the code. The account page adds or changes the phone with a code to the new number. A phone signs in only once it is verified.
+- **Pages.** `<mount>/phone` asks for the number and sends a code (`?phone=` pre-fills a valid number, shown in E.164, so an app that already asked for it can pass it on, #796); `<mount>/phone/verify` takes the code. The account page adds or changes the phone with a code to the new number. A phone signs in only once it is verified.
 - **Numbers.** UAE numbers are accepted as `+971 5x xxx xxxx`, `05x xxx xxxx` or `00971…`; numbers in any other E.164 form are accepted too.
 - **Codes.** A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. It is stored as argon2id.
 - **Same answer.** The sign-in request answers the same whether or not a user has the number, and sends nothing for an unknown one (unless `phone_signup` is on, below).

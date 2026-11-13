@@ -3,7 +3,7 @@
 // every case), then a 303 to the code page. Off unless config `phone_login`.
 import { type AuthCtx, currentUser, redirectWith } from "../../lib/core.ts";
 import { localized } from "../../lib/locale.ts";
-import { requestLoginCode, signupOn } from "../../lib/phone.ts";
+import { normalizePhone, requestLoginCode, signupOn } from "../../lib/phone.ts";
 
 type Page = AuthCtx & { url: URL; form: FormData };
 
@@ -13,7 +13,10 @@ export const load = localized(async (ctx: Page) => {
   if (ctx.config.phone_login !== true) return off();
   const next = ctx.url.searchParams.get("next") ?? "/";
   if ((await currentUser(ctx)) !== null) return redirectWith(next, []);
-  return { next, phone: "", error: null, signup: signupOn(ctx) };
+  // An app that already asked for the number passes it (`?phone=`, #796): a
+  // valid one is shown in E.164, anything else gives an empty field.
+  const phone = normalizePhone(ctx.url.searchParams.get("phone")) ?? "";
+  return { next, phone, error: null, signup: signupOn(ctx) };
 });
 
 export const actions = {
