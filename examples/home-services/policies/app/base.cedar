@@ -64,3 +64,12 @@ permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"bookin
 // twofa module asks for one again itself, before it deletes anything).
 forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write", Renox::Action::"user.manage", Renox::Action::"twofa.reset"], resource)
 unless { principal has mfa_verified && principal.mfa_verified };
+
+// The customer portal (/my, #774): a phone-only user holds the global role
+// `customer` (lib/portal.ts assigns it) and may use `portal.*` only. The
+// forbid is explicit, so a later role mistake cannot open a staff page to a
+// customer: every staff action of the app and of the modules' staff pages is
+// named. A user who also holds a staff role is treated as staff by the app
+// (portalUser returns null for them and never assigns the role).
+permit (principal in Renox::Role::"customer", action in [Renox::Action::"portal.view", Renox::Action::"portal.book", Renox::Action::"portal.change"], resource);
+forbid (principal in Renox::Role::"customer", action in [Renox::Action::"customer.read", Renox::Action::"customer.write", Renox::Action::"quote.read", Renox::Action::"quote.write", Renox::Action::"quote.approve", Renox::Action::"job.read", Renox::Action::"job.write", Renox::Action::"job.dispatch", Renox::Action::"visit.perform", Renox::Action::"invoice.read", Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"contract.read", Renox::Action::"contract.write", Renox::Action::"report.view", Renox::Action::"reports.view", Renox::Action::"reports.export", Renox::Action::"settings.read", Renox::Action::"settings.write", Renox::Action::"settings.update", Renox::Action::"branch.write", Renox::Action::"service.write", Renox::Action::"user.manage", Renox::Action::"booking.manage", Renox::Action::"twofa.reset", Renox::Action::"realtime.subscribe"], resource);

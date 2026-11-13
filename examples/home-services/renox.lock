@@ -44,7 +44,7 @@ approved_version = "1.3.0"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
-config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "", uaepass_client_id = "", uaepass_env = "staging", phone_login = true, phone_signup = false, passkeys = false, passkey_rp_id = "", passkey_origin = "" }
+config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "", uaepass_client_id = "", uaepass_env = "staging", phone_login = true, phone_signup = true, passkeys = false, passkey_rp_id = "", passkey_origin = "" }
 approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
 
 [[module]]

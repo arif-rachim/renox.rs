@@ -20,7 +20,7 @@ allowed_types = ["image/jpeg", "image/png", "image/webp", "image/avif", "image/g
 
 [modules]
 i18n ={ version = "^1.0.0" }
-auth = { version = "^1.0.0", config = { phone_login = true } }
+auth = { version = "^1.0.0", config = { phone_login = true, phone_signup = true } }
 org = { version = "^1.0.0" }
 # twofa reads TWOFA_KEY (renox secrets set; tests: .env.test).
 twofa = { version = "^1.0.0", mount = "/2fa" }
@@ -54,7 +54,7 @@ admin = { version = "^1.0.0", mount = "/admin", config = { base_path = "/admin",
 gcc = { version = "^1.0.0" }
 
 [authz]
-actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage"]
+actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage", "portal.view", "portal.book", "portal.change"]
 sensitive = ["invoice.issue", "invoice.pay", "settings.write", "user.manage"]
 
 [authz.default_roles]
@@ -63,6 +63,10 @@ branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write"
 dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write"]
 technician = ["job.read", "visit.perform"]
 accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "reports.view", "reports.export", "customer.read", "job.read", "contract.read"]
+# The customer portal (/my): a global role, assigned to a phone-only user the first time they are linked to
+# their customer records (lib/portal.ts). No `org` membership grants it, and policies/app/base.cedar forbids
+# the role every staff action.
+customer = ["portal.view", "portal.book", "portal.change"]
 
 # Customers and sites belong to one branch. The ownership rule fences them by
 # `branch_id`: `owner` names the column that db.scoped({ user_id }) is compared
