@@ -96,7 +96,8 @@
       "unit": "Per",
       "price": "Price",
       "vat": "VAT",
-      "active": "Active"
+      "active": "Active",
+      "self_booking": "Bookable online"
     },
     "unit": {
       "visit": "visit",
@@ -943,6 +944,61 @@
       "title": "Sign in with your email and password",
       "body": "Staff accounts cannot sign in with a phone code. Please sign in with your email and password.",
       "signin": "Sign in with email"
+    },
+    "book_link": "Book a service",
+    "booked": "We received your booking {number}. We will confirm it shortly."
+  },
+  "book": {
+    "title": "Book a service",
+    "step": "Step {n} of 3",
+    "from": "from",
+    "no_services": "No service can be booked online at the moment.",
+    "choose": "Choose",
+    "show_areas": "Show the areas",
+    "area_hint": "Choose your emirate, then Show the areas.",
+    "next": "Next",
+    "back": "Back",
+    "no_branch": "We do not serve this emirate yet",
+    "call_us": "Call us:",
+    "branch": "Served by our {branch} branch.",
+    "taken": "That time was just taken, please pick another.",
+    "days": "Days",
+    "no_slots": "No free time on this day.",
+    "summary": "Your booking",
+    "your_phone": "Your WhatsApp number:",
+    "code_hint": "We send a code to this number on WhatsApp to confirm it is yours.",
+    "send": "Send me the code",
+    "f": {
+      "service": "Service",
+      "emirate": "Emirate",
+      "area": "Area",
+      "address": "Address",
+      "makani": "Makani number (optional)",
+      "notes": "Notes (optional)",
+      "slot": "Time",
+      "place": "Where",
+      "time": "When",
+      "name": "Your name",
+      "phone": "WhatsApp number",
+      "language": "Language"
+    },
+    "err": {
+      "service": "Choose a service.",
+      "service_here": "This service is not offered in your emirate.",
+      "emirate": "Choose your emirate.",
+      "area": "Choose your area.",
+      "address": "Enter the address in 5 to 200 characters.",
+      "makani": "A Makani number has 10 digits.",
+      "notes": "Notes take at most 500 characters.",
+      "slot": "Choose a time.",
+      "name": "Enter a name of 2 to 80 characters.",
+      "phone": "Enter a UAE mobile number, for example +971 50 123 4567.",
+      "language": "Choose English or Arabic."
+    },
+    "confirm": {
+      "title": "Confirm your booking",
+      "intro": "Check the details, then confirm.",
+      "submit": "Confirm booking"
     }
   }
 }

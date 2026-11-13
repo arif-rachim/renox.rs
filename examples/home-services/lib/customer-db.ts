@@ -66,6 +66,8 @@ export interface CustomerDb {
   contracts(): Promise<Row[]>;
   /** One of their contracts, or null. */
   contract(id: string): Promise<Row | null>;
+  /** One of their jobs by its number (J-000123), or null. */
+  jobByNumber(number: string): Promise<Row | null>;
 }
 
 /**
@@ -117,5 +119,70 @@ export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
       }),
     contracts: async () => newest("created_at")(await all("select * from app__contracts where customer_id = ?1")),
     contract: (id) => first("select * from app__contracts where customer_id = ?1 and id = ?2", [id]),
+    jobByNumber: (number) => first("select * from app__jobs where customer_id = ?1 and number = ?2", [number]),
   };
+}
+
+/** Where a self-booking (/book, #775) is done, and who books it. */
+export interface BookingPlace {
+  readonly name: string;
+  /** E.164, the signed-in user's verified phone. */
+  readonly phone: string;
+  readonly language: "en" | "ar";
+  readonly emirate: string;
+  readonly area: string;
+  readonly address: string;
+  readonly makani: string | null;
+}
+
+const newId = (prefix: string): string => `${prefix}_${crypto.randomUUID().replace(/-/gu, "").slice(0, 16)}`;
+
+/**
+ * The customer and the site of a self-booking in `branchId`, for the portal
+ * user `userId` whose verified phone is `place.phone`: the branch's customer
+ * row with that phone (the one already linked to the user first, then the
+ * oldest), linked to the user when it was not; or a new household with the
+ * booking's name and language. An existing customer keeps its data. The site
+ * is that customer's site at the same address (compared without case or
+ * outer spaces), or a new one labelled "Home". Every statement runs on the
+ * branch's fenced database and names the phone or the customer; the caller's
+ * transaction holds them together with the job.
+ */
+export async function bookingCustomer(db: Scopable, branchId: string, userId: string, place: BookingPlace): Promise<{ customer_id: string; site_id: string; created: boolean }> {
+  const sdb = branchDb(db, branchId);
+  let created = false;
+  const found = await sdb.queryOne<{ id: string; user_id: string | null }>(
+    "select id, user_id from app__customers where phone = ? and (user_id is null or user_id = ?) order by case when user_id = ? then 0 else 1 end, created_at, id limit 1",
+    [place.phone, userId, userId],
+  );
+  let customerId: string;
+  if (found !== null) {
+    customerId = found.id;
+    if (found.user_id === null) await sdb.execute("update app__customers set user_id = ? where id = ? and phone = ? and user_id is null", [userId, customerId, place.phone]);
+  } else {
+    customerId = newId("cu");
+    created = true;
+    await sdb.execute("insert into app__customers (id, branch_id, kind, name, trn, phone, email, language, created_at, user_id) values (?, ?, 'household', ?, null, ?, null, ?, ?, ?)", [
+      customerId,
+      branchId,
+      place.name,
+      place.phone,
+      place.language,
+      now(),
+      userId,
+    ]);
+  }
+  const site = await sdb.queryOne<{ id: string }>("select id from app__sites where customer_id = ? and lower(trim(address)) = lower(trim(?)) order by id limit 1", [customerId, place.address]);
+  if (site !== null) return { customer_id: customerId, site_id: site.id, created };
+  const siteId = newId("st");
+  await sdb.execute("insert into app__sites (id, customer_id, branch_id, label, emirate, area, address, makani, lat, lng, access_notes) values (?, ?, ?, 'Home', ?, ?, ?, ?, null, null, '')", [
+    siteId,
+    customerId,
+    branchId,
+    place.emirate,
+    place.area,
+    place.address,
+    place.makani,
+  ]);
+  return { customer_id: customerId, site_id: siteId, created };
 }

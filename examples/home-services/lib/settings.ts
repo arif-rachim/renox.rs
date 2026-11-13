@@ -38,6 +38,13 @@ export function pdfBrand(settings: Settings, lang: Lang) {
   return { name: brandName(settings, lang), color, text_style: `color: ${color}`, rule_style: `border-bottom: 2pt solid ${color}`, footer: brandFooter(settings, lang) };
 }
 
+/**
+ * Whether a self-booking (/book, #775) is confirmed at once: the setting
+ * `portal_auto_confirm` is "1". Off by default: the job waits as `new` for the
+ * dispatcher, with the requested time kept.
+ */
+export const portalAutoConfirm = (settings: Settings): boolean => settings.portal_auto_confirm === "1";
+
 /** Where the layout loads the logo from: the image path of the platform (`/_img`, a public key needs no signature), or null without a logo. */
 export function logoSrc(settings: Settings): string | null {
   const key = settings.brand_logo_key ?? "";

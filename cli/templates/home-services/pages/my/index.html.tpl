@@ -3,9 +3,11 @@
   <h1 r-if="name"><r-t key="portal.greeting" :name="name" /></h1>
   <h1 r-else><r-t key="portal.greeting_anon" /></h1>
   <p class="notice" r-if="saved" role="status"><r-t key="portal.name.saved" /></p>
+  <p class="notice" r-if="booked" role="status" id="booked"><r-t key="portal.booked" :number="booked" /></p>
   <p><r-t key="portal.signed_in_as" /> <span dir="ltr">{{ phone }}</span></p>
   <p r-if="linked"><r-t key="portal.linked" :count="linked" /></p>
   <p r-else><r-t key="portal.none_linked" /></p>
+  <p><a href="/book" class="btn-brand" id="book-link"><r-t key="portal.book_link" /></a></p>
   <section r-if="!name" aria-labelledby="name-title">
     <h2 id="name-title"><r-t key="portal.name.title" /></h2>
     <p class="muted"><r-t key="portal.name.hint" /></p>

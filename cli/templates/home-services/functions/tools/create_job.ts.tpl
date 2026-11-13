@@ -93,7 +93,7 @@ export default tool({
     if (ctx.tool.preview) return { would_create: plan };
 
     const as = inBranch(ctx, branch);
-    const made = await createJob(as, { site_id: site.id, quote_id: null, service_id: service.id, priority: "normal", description: "Booked by an agent", });
+    const made = await createJob(as, { site_id: site.id, quote_id: null, service_id: service.id, priority: "normal", description: "Booked by an agent", source: "agent" });
     if (!made.ok) return refuse(made.status === 403 ? "forbidden" : "bad_input", made.message);
     const booked = await schedule(as, made.job.id, tech.id, startMs, "booked through the agent");
     // Nothing is left half done: a failure here rolls the transaction back (the job above included).

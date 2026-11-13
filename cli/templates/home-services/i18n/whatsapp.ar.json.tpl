@@ -28,5 +28,10 @@
     "template": "amc_renewal",
     "subject": "ينتهي عقد الصيانة {number} في {ends}",
     "body": "مرحباً {name}، ينتهي عقد الصيانة {number} في {ends}. أرسل لنا رداً وسنجدده لك."
+  },
+  "booking_received": {
+    "template": "booking_received",
+    "subject": "استلمنا حجزك {job}",
+    "body": "مرحباً {name}، استلمنا حجزك {job} في {when}. سنؤكده لك قريباً."
   }
 }

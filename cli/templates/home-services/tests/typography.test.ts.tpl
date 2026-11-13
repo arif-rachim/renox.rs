@@ -130,6 +130,52 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
   }
 });
 
+describe("the booking page in Arabic isolates its prices, days, times and phone left to right (#775)", () => {
+  const day = (() => {
+    for (let i = 1; i < 7; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    return "";
+  })();
+  const service = String(t.db.query<{ id: number }>("select id from app__services where code = 'AC-SERVICE'")[0]?.id);
+  const place = new URLSearchParams({ service, emirate: "AE-DU", area: "Dubai Marina", address: "Marina Gate 2, flat 3301", day, lang: "ar" }).toString();
+  const visitor = t.as("visitor");
+  /** The time `08:00` of a slot value `<staff>@<ms>`, Dubai. */
+  const clock = (slot: string) => new Date(Number(slot.split("@")[1]) + 4 * 3_600_000).toISOString().slice(11, 16);
+
+  test("step 1: the prices", async () => {
+    const res = await visitor.page("/book?lang=ar");
+    expect(res.status).toBe(200);
+    const price = /<span dir="ltr">([^<]*150[^<]*)<\/span>/u.exec(res.html)?.[1] ?? "";
+    expect(price).not.toBe("");
+    expect([price, isolated(res.html, price)]).toEqual([price, true]);
+  });
+
+  test("steps 2 and 3: the day and the times", async () => {
+    const two = await visitor.page(`/book?${place}&step=2`);
+    expect(two.status).toBe(200);
+    const slot = /name="slot" value="([^"]+)"/u.exec(two.html)?.[1] ?? "";
+    for (const v of [day, clock(slot)]) expect([v, isolated(two.html, v)]).toEqual([v, true]);
+    const three = await visitor.page(`/book?${place}&slot=${encodeURIComponent(slot)}&step=3`);
+    expect(three.status).toBe(200);
+    for (const v of [day, clock(slot)]) expect([v, isolated(three.html, v)]).toEqual([v, true]);
+  });
+
+  test("the confirmation: the phone, the day and the time", async () => {
+    const id = `bd_${"c".repeat(32)}`;
+    const start = Math.floor(Date.now() / 1000) + 2 * 86_400;
+    plant(
+      "insert into app__booking_drafts (id, service_id, emirate, area, address, makani, slot_start, slot_end, technician_user_id, branch_id, hold_id, name, phone, language, notes, ip_hash, created_at, expires_at) values (?, ?, 'AE-DU', 'Dubai Marina', 'Marina Gate 2', null, ?, ?, 'u_dxb_ali', 'br_dubai', null, 'Fatima', '+971551110003', 'ar', '', '', ?, ?)",
+      [id, Number(service), start, start + 3600, start - 2 * 86_400, start],
+    );
+    const res = await customer.page(`/book/confirm/${id}?lang=ar`);
+    expect(res.status).toBe(200);
+    const when = new Date((start + 4 * 3600) * 1000).toISOString();
+    for (const v of ["+971551110003", when.slice(0, 10), when.slice(11, 16)]) expect([v, isolated(res.html, v)]).toEqual([v, true]);
+  });
+});
+
 // -- the Arabic catalogue ---------------------------------------------------------------------------------------------------
 
 function flat(o: unknown, prefix = ""): Record<string, string> {

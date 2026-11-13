@@ -214,7 +214,7 @@ renox secrets set WHATSAPP_VERIFY_TOKEN
 renox secrets set WHATSAPP_APP_SECRET
 ```
 
-3. Register the six message templates of `i18n/whatsapp.*.json` in English and Arabic (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) and wait for Meta's approval; see "WhatsApp (from the `whatsapp` module's README)" in the app's `README.md`.
+3. Register the seven message templates of `i18n/whatsapp.*.json` in English and Arabic (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`) and wait for Meta's approval; see "WhatsApp (from the `whatsapp` module's README)" in the app's `README.md`.
 4. In `renox.toml` change the module's config to `sandbox = false`, set `public_url` to the app's address, and run `renox deploy`.
 5. Test with one number first: a customer whose phone is the owner's own, a quotation sent to it, and the message arriving on that phone. Only then tell the staff.
 

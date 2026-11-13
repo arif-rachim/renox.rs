@@ -61,7 +61,7 @@ Others you may meet: `RENOX_DB_QUOTA` (the free tier's database is full: writes 
 2. **The sandbox flag.** In `renox.toml` the `whatsapp` module's `config = { sandbox = true }` records every message as sent and calls no API. With it on, nothing reaches a phone by design. Going live is `sandbox = false` and `renox deploy`.
 3. **The secrets.** `renox secrets list` must show `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_APP_SECRET`. A missing one is set with `renox secrets set <NAME>` (the value comes from stdin); then deploy again.
 4. **The logs.** Search around the time of the action: `renox logs --since 2h | grep -i whatsapp`. A 5xx or 429 from the provider is retried by the outbox with backoff; a 4xx is final and is logged with its reason.
-5. **The provider's template status.** In Meta's WhatsApp Manager, each of the six templates (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`) must be approved in the customer's language. A template that is pending, rejected or has a different parameter count fails.
+5. **The provider's template status.** In Meta's WhatsApp Manager, each of the seven templates (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`) must be approved in the customer's language. A template that is pending, rejected or has a different parameter count fails.
 6. **The customer.** A customer with no phone gets the email instead; a phone must be a valid UAE number (stored as `+971...`).
 7. **`public_url`** in `app__settings` must be the app's real address, or links in the messages are wrong.
 

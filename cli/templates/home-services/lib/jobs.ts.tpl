@@ -196,12 +196,17 @@ export async function cancelInvoiced(ctx: JobCtx, id: unknown, note: string): Pr
   return { ok: true, job: after };
 }
 
+/** Where a job came from (app__jobs.source): staff, the customer on /book, a maintenance contract, or an agent. */
+export type JobSource = "staff" | "self_booking" | "contract" | "agent";
+
 export interface NewJob {
   site_id: string;
   quote_id: string | null;
   service_id: number;
   priority: Priority;
   description: string;
+  /** Default `staff`. */
+  source?: JobSource;
 }
 
 /**
@@ -228,7 +233,7 @@ export async function createJob(ctx: JobCtx, input: NewJob): Promise<Outcome> {
     const live = await sdb.queryOne<{ number: string }>("select number from app__jobs where quote_id = ? and status != 'cancelled'", [input.quote_id]);
     if (live !== null) return fail(409, `Job ${live.number} already exists for this quotation.`);
   }
-  return insertJob(ctx, branch, sdb, { site, serviceId: service.id, quoteId: input.quote_id, priority: input.priority, description: input.description, by: userId, note: input.quote_id === null ? "created" : "created from a quotation" });
+  return insertJob(ctx, branch, sdb, { site, serviceId: service.id, quoteId: input.quote_id, priority: input.priority, description: input.description, by: userId, note: input.quote_id === null ? "created" : "created from a quotation", source: input.source ?? "staff" });
 }
 
 /**
@@ -237,23 +242,39 @@ export async function createJob(ctx: JobCtx, input: NewJob): Promise<Outcome> {
  * the service and the quotation. `by` is the user the job is made for
  * (`created_by`: who is told about it later); the scheduled job of a contract
  * (lib/contracts.ts) uses the contract's creator and has no principal.
+ * `source` is where it came from (default `staff`). A self-booking (lib/book.ts)
+ * also passes `slot`: the requested time, kept on a `new` job without a
+ * technician, or, with `booking_id` and `technician`, a job born `scheduled`.
  */
 export async function insertJob(
   ctx: Pick<JobCtx, "db" | "principal" | "realtime">,
   branch: Branch,
   sdb: DbStatements,
-  j: { site: { id: string; customer_id: string }; serviceId: number; quoteId: string | null; priority: Priority; description: string; by: string; note: string },
+  j: {
+    site: { id: string; customer_id: string };
+    serviceId: number;
+    quoteId: string | null;
+    priority: Priority;
+    description: string;
+    by: string;
+    note: string;
+    source?: JobSource;
+    slot?: { start: number; end: number; technician: string | null; booking_id: string | null };
+  },
 ): Promise<Outcome & { ok: true }> {
   const id = newId();
   const n = await ctx.db.execute("insert into app__job_numbers (job_id) values (?)", [id]);
   const number = `J-${String(Number(n.lastInsertRowid)).padStart(6, "0")}`;
   const t = now();
+  const slot = j.slot;
+  const booked = slot !== undefined && slot.booking_id !== null && slot.technician !== null;
+  const status: JobStatus = booked ? "scheduled" : "new";
   await sdb.execute(
-    "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, created_by, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)",
-    [id, branch.id, j.site.customer_id, j.site.id, j.quoteId, number, j.priority, j.serviceId, j.description, j.by, t, t],
+    "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, branch.id, j.site.customer_id, j.site.id, j.quoteId, number, status, j.priority, j.serviceId, j.description, slot?.start ?? null, slot?.end ?? null, booked ? slot.technician : null, booked ? slot.booking_id : null, j.by, t, t, j.source ?? "staff"],
   );
   const job = (await findJob(sdb, id)) as JobRow;
-  await record(ctx, sdb, branch, job, null, "new", j.note);
+  await record(ctx, sdb, branch, job, null, status, j.note);
   await publishCard(ctx, branch, sdb, job);
   return { ok: true, job };
 }

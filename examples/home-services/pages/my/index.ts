@@ -5,6 +5,8 @@
 // the one-field form "Your name". POST ?/name sets it (auth.setDisplayName);
 // an invalid name is a 422 naming the field. POST ?/signout ends the session.
 // Everything the page reads of the company's data comes from `customerDb`.
+// "Book a service" links to /book; `?booked=<number>` (from /book/confirm)
+// says that booking was received.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { auth } from "renox:modules";
 
@@ -19,12 +21,16 @@ export async function load(ctx: LoaderContext) {
   if (gate instanceof Response) return gate;
   const page = await shell(ctx);
   const customers = await gate.cdb.customers();
+  // After /book/confirm (#775): the booking's number, when it is one of theirs.
+  const asked = ctx.url.searchParams.get("booked") ?? "";
+  const booked = /^J-\d{6,}$/u.test(asked) && (await gate.cdb.jobByNumber(asked)) !== null ? asked : null;
   return {
     ...page,
     name: gate.portal.name,
     phone: gate.portal.phone,
     linked: customers.length,
     saved: ctx.url.searchParams.get("saved") === "name",
+    booked,
     values: {},
     errors: {},
   };

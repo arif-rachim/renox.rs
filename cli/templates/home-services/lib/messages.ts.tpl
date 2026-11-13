@@ -6,7 +6,7 @@
 import ar from "../i18n/whatsapp.ar.json";
 import en from "../i18n/whatsapp.en.json";
 
-export const KINDS = ["quote_sent", "visit_scheduled", "technician_on_the_way", "report_ready", "invoice_due", "amc_renewal"] as const;
+export const KINDS = ["quote_sent", "visit_scheduled", "technician_on_the_way", "report_ready", "invoice_due", "amc_renewal", "booking_received"] as const;
 export type MessageKind = (typeof KINDS)[number];
 export type Language = "en" | "ar";
 

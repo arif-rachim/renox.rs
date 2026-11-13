@@ -1,0 +1,401 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the three steps, signed out step 1 lists the bookable services with their price, the emirates and the place fields, and sets no cookie of the app: role: book step 1, signed out, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Book a service · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/book?lang=ar" lang="ar">العربية</a>
+    </nav>
+    
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>Book a service</h1>
+  <p class="muted" id="book-step">Step 1 of 3</p>
+
+  
+    <form method="get" action="/book" class="stack narrow" id="book-place">
+      <fieldset id="f-service">
+        <legend>Service</legend>
+        <p><label dir="auto"><input type="radio" name="service" value="1" required> AC service · from <span dir="ltr">AED 150.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="2" required> AC repair · from <span dir="ltr">AED 180.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="3" required> Deep cleaning · from <span dir="ltr">AED 450.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="4" required> Pest control · from <span dir="ltr">AED 250.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="5" required> Plumbing · from <span dir="ltr">AED 160.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="6" required> Electrical · from <span dir="ltr">AED 160.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="7" required> Handyman · from <span dir="ltr">AED 120.00</span></label></p><p><label dir="auto"><input type="radio" name="service" value="8" required> AMC visit · from <span dir="ltr">AED 200.00</span></label></p>
+      </fieldset>
+      <p><label>Emirate <select name="emirate" required id="f-emirate" aria-required="true">
+        <option value="">Choose</option>
+        <option value="AE-AZ" dir="auto">Abu Dhabi</option><option value="AE-DU" dir="auto">Dubai</option><option value="AE-SH" dir="auto">Sharjah</option><option value="AE-AJ" dir="auto">Ajman</option><option value="AE-UQ" dir="auto">Umm Al Quwain</option><option value="AE-RK" dir="auto">Ras Al Khaimah</option><option value="AE-FU" dir="auto">Fujairah</option>
+      </select></label> <button type="submit" name="step" value="1">Show the areas</button></p>
+      <p class="muted" id="f-area" tabindex="-1">Choose your emirate, then Show the areas.</p>
+      <p><label>Address <input name="address" minlength="5" maxlength="200" autocomplete="street-address" value="" required id="f-address" aria-required="true" dir="auto"></label></p>
+      <p><label>Makani number (optional) <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani"></label></p>
+      <p><label>Notes (optional) <textarea name="notes" maxlength="500" id="f-notes" dir="auto"></textarea></label></p>
+      <p><button type="submit" name="step" value="2" class="btn-brand">Next</button></p>
+    </form>
+  
+
+  
+
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the three steps, signed out step 1 again with an emirate fills its areas; Arabic: role: book step 1 with areas, signed out, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>احجز خدمة · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/book?service=1&amp;emirate=AE-DU&amp;step=1&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>احجز خدمة</h1>
+  <p class="muted" id="book-step">الخطوة ⁨1⁩ من 3</p>
+
+  
+    <form method="get" action="/book" class="stack narrow" id="book-place">
+      <fieldset id="f-service">
+        <legend>الخدمة</legend>
+        <p><label dir="auto"><input type="radio" name="service" value="1" checked required> صيانة المكيف · ابتداءً من <span dir="ltr">150.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="2" required> إصلاح المكيف · ابتداءً من <span dir="ltr">180.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="3" required> تنظيف شامل · ابتداءً من <span dir="ltr">450.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="4" required> مكافحة الحشرات · ابتداءً من <span dir="ltr">250.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="5" required> سباكة · ابتداءً من <span dir="ltr">160.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="6" required> كهرباء · ابتداءً من <span dir="ltr">160.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="7" required> أعمال صيانة عامة · ابتداءً من <span dir="ltr">120.00 د.إ.</span></label></p><p><label dir="auto"><input type="radio" name="service" value="8" required> زيارة عقد الصيانة السنوي · ابتداءً من <span dir="ltr">200.00 د.إ.</span></label></p>
+      </fieldset>
+      <p><label>الإمارة <select name="emirate" required id="f-emirate" aria-required="true">
+        <option value="">اختر</option>
+        <option value="AE-AZ" dir="auto">أبوظبي</option><option value="AE-DU" selected dir="auto">دبي</option><option value="AE-SH" dir="auto">الشارقة</option><option value="AE-AJ" dir="auto">عجمان</option><option value="AE-UQ" dir="auto">أم القيوين</option><option value="AE-RK" dir="auto">رأس الخيمة</option><option value="AE-FU" dir="auto">الفجيرة</option>
+      </select></label> <button type="submit" name="step" value="1">اعرض المناطق</button></p>
+      <p><label>المنطقة <select name="area" required id="f-area" aria-required="true">
+        <option value="">اختر</option>
+        <option value="Al Barsha" dir="auto">البرشاء</option><option value="Al Karama" dir="auto">الكرامة</option><option value="Al Nahda (Dubai)" dir="auto">النهدة (دبي)</option><option value="Al Quoz" dir="auto">القوز</option><option value="Bur Dubai" dir="auto">بر دبي</option><option value="Business Bay" dir="auto">الخليج التجاري</option><option value="Deira" dir="auto">ديرة</option><option value="Downtown Dubai" dir="auto">وسط مدينة دبي</option><option value="Dubai Hills Estate" dir="auto">دبي هيلز استيت</option><option value="Dubai Investments Park" dir="auto">مجمع دبي للاستثمار</option><option value="Dubai Marina" dir="auto">دبي مارينا</option><option value="Dubai Silicon Oasis" dir="auto">واحة دبي للسيليكون</option><option value="Jebel Ali" dir="auto">جبل علي</option><option value="Jumeirah" dir="auto">جميرا</option><option value="Jumeirah Lake Towers" dir="auto">أبراج بحيرات جميرا</option><option value="Mirdif" dir="auto">مردف</option>
+      </select></label></p>
+      <p><label>العنوان <input name="address" minlength="5" maxlength="200" autocomplete="street-address" value="" required id="f-address" aria-required="true" dir="auto"></label></p>
+      <p><label>رقم مكاني (اختياري) <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani"></label></p>
+      <p><label>ملاحظات (اختياري) <textarea name="notes" maxlength="500" id="f-notes" dir="auto"></textarea></label></p>
+      <p><button type="submit" name="step" value="2" class="btn-brand">التالي</button></p>
+    </form>
+  
+
+  
+
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the three steps, signed out step 2 lists the next 7 days and at most 12 free slots of the day, earliest first, across the branch's technicians: role: book step 2, signed out, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Book a service · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;makani=&amp;notes=The+AC+in+the+bedroom+drips.&amp;step=2&amp;day=<day>&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+    
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>Book a service</h1>
+  <p class="muted" id="book-step">Step 2 of 3</p>
+
+  
+
+  
+    
+      <p>Served by our Dubai branch.</p>
+      
+      <days />
+      <form method="get" action="/book" class="stack narrow" id="book-time">
+        <input type="hidden" name="service" value="1"><input type="hidden" name="emirate" value="AE-DU"><input type="hidden" name="area" value="Dubai Marina"><input type="hidden" name="address" value="Marina Gate 2, flat 3301"><input type="hidden" name="notes" value="The AC in the bedroom drips.">
+        <input type="hidden" name="day" value="<day>">
+        <fieldset id="f-slot">
+          <legend dir="auto">Time · <weekday> <span dir="ltr"><day></span></legend>
+          <p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p>
+        </fieldset>
+        <p><button type="submit" name="step" value="3" class="btn-brand">Next</button> <a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;notes=The+AC+in+the+bedroom+drips.&amp;day=<day>">Back</a></p>
+      </form>
+    
+  
+
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the three steps, signed out step 2 lists the next 7 days and at most 12 free slots of the day, earliest first, across the branch's technicians: role: book step 2, signed out, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>احجز خدمة · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;makani=&amp;notes=The+AC+in+the+bedroom+drips.&amp;step=2&amp;day=<day>&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>احجز خدمة</h1>
+  <p class="muted" id="book-step">الخطوة ⁨2⁩ من 3</p>
+
+  
+
+  
+    
+      <p>يخدمك فرعنا في ⁨دبي⁩.</p>
+      
+      <days />
+      <form method="get" action="/book" class="stack narrow" id="book-time">
+        <input type="hidden" name="service" value="1"><input type="hidden" name="emirate" value="AE-DU"><input type="hidden" name="area" value="Dubai Marina"><input type="hidden" name="address" value="Marina Gate 2, flat 3301"><input type="hidden" name="notes" value="The AC in the bedroom drips.">
+        <input type="hidden" name="day" value="<day>">
+        <fieldset id="f-slot">
+          <legend dir="auto">الوقت · <weekday> <span dir="ltr"><day></span></legend>
+          <p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p><p><label><input type="radio" name="slot" value="<slot>" required> <span dir="ltr"><from>–<to></span></label></p>
+        </fieldset>
+        <p><button type="submit" name="step" value="3" class="btn-brand">التالي</button> <a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;notes=The+AC+in+the+bedroom+drips.&amp;day=<day>">رجوع</a></p>
+      </form>
+    
+  
+
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the three steps, signed out step 3 shows the summary and asks the name, the WhatsApp number and the language, in English and Arabic: role: book step 3, signed out, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Book a service · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;makani=&amp;notes=The+AC+in+the+bedroom+drips.&amp;day=<day>&amp;slot=<slot>&amp;step=3&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+    
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>Book a service</h1>
+  <p class="muted" id="book-step">Step 3 of 3</p>
+
+  
+
+  
+
+  
+    <section aria-labelledby="summary-title">
+      <h2 id="summary-title">Your booking</h2>
+      <dl>
+        <dt>Service</dt><dd dir="auto">AC service</dd>
+        <dt>Where</dt><dd dir="auto">Marina Gate 2, flat 3301, Dubai Marina, Dubai</dd>
+        <dt>When</dt><dd><span dir="ltr"><day></span> <span dir="ltr"><from>–<to></span></dd>
+      </dl>
+    </section>
+    <form method="post" action="?/hold" hx-post="?/hold" class="stack narrow" id="book-you"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="service" value="1"><input type="hidden" name="emirate" value="AE-DU"><input type="hidden" name="area" value="Dubai Marina"><input type="hidden" name="address" value="Marina Gate 2, flat 3301"><input type="hidden" name="notes" value="The AC in the bedroom drips."><input type="hidden" name="day" value="<day>"><input type="hidden" name="slot" value="<slot>">
+      <p><label>Your name <input name="name" minlength="2" maxlength="80" autocomplete="name" required id="f-name" aria-required="true" dir="auto"></label></p>
+      
+        <p><label>WhatsApp number <input name="phone" type="tel" dir="ltr" autocomplete="tel" placeholder="+971 50 123 4567" maxlength="40" required id="f-phone" aria-required="true"></label></p>
+        <p class="muted">We send a code to this number on WhatsApp to confirm it is yours.</p>
+      
+      <p><label>Language <select name="language" id="f-language">
+        <option value="en" selected>English</option>
+        <option value="ar">العربية</option>
+      </select></label></p>
+      <p><button type="submit" class="btn-brand">Send me the code</button> <a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;notes=The+AC+in+the+bedroom+drips.&amp;day=<day>&amp;slot=<slot>&amp;step=2">Back</a></p>
+    </form>
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the three steps, signed out step 3 shows the summary and asks the name, the WhatsApp number and the language, in English and Arabic: role: book step 3, signed out, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>احجز خدمة · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;makani=&amp;notes=The+AC+in+the+bedroom+drips.&amp;day=<day>&amp;slot=<slot>&amp;step=3&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>احجز خدمة</h1>
+  <p class="muted" id="book-step">الخطوة ⁨3⁩ من 3</p>
+
+  
+
+  
+
+  
+    <section aria-labelledby="summary-title">
+      <h2 id="summary-title">حجزك</h2>
+      <dl>
+        <dt>الخدمة</dt><dd dir="auto">صيانة المكيف</dd>
+        <dt>المكان</dt><dd dir="auto">Marina Gate 2, flat 3301, دبي مارينا, دبي</dd>
+        <dt>الموعد</dt><dd><span dir="ltr"><day></span> <span dir="ltr"><from>–<to></span></dd>
+      </dl>
+    </section>
+    <form method="post" action="?/hold" hx-post="?/hold" class="stack narrow" id="book-you"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="service" value="1"><input type="hidden" name="emirate" value="AE-DU"><input type="hidden" name="area" value="Dubai Marina"><input type="hidden" name="address" value="Marina Gate 2, flat 3301"><input type="hidden" name="notes" value="The AC in the bedroom drips."><input type="hidden" name="day" value="<day>"><input type="hidden" name="slot" value="<slot>">
+      <p><label>اسمك <input name="name" minlength="2" maxlength="80" autocomplete="name" required id="f-name" aria-required="true" dir="auto"></label></p>
+      
+        <p><label>رقم واتساب <input name="phone" type="tel" dir="ltr" autocomplete="tel" placeholder="+971 50 123 4567" maxlength="40" required id="f-phone" aria-required="true"></label></p>
+        <p class="muted">نرسل رمزاً إلى هذا الرقم عبر واتساب للتأكد من أنه رقمك.</p>
+      
+      <p><label>اللغة <select name="language" id="f-language">
+        <option value="en">English</option>
+        <option value="ar" selected>العربية</option>
+      </select></label></p>
+      <p><button type="submit" class="btn-brand">أرسل لي الرمز</button> <a href="/book?service=1&amp;emirate=AE-DU&amp;area=Dubai+Marina&amp;address=Marina+Gate+2%2C+flat+3301&amp;notes=The+AC+in+the+bedroom+drips.&amp;day=<day>&amp;slot=<slot>&amp;step=2">رجوع</a></p>
+    </form>
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`a new phone books, types the code and confirms the WhatsApp code signs the new phone up and lands on the draft, which shows the summary: role: book confirm, portal user, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Confirm your booking · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/book/confirm/<draft>?lang=ar" lang="ar">العربية</a>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>Confirm your booking</h1>
+  <p>Check the details, then confirm.</p>
+  <dl id="draft-summary">
+    <dt>Service</dt><dd dir="auto">AC service</dd>
+    <dt>Where</dt><dd dir="auto">Marina Gate 2, flat 3301, Dubai Marina, Dubai</dd>
+    <dt>When</dt><dd><span dir="ltr"><day></span> <span dir="ltr"><from>–<to></span></dd>
+    <dt>Your name</dt><dd dir="auto">Sara Visitor</dd>
+    <dt>WhatsApp number</dt><dd><span dir="ltr">+971507770001</span></dd>
+  </dl>
+  <form method="post" action="?/confirm" hx-post="?/confirm" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+    <p><button type="submit" class="btn-brand">Confirm booking</button></p>
+  </form>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;

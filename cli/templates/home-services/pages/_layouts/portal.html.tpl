@@ -19,7 +19,7 @@
     <nav class="i18n-language" :aria-label="'app.lang.label' | t" r-if="i18n_links">
       <r-group r-for="l in i18n_links"><strong r-if="l.current" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="app.lang.ar" /></r-group><r-group r-else><r-t key="app.lang.en" /></r-group></strong><a r-else :href="l.href" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="app.lang.ar" /></r-group><r-group r-else><r-t key="app.lang.en" /></r-group></a></r-group>
     </nav>
-    <x-form action="signout" class="inline"><button type="submit"><r-t key="portal.sign_out" /></button></x-form>
+    <r-group r-if="auth_user"><x-form action="signout" class="inline"><button type="submit"><r-t key="portal.sign_out" /></button></x-form></r-group>
   </header>
   <main id="main" tabindex="-1">
     <x-form-errors :problems="problems" /><slot />

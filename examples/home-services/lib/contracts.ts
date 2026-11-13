@@ -331,6 +331,7 @@ export async function generateVisits(ctx: JobWorkCtx, from = today()): Promise<V
           description: `Annual maintenance contract ${item.number}: visit due ${dueOn}`,
           by: item.created_by,
           note: `created for contract ${item.number}, visit due ${dueOn}`,
+          source: "contract",
         });
         await sdb.execute("insert into app__contract_jobs (contract_id, branch_id, item_id, job_id, due_on, created_at) values (?, ?, ?, ?, ?, ?)", [item.contract_id, item.branch_id, item.id, r.job.id, dueOn, now()]);
         result.jobs += 1;
