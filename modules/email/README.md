@@ -32,6 +32,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `from_name` | (empty) | The sender's display name: mails arrive as `"Name" <address>`. At most 80 characters, no `<`, `>` or line breaks; `"` and `\` are escaped. A message's own `from_name` wins |
 | `ses_region` | `me-central-1` | The SES region |
 | `sends_per_minute` | 120 | Past it, `send` refuses (`RATE_LIMITED`) |
+| `app_url` | (empty) | The app's own origin, `https://` and nothing after the host (no path, query or user info), at most 200 characters. It completes a link such as `/org/accept/<token>` when the mail is queued where there is no request origin (an App MCP tool, a job). Empty or invalid: such a link is dropped and one warning `EMAIL_LINK_NO_ORIGIN` is logged |
 | `base_path` | `/email` | Where the log page is mounted |
 
 ## Services
@@ -44,7 +45,8 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 
 **Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`, `org_invite`.
-- The values are `display_name`, `url` (only `https`, or `http` on localhost) and `expires_minutes`.
+- The values are `display_name`, `url` and `expires_minutes`.
+- `url` is an absolute `https` link (or `http` on localhost), or a path of the app: one leading `/`, not `//`, no `\`, no control character, at most 2,000 characters. A path is completed with the app's origin: the origin of the request that queues the mail (a page or a route, so a custom domain gives the custom host), else the `app_url` config; the result must have exactly that origin. With neither origin the link is dropped (the mail goes without its button) and one warning `EMAIL_LINK_NO_ORIGIN` is logged. Any other relative value and any other scheme is dropped.
 - Every value is escaped, and the HTML is a two-column table: one column `lang="en" dir="ltr"`, the other `lang="ar" dir="rtl"`.
 - A different wording means a new template here.
 

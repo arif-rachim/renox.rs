@@ -26,11 +26,14 @@ org = { version = "^1.0.0" }
 twofa = { version = "^1.0.0", mount = "/2fa" }
 audit = { version = "^1.0.0" }
 notifications = { version = "^1.0.0", mount = "/notifications", config = { channels = "whatsapp,email" } }
-email = { version = "^1.0.0" }
+# The accept link of an invitation sent from an App MCP tool (invite_staff, the owner connector's
+# invite_people) is a path, as a tool call has no request origin; the email module completes it on
+# app_url (email 1.2.0, #765). An app on its own domain sets that domain here.
+email = { version = "^1.2.0", config = { app_url = "https://{{APP}}.renoxium.app" } }
 # sandbox = true: nothing leaves the host (the module records each message as
 # sent, calls no API and needs no WHATSAPP_* secret); `whatsapp.outbox()` shows
 # what would have gone out. Production sets it to false (README, "Sandbox").
-whatsapp = { version = "^1.2.0", mount = "/whatsapp", config = { sandbox = true } }
+whatsapp = { version = "^1.3.0", mount = "/whatsapp", config = { sandbox = true } }
 # billing is booking's dependency; no PSP is configured (D31: no payments).
 billing = { version = "^1.0.0" }
 booking = { version = "^1.0.0", mount = "/booking", config = { slot_minutes = 30, hold_minutes = 10 } }

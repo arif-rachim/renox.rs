@@ -161,7 +161,10 @@ describe.skipIf(!worker)("org.bootstrap (#747)", () => {
       events = t.db.query("select name from orgmail__events order by seq");
       if (events.length < 4) await Bun.sleep(50);
     }
-    expect(events).toEqual([{ name: "org.created" }, { name: "org.member_added" }, { name: "org.created" }, { name: "org.member_added" }]);
+    // Each durable event is its own delivery with its own retries; ops.md section 15.4 promises no order between
+    // deliveries, so the listener may record them in any order: the same four events, two of each.
+    const names = (events as { name: string }[]).map((e) => e.name).sort();
+    expect(names).toEqual(["org.created", "org.created", "org.member_added", "org.member_added"]);
     const again = (await t
       .service("org")
       .bootstrap!(REQ(ids[0] as string))

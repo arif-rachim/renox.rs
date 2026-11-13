@@ -313,7 +313,6 @@ describe("the audit trail of an agent's tool call (#683)", () => {
 // actions are `settings.update`, `branch.write` and `service.write` and not the pages' sensitive `settings.write`.
 // The owner belongs to two branches, so the consent must name one (t.tool cannot): this agent acts in Dubai.
 import { Database } from "bun:sqlite";
-import { createHash } from "node:crypto";
 import { agentToken, callTool, listTools } from "@renoxium/sdk/test";
 
 const ownerJar = await signIn("owner-tools", "owner@fixit.example");
@@ -744,18 +743,18 @@ describe("invite_staff (#751)", () => {
     expect(rows("select org_id, role, invited_by from org__invites where email = ?", [EMAIL])).toEqual([{ org_id: "org_dubai", role: "member", invited_by: "u_owner" }]);
     expect(rows("select branch_id, role, invited_by, applied_at from app__staff_invites where email = ?", [EMAIL])).toEqual([{ branch_id: "br_dubai", role: "technician", invited_by: "u_owner", applied_at: null }]);
     expect(Number(rows("select count(*) as n from audit__events where action = 'staff.invite'")[0]?.n)).toBeGreaterThanOrEqual(1);
-    // Only the token's hash is stored, and the mail's link is a path (a tool call has no request origin), so the
-    // test gives the invitation a token it knows, as the invitee's mail would carry.
-    const token = "75".repeat(32);
-    const db = new Database(t.dbFile);
-    db.exec("pragma busy_timeout = 5000");
-    db.query("update org__invites set token_hash = ? where email = ?").run(createHash("sha256").update(token).digest("hex"), EMAIL);
-    db.close();
+    // The invitation mail carries the accept link on the app's own host (a tool call has no request origin: the
+    // email module completes org's path on its app_url, #765); the invitee follows it.
+    const mail = rows("select text_body, html_body from email__messages where to_address = ? order by at desc limit 1", [EMAIL])[0] as { text_body: string; html_body: string };
+    const link = /https:\/\/home-services\.renoxium\.app\/org\/accept\/[A-Za-z0-9_-]+/u.exec(mail.text_body)?.[0] ?? "";
+    expect(link).not.toBe("");
+    expect(mail.html_body).toContain(`href="${link}"`);
+    const accept = new URL(link).pathname;
 
     const sara = t.as("sara");
     expect((await sara.action("/auth/register", "default", { email: EMAIL, password: PASSWORD, display_name: "Sara Tech" })).status).toBe(200);
     expect((await sara.action("/auth/login", "default", { email: EMAIL, password: PASSWORD })).status).toBe(303);
-    expect((await sara.action(`/org/accept/${token}`, "accept", {})).status).toBe(303);
+    expect((await sara.action(accept, "accept", {})).status).toBe(303);
     let held: Record<string, unknown>[] = [];
     for (let i = 0; i < 100 && held.length === 0; i++) {
       held = rows("select role, scope_type, scope_id from renox__role_assignments where user_id = (select id from auth__users where email = ?)", [EMAIL]);

@@ -52,9 +52,10 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `sendOtp(phone)` | `{ sent: true, expires_in: 300 }`, the same answer for every valid phone. Another call within 30 s sends nothing new |
 | `verifyOtp(phone, code)` | `{ ok }`. A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. A wrong, expired, used or exhausted code, an unknown phone and a malformed code all give `{ ok: false }` |
 | `linkPhone(userId, phone)` | `{ ok }`. Makes the phone the user's WhatsApp contact, but only within 10 minutes after `verifyOtp` succeeded for it |
-| `inbox({ phone?, direction?, limit? })` | Messages newest first. An OTP's body shows as `[otp]` |
-| `message(id)` | One stored message by id, shaped like an `inbox()` row, or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
-| `outbox(limit?)` | Outgoing messages newest first, read-only, with status and body. An OTP's body shows as `[otp]` |
+| `inbox({ phone?, direction?, limit? })` | Messages newest first, rows `{ id, direction, kind, phone, body, status, at, error }`. An OTP's body shows as `[otp]`. `error` is the provider's failure reason (for example `400 (131026)`) of a failed send, or of one the outbox is retrying; `null` otherwise. It is redacted (a secret or a token-looking value shows as `[redacted]`) and at most 200 characters, so an app can show it |
+| `message(id)` | One stored message by id, shaped like an `inbox()` row (with `error`), or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
+| `outbox(limit?)` | Outgoing messages newest first, read-only, with status, body and `error` (as for `inbox()`). An OTP's body shows as `[otp]` |
+| `mode()` | `{ sandbox }`, whether the module runs with `sandbox = true`. An app cannot read a module's config, so a dev page or an owner's banner asks here; it answers on an empty outbox too |
 | `chatLink(phone, text)` | `{ url }`, a `wa.me` link with a prefilled message |
 
 Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.

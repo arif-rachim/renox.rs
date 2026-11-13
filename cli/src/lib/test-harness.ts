@@ -378,11 +378,14 @@ function jobsOf(spec: TestSpec): Set<string> {
  * file `db` with the statements of `renox jobs run` (`runNow` in
  * commands/jobs.ts): one `job:<name>` row of `renox__outbox` and the
  * `job_tick:<module>:<name>` meta row, or the waiting row's tick moved
- * (coalescing). An IMMEDIATE transaction that waits on the worker's lock.
+ * (coalescing). With `payload` (#770) it writes a queued run instead, as
+ * `ctx.jobs.enqueue(name, payload)` does (ops.md section 20): a new row whose
+ * `payload` is the JSON text, no meta row and no coalescing, so each call is
+ * one run. An IMMEDIATE transaction that waits on the worker's lock.
  * Returns the row id and its attempts so far (a coalesced row may have
  * failed before).
  */
-export function runJob(spec: TestSpec, db: string, module: string, name: string, now = Date.now()): { id: string; attempts: number } {
+export function runJob(spec: TestSpec, db: string, module: string, name: string, now = Date.now(), payload?: unknown): { id: string; attempts: number } {
   const jobs = jobsOf(spec);
   if (!jobs.has(`${module}:${name}`)) {
     const known = [...jobs].sort().join(", ") || "none";
@@ -392,6 +395,13 @@ export function runJob(spec: TestSpec, db: string, module: string, name: string,
   sqlite.exec(`pragma busy_timeout = ${BUSY_TIMEOUT_MS}`);
   try {
     return sqlite.transaction(() => {
+      if (payload !== undefined) {
+        const json = JSON.stringify(payload);
+        if (json === undefined || Buffer.byteLength(json) > 64 * 1024) throw new UserError(`the payload of ${name} is not JSON of at most 64 KiB`);
+        const id = ulid(now);
+        sqlite.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, ?, ?, ?, ?, ?, 0, ?)").run(id, module, `job:${name}`, json, module, now, now);
+        return { id, attempts: 0 };
+      }
       const key = `job_tick:${module}:${name}`;
       const tick = sqlite.query("select value from renox__outbox_meta where key = ?").get(key) as { value: number } | null;
       const waiting = sqlite.query("select id, attempts from renox__outbox where name = ? and target = ? and payload = 'null'").get(`job:${name}`, module) as { id: string; attempts: number } | null;

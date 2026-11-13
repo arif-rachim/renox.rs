@@ -2699,7 +2699,7 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 - `request`, `page`, `action`, each with its own cookie jar per user (`as(user)`), so session and CSRF work as in a browser;
 - `service(module).<name>(...)`, through the broker like app code;
 - a read-only `db` for assertions; it waits up to five seconds on the worker's write lock (`pragma busy_timeout = 5000`), and a test that opens `dbFile` with its own `bun:sqlite` connection should run the same pragma, or it fails with `SQLITE_BUSY` while the worker writes;
-- `job(name, { module?, timeoutMs? })`, which runs a scheduled job now as a tick of its schedule (the rows `renox jobs run` writes; the test worker looks for them every 50 ms) and resolves after the run committed, or rejects with the job's error text (#593). The scheduler runs as in production, so a test should not wait for a schedule: call `job`;
+- `job(name, { module?, timeoutMs?, payload? })`, which runs a scheduled job now as a tick of its schedule (the rows `renox jobs run` writes; the test worker looks for them every 50 ms) and resolves after the run committed, or rejects with the job's error text (#593). With `payload` it writes a queued run as `ctx.jobs.enqueue(name, payload)` does (one new row per call, no coalescing; the job reads `ctx.job.payload`), to run again a job that only enqueued work can start (#770). The scheduler runs as in production, so a test should not wait for a schedule: call `job`;
 - `tool(name, input, { as?, scope?, confirm? })`, which calls an App MCP tool on `/mcp` as the agent of `as` (default the calling user, signed in): it takes an agent token through the `auth` module's OAuth flow once per user and scope, then `tools/call`. A `confirm` tool answers `{ ok, preview, confirmation }`; with `confirm: true` the confirmation is sent back and the final `{ ok, result }` returned; a refusal is `{ ok: false, error: { code, message } }` (`RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_INPUT`; `RENOX_TOOL_ERROR` for a result with `isError`). Without the `auth` module it throws (#593);
 - `snapshot(html, { role })`, with request ids, nonces and CSRF tokens stripped;
 - `installModule(name, source)` and `.upgrade(source)`, which return what `renox check` and the migration plan report;
@@ -3950,6 +3950,7 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 ```ts
 const t = await app();
 await t.job("nightly");                                  // jobs/nightly.ts runs now; resolves after its commit
+await t.job("import", { payload: { batch: 2 } });        // a queued run, as ctx.jobs.enqueue("import", payload) writes it
 const alice = t.as("alice");                             // signed in through the auth module's pages
 const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
 const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }
@@ -5395,6 +5396,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `from_name` | (empty) | The sender's display name: mails arrive as `"Name" <address>`. At most 80 characters, no `<`, `>` or line breaks; `"` and `\` are escaped. A message's own `from_name` wins |
 | `ses_region` | `me-central-1` | The SES region |
 | `sends_per_minute` | 120 | Past it, `send` refuses (`RATE_LIMITED`) |
+| `app_url` | (empty) | The app's own origin, `https://` and nothing after the host (no path, query or user info), at most 200 characters. It completes a link such as `/org/accept/<token>` when the mail is queued where there is no request origin (an App MCP tool, a job). Empty or invalid: such a link is dropped and one warning `EMAIL_LINK_NO_ORIGIN` is logged |
 | `base_path` | `/email` | Where the log page is mounted |
 
 ## Services
@@ -5407,7 +5409,8 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 
 **Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`, `org_invite`.
-- The values are `display_name`, `url` (only `https`, or `http` on localhost) and `expires_minutes`.
+- The values are `display_name`, `url` and `expires_minutes`.
+- `url` is an absolute `https` link (or `http` on localhost), or a path of the app: one leading `/`, not `//`, no `\`, no control character, at most 2,000 characters. A path is completed with the app's origin: the origin of the request that queues the mail (a page or a route, so a custom domain gives the custom host), else the `app_url` config; the result must have exactly that origin. With neither origin the link is dropped (the mail goes without its button) and one warning `EMAIL_LINK_NO_ORIGIN` is logged. Any other relative value and any other scheme is dropped.
 - Every value is escaped, and the HTML is a two-column table: one column `lang="en" dir="ltr"`, the other `lang="ar" dir="rtl"`.
 - A different wording means a new template here.
 
@@ -5939,7 +5942,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
 | `org.renamed` | `{ org_id, name }` | event: an admin or owner renamed the organisation; the slug stays |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
-| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
+| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. Without a request origin (an App MCP request), `url` is the app path `/org/accept/<token>` and the `email` module prefixes the app's host (its rule: the request origin that queued the mail, else its `app_url` config; with neither the mail goes without the button). `locale` is the organisation's (`null` when unset) |
 
 ## App MCP tool
 
@@ -6307,9 +6310,10 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `sendOtp(phone)` | `{ sent: true, expires_in: 300 }`, the same answer for every valid phone. Another call within 30 s sends nothing new |
 | `verifyOtp(phone, code)` | `{ ok }`. A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. A wrong, expired, used or exhausted code, an unknown phone and a malformed code all give `{ ok: false }` |
 | `linkPhone(userId, phone)` | `{ ok }`. Makes the phone the user's WhatsApp contact, but only within 10 minutes after `verifyOtp` succeeded for it |
-| `inbox({ phone?, direction?, limit? })` | Messages newest first. An OTP's body shows as `[otp]` |
-| `message(id)` | One stored message by id, shaped like an `inbox()` row, or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
-| `outbox(limit?)` | Outgoing messages newest first, read-only, with status and body. An OTP's body shows as `[otp]` |
+| `inbox({ phone?, direction?, limit? })` | Messages newest first, rows `{ id, direction, kind, phone, body, status, at, error }`. An OTP's body shows as `[otp]`. `error` is the provider's failure reason (for example `400 (131026)`) of a failed send, or of one the outbox is retrying; `null` otherwise. It is redacted (a secret or a token-looking value shows as `[redacted]`) and at most 200 characters, so an app can show it |
+| `message(id)` | One stored message by id, shaped like an `inbox()` row (with `error`), or `null`. An OTP's body shows as `[otp]`. `id` is a non-empty string of at most 128 characters, else `TypeError`. A handler of `whatsapp.message_received` calls it with the event's `message_id` |
+| `outbox(limit?)` | Outgoing messages newest first, read-only, with status, body and `error` (as for `inbox()`). An OTP's body shows as `[otp]` |
+| `mode()` | `{ sandbox }`, whether the module runs with `sandbox = true`. An app cannot read a module's config, so a dev page or an owner's banner asks here; it answers on an empty outbox too |
 | `chatLink(phone, text)` | `{ url }`, a `wa.me` link with a prefilled message |
 
 Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.

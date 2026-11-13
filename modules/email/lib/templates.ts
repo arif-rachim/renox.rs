@@ -47,12 +47,60 @@ const esc = (s: string): string => s.replace(/[&<>"']/gu, (c) => ({ "&": "&amp;"
 const fill = (s: string, data: Readonly<Record<string, unknown>>, escape: (v: string) => string): string =>
   s.replace(/\{([a-z_]+)\}/gu, (_, k: string) => escape(typeof data[k] === "string" || typeof data[k] === "number" ? String(data[k]) : ""));
 
-/** A link is only ever https (or http on localhost, for development). */
-function safeUrl(v: unknown): string | null {
-  if (typeof v !== "string") return null;
+const isLocalhost = (h: string): boolean => h === "localhost" || h.endsWith(".localhost");
+
+/** An origin the module may build links on: https, or http on localhost; nothing else. */
+export function cleanOrigin(v: unknown): string | null {
+  if (typeof v !== "string" || v === "" || v.length > 200) return null;
   try {
     const u = new URL(v);
-    return u.protocol === "https:" || (u.protocol === "http:" && (u.hostname === "localhost" || u.hostname.endsWith(".localhost"))) ? u.href : null;
+    const ok = u.protocol === "https:" || (u.protocol === "http:" && isLocalhost(u.hostname));
+    return ok ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `app_url` config as an origin: an https origin only (no path, query, fragment or userinfo), else null. */
+export function appUrlOrigin(v: unknown): string | null {
+  const o = cleanOrigin(v);
+  if (o === null || typeof v !== "string") return null;
+  try {
+    const u = new URL(v);
+    if (u.username !== "" || u.password !== "" || u.search !== "" || u.hash !== "" || u.pathname !== "/" || (v !== o && v !== `${o}/`)) return null;
+  } catch {
+    return null;
+  }
+  return o;
+}
+
+/** A path of the app itself: one leading `/`, not `//`, no backslash, no control character, at most 2,000 characters. */
+export function isAppPath(v: unknown): v is string {
+  return typeof v === "string" && v.length <= 2000 && v.startsWith("/") && !v.startsWith("//") && !/[\\\u0000-\u001f\u007f-\u009f]/u.test(v);
+}
+
+/**
+ * A link is only ever https (or http on localhost, for development). A path
+ * of the app (`/org/accept/<token>`, how a module without a request origin
+ * writes it) is completed with `base`, the app's own origin; with no base it
+ * is dropped. After completing, the origin must equal `base` exactly. Any
+ * other relative value is dropped.
+ */
+export function safeUrl(v: unknown, base: string | null = null): string | null {
+  if (typeof v !== "string") return null;
+  if (isAppPath(v)) {
+    const origin = cleanOrigin(base);
+    if (origin === null) return null;
+    try {
+      const u = new URL(v, origin);
+      return u.origin === origin ? u.href : null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" || (u.protocol === "http:" && isLocalhost(u.hostname)) ? u.href : null;
   } catch {
     return null;
   }
@@ -64,11 +112,11 @@ export interface RenderedMail {
   html: string;
 }
 
-/** `template` with `data` for a recipient in `locale`; null for an unknown template. */
-export function renderMail(template: string, data: Readonly<Record<string, unknown>>, locale: Locale = "en"): RenderedMail | null {
+/** `template` with `data` for a recipient in `locale` (`base`: the app's origin that completes a path link); null for an unknown template. */
+export function renderMail(template: string, data: Readonly<Record<string, unknown>>, locale: Locale = "en", base: string | null = null): RenderedMail | null {
   const t = TEMPLATES[template];
   if (t === undefined) return null;
-  const url = safeUrl(data.url);
+  const url = safeUrl(data.url, base);
   const order: Locale[] = locale === "ar" ? ["ar", "en"] : ["en", "ar"];
   const block = (l: Locale): string => {
     const x = t[l];

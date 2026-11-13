@@ -164,6 +164,7 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 ```ts
 const t = await app();
 await t.job("nightly");                                  // jobs/nightly.ts runs now; resolves after its commit
+await t.job("import", { payload: { batch: 2 } });        // a queued run, as ctx.jobs.enqueue("import", payload) writes it
 const alice = t.as("alice");                             // signed in through the auth module's pages
 const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
 const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }

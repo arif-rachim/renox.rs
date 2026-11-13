@@ -3,7 +3,9 @@
 // template or the first 80 characters of the text, and the status. `?status=failed` and `?phone=<number>` narrow the
 // list (the phone is matched on the number as the customer form normalises it); with a filter the last 200 messages
 // are searched, the most the service returns. Read only: no resend. The module hides an OTP's code (its body is
-// `[otp]`) and this page shows the body as it gets it.
+// `[otp]`) and this page shows the body as it gets it. A failed message shows the module's failure reason (`error`,
+// redacted by the module, at most 200 characters), and with the module in sandbox mode (`whatsapp.mode()`, whatsapp
+// 1.3.0) a banner says nothing leaves the server, also when the outbox is empty.
 import type { LoaderContext } from "@renoxium/sdk";
 import { gcc, whatsapp } from "renox:modules";
 
@@ -52,6 +54,7 @@ export async function load(ctx: LoaderContext) {
   }
   const filtered = status !== "" || askedPhone !== "";
   const sent = await whatsapp.outbox(filtered ? MAX : SHOWN);
+  const mode = await whatsapp.mode();
   const rows = sent.filter((m) => (status === "" || m.status === status) && (phone === null || m.phone === phone)).slice(0, SHOWN);
   return {
     ...page,
@@ -59,6 +62,7 @@ export async function load(ctx: LoaderContext) {
     phone: askedPhone,
     statuses: STATUSES.map((s) => ({ value: s, current: s === status })),
     filtered,
-    messages: rows.map((m) => ({ id: m.id, kind: m.kind, when: when(m.at), phone: maskPhone(m.phone), status: m.status, ...summary(m.kind, m.body) })),
+    sandbox: mode.sandbox,
+    messages: rows.map((m) => ({ id: m.id, kind: m.kind, when: when(m.at), phone: maskPhone(m.phone), status: m.status, error: m.status === "failed" ? (m.error ?? "") : "", ...summary(m.kind, m.body) })),
   };
 }

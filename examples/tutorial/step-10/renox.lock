@@ -27,7 +27,8 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 name = "org"
 version = "1.2.0"
 source = "official"
-hash = "4d61c92eef81957280998c7639b6d17563972ecb0319633e0db553041e79cb96"
+hash = "f1ab9c4a89758bf7e8f0852fc96dd13435aa6cf2af6e02c95468904013546041"
+approved_version = "1.2.0"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]

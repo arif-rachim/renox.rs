@@ -1,6 +1,6 @@
 [module]
 name = "email"
-version = "1.1.0"
+version = "1.2.0"
 description = "Transactional email: bilingual (English and Arabic) templates, Resend or Amazon SES, queued through the outbox with retries, a suppression list fed by bounces and complaints, a message log"
 
 [dependencies]
@@ -16,6 +16,7 @@ from = { type = "string", default = "", max_length = 254, description = "The Fro
 from_name = { type = "string", default = "", max_length = 80, description = "The sender display name, sent as \"Name\" <address>; a message may set its own. No < > or line breaks" }
 ses_region = { type = "string", default = "me-central-1", max_length = 30, description = "The SES region (provider = ses)" }
 sends_per_minute = { type = "int", default = 120, min = 1, max = 6000, description = "Outgoing messages per minute for the tenant; past it, send rejects" }
+app_url = { type = "string", default = "", max_length = 200, description = "The app's own https origin (https://example.com, no path), used to complete a link such as /org/accept/<token> when the mail is queued by an App MCP tool or a job, which have no request origin" }
 base_path = { type = "string", default = "/email", max_length = 100, description = "Where the app mounts the message log page" }
 
 [permissions]

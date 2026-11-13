@@ -34,12 +34,12 @@ export interface Db extends DbStatements {
    * Runs `fn` in an IMMEDIATE transaction: commit when it resolves, rollback
    * when it throws. Rust also rolls back if the request ends first. Inside
    * `fn`, use `tx.scoped(scope)` for scoped statements (ops.md 1.15.0): the
-   * app's `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. At run
-   * time `tx` is a `TxDb`; the parameter is still typed `DbStatements` so
-   * that existing `Db` fakes keep compiling (#749), so write
-   * `(tx as TxDb).scoped(...)`.
+   * app's `ctx.db.scoped()` there rejects with `RENOX_DB_TX_STATE`. `tx` is a
+   * `TxDb` (ops.md 1.17.1, #756; before, typed `DbStatements` so that existing
+   * `Db` fakes kept compiling): a fake passes
+   * `{ ...statements, scoped: () => statements }`.
    */
-  transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: TxDb) => Promise<T>): Promise<T>;
   /**
    * A `Db` whose statements carry `scope` (ops.md section 17, "db.scoped()"):
    * owned tables get their owner predicate, an INSERT must set the owner

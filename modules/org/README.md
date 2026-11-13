@@ -109,7 +109,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
 | `org.renamed` | `{ org_id, name }` | event: an admin or owner renamed the organisation; the slug stays |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
-| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
+| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. Without a request origin (an App MCP request), `url` is the app path `/org/accept/<token>` and the `email` module prefixes the app's host (its rule: the request origin that queued the mail, else its `app_url` config; with neither the mail goes without the button). `locale` is the organisation's (`null` when unset) |
 
 ## App MCP tool
 

@@ -94,7 +94,8 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.2.0"
 source = "official"
-hash = "4d61c92eef81957280998c7639b6d17563972ecb0319633e0db553041e79cb96"
+hash = "f1ab9c4a89758bf7e8f0852fc96dd13435aa6cf2af6e02c95468904013546041"
+approved_version = "1.2.0"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
@@ -103,13 +104,14 @@ approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header
 
 [[module]]
 name = "email"
-version = "1.1.0"
+version = "1.2.0"
 source = "official"
-hash = "ba038395534c5fb0070f8837640c761960a9d5230f49d97e1dea3c3dd9c41545"
+hash = "73c741a3fd66ce0d31b258183f409f69be1313bb241e87ee3fc03b9140b306d3"
+approved_version = "1.2.0"
 isolation = "shared"
 mount = "/email"
 dependencies = ["auth", "i18n"]
-config = { provider = "resend", from = "", from_name = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
+config = { provider = "resend", from = "", from_name = "", ses_region = "me-central-1", sends_per_minute = 120, app_url = "https://{{APP}}.renoxium.app", base_path = "/email" }
 approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail", "org.send_mail"] }
 
 [[module]]
@@ -149,7 +151,7 @@ approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hook
 name = "reports"
 version = "1.2.0"
 source = "official"
-hash = "69c114ae83737ddd21d18814f1acfb18e6331690663ccddc381b521f351b54e3"
+hash = "c2208288b3447c6fe696115d29bc81b7f4ef41ad01a5e533ea0310ab3f6d1918"
 approved_version = "1.2.0"
 isolation = "shared"
 mount = "/reports"
@@ -171,9 +173,10 @@ approved = { tables = "twofa__*", network = [], secrets = ["TWOFA_KEY"], slots =
 
 [[module]]
 name = "whatsapp"
-version = "1.2.0"
+version = "1.3.0"
 source = "official"
-hash = "292195dd9041ce9d70f17d73401b04b7ecbd7c4193808ee0e9dfb4369681a062"
+hash = "0d7a45c72580787502d77bbf66b0b14bc0c9be40ae65c3f4fbcab6388431f1cc"
+approved_version = "1.3.0"
 isolation = "shared"
 mount = "/whatsapp"
 dependencies = []
