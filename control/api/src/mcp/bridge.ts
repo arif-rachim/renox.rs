@@ -179,6 +179,10 @@ async function mint(deps: Deps, inject: BridgeInject, agent: BridgeAgent, app: s
     if (answer.error?.details?.some((d) => d?.reason === "no_auth_module")) {
       return { ok: false, result: fail(404, "not_supported", "This app has no sign-in module, so it cannot be changed through Renoxium.") };
     }
+    // Known limit (#748): the node mints in the cells of its own process only, so an app in its own process (`process = "own"`) answers `not_active_on_this_node`.
+    if (answer.error?.details?.some((d) => d?.reason === "not_active_on_this_node")) {
+      return { ok: false, result: fail(404, "not_supported", `This app's tools are not available through the owner connector yet, because ${app} runs in its own process. The platform tools (deploys, settings of the team) still work; to change the app itself, use the dashboard or the CLI.`) };
+    }
     return { ok: false, result: fail(503, "RENOX_UNAVAILABLE", `${app} is not running on its node right now. Try again in a minute.`) };
   }
   return { ok: false, result: fail(503, "RENOX_UNAVAILABLE", `${app} cannot be reached right now. Try again in a minute.`) };
