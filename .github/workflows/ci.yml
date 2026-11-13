@@ -145,6 +145,10 @@ jobs:
         run: |
           bun test ./.github/scripts/workflow-secrets.test.ts
           bun .github/scripts/workflow-secrets.ts
+      # One pinned Playwright version for lighthouse.yml and journey.yml (#586).
+      - name: playwright-pinned
+        if: success() || failure()
+        run: bun test ./.github/scripts/playwright-version.test.ts
       # Known-vulnerable npm packages in bun.lock (sdk, cli, control, modules, bench).
       - name: bun-audit
         if: success() || failure()
