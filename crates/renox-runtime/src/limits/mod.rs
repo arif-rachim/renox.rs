@@ -15,6 +15,10 @@ use crate::manifest::LimitOverrides;
 pub struct Limits {
     /// CPU time per request, milliseconds.
     pub cpu_ms: u64,
+    /// CPU time per job attempt (`kind: "job"`, `ops.md` section 20): the
+    /// tier's job budget, which replaces `cpu_ms` for a job. Events, tools
+    /// and requests keep `cpu_ms`. A manifest override does not change it.
+    pub job_cpu_ms: u64,
     /// Wall clock per request, milliseconds. The cell's `RequestCtx.deadline`
     /// is `min(now + wall_ms, gateway deadline)`.
     pub wall_ms: u64,
@@ -37,6 +41,7 @@ impl Limits {
     /// Free tier (`ops.md` section 10).
     pub const FREE: Limits = Limits {
         cpu_ms: 50,
+        job_cpu_ms: 2_000,
         wall_ms: 30_000,
         heap_bytes: 128 * 1024 * 1024,
         concurrency: 50,
@@ -49,6 +54,7 @@ impl Limits {
     /// Paid tier (`ops.md` section 10).
     pub const PAID: Limits = Limits {
         cpu_ms: 500,
+        job_cpu_ms: 10_000,
         wall_ms: 60_000,
         heap_bytes: 512 * 1024 * 1024,
         concurrency: 500,

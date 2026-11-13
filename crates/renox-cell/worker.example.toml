@@ -36,6 +36,7 @@ t_paid_example = "paid"
 # docs/04-isolation-security.md.
 [tiers.free]
 # cpu_ms = 50
+# job_cpu_ms = 2000     # CPU per job attempt (ops.md section 20); events and tools keep cpu_ms
 # wall_ms = 30000
 # heap_mb = 128
 # concurrency = 50
@@ -45,6 +46,7 @@ t_paid_example = "paid"
 
 [tiers.paid]
 # cpu_ms = 500
+# job_cpu_ms = 10000
 
 # The worker's own seccomp allowlist and Landlock rules (#253, README
 # "Sandbox"). Required in controlled mode unless allow_unsandboxed = true.

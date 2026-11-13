@@ -651,6 +651,9 @@ pub struct Charge {
 #[derive(Debug)]
 pub struct CpuLedger {
     limit_ns: u64,
+    /// The limit of a request admitted with a limit of its own (a job
+    /// attempt, #768); a request not listed has `limit_ns`.
+    own_limit_ns: HashMap<u32, u64>,
     /// Per request in flight (token → what it was charged so far).
     charged: HashMap<u32, Charge>,
     running: Running,
@@ -664,6 +667,7 @@ impl CpuLedger {
     pub fn new(limit: Duration) -> CpuLedger {
         CpuLedger {
             limit_ns: clamp_ns(limit),
+            own_limit_ns: HashMap::new(),
             charged: HashMap::new(),
             running: Running::Unattributed,
             outer: Running::Unattributed,
@@ -676,7 +680,25 @@ impl CpuLedger {
     /// before the request joined is never split onto it.
     pub fn admit(&mut self, token: u32, now_ns: u64) {
         self.flush(now_ns);
+        self.own_limit_ns.remove(&token);
         self.charged.insert(token, Charge::default());
+    }
+
+    /// [`CpuLedger::admit`] for a request with a CPU limit of its own: a
+    /// job attempt runs under the tier's job budget, not the request limit
+    /// (`ops.md` section 20, #768). The watchdog's budget, the kill and the
+    /// release clamp all use that limit for this request.
+    pub fn admit_with_limit(&mut self, token: u32, now_ns: u64, limit: Duration) {
+        self.admit(token, now_ns);
+        self.own_limit_ns.insert(token, clamp_ns(limit));
+    }
+
+    /// The CPU limit of a request in flight (ns).
+    fn limit_of(&self, token: u32) -> u64 {
+        self.own_limit_ns
+            .get(&token)
+            .copied()
+            .unwrap_or(self.limit_ns)
     }
 
     /// The request ended: charge the current run, forget the request, and
@@ -699,10 +721,10 @@ impl CpuLedger {
         if self.outer == Running::Request(token) {
             self.outer = Running::Unattributed;
         }
+        let limit_ns = self.limit_of(token);
+        self.own_limit_ns.remove(&token);
         let mut charge = self.charged.remove(&token).unwrap_or_default();
-        charge.total = charge
-            .total
-            .min(self.limit_ns.saturating_add(RELEASE_TAIL_NS));
+        charge.total = charge.total.min(limit_ns.saturating_add(RELEASE_TAIL_NS));
         charge
     }
 
@@ -774,13 +796,17 @@ impl CpuLedger {
     /// work, the smallest remaining CPU among the requests in flight, or the
     /// whole limit with none in flight (orphaned work cannot spin forever).
     pub fn budget(&self) -> Duration {
-        let left = |c: &Charge| self.limit_ns.saturating_sub(c.total);
+        let left = |t: u32, c: &Charge| self.limit_of(t).saturating_sub(c.total);
         Duration::from_nanos(match self.running {
-            Running::Request(t) => self.charged.get(&t).map(left).unwrap_or(self.limit_ns),
+            Running::Request(t) => self
+                .charged
+                .get(&t)
+                .map(|c| left(t, c))
+                .unwrap_or(self.limit_ns),
             Running::Unattributed => self
                 .charged
-                .values()
-                .map(left)
+                .iter()
+                .map(|(t, c)| left(*t, c))
                 .min()
                 .unwrap_or(self.limit_ns),
         })
@@ -975,6 +1001,29 @@ mod tests {
             let c = l.release(t, now);
             assert!((10 * MS..11 * MS).contains(&c), "token {t}: {c} ns");
         }
+    }
+
+    /// A request admitted with a limit of its own (a job attempt, #768) is
+    /// budgeted and clamped by that limit; a request beside it keeps the
+    /// ledger's.
+    #[test]
+    fn ledger_budgets_a_request_with_its_own_limit() {
+        let mut l = CpuLedger::new(Duration::from_millis(50));
+        l.admit(1, 0);
+        l.admit_with_limit(2, 0, Duration::from_millis(2_000));
+        l.begin(0);
+        l.enter(Some(2), 0);
+        assert_eq!(l.budget(), Duration::from_millis(2_000));
+        l.leave(40 * MS);
+        l.enter(Some(1), 40 * MS);
+        assert_eq!(l.budget(), Duration::from_millis(50));
+        l.leave(40 * MS);
+        l.end(40 * MS);
+        assert_eq!(l.release(2, 40 * MS), 40 * MS);
+        // Unattributed work with only the job in flight: its remaining CPU.
+        l.release(1, 40 * MS);
+        l.admit_with_limit(3, 40 * MS, Duration::from_millis(2_000));
+        assert_eq!(l.budget(), Duration::from_millis(2_000));
     }
 
     /// CPU used in a slice before a request joined is not charged to it.

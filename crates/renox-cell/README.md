@@ -62,6 +62,7 @@ Tests: `tests/telemetry.rs` (the span tree of a page request with `db.query` und
 | Field | `free` | `paid` |
 | --- | --- | --- |
 | `cpu_ms` (per request) | 50 | 500 |
+| `job_cpu_ms` (per job attempt) | 2,000 | 10,000 |
 | `wall_ms` (per request) | 30,000 | 60,000 |
 | `heap_mb` (per isolate) | 128 | 512 |
 | `concurrency` (per deployment) | 50 | 500 |

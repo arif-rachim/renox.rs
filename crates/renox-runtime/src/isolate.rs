@@ -3299,6 +3299,9 @@ struct InFlight {
     route: usize,
     /// An event delivery: its `EVENT <module> <name>` route.
     event: Option<String>,
+    /// The CPU limit this request runs under, ms: the tier's `cpu_ms`, or
+    /// its `job_cpu_ms` for a job attempt.
+    cpu_limit_ms: u64,
     /// A realtime run: its phase, for the log line of a throw.
     realtime_phase: Option<&'static str>,
     /// An invocation (#285): its meter route.
@@ -3377,7 +3380,7 @@ fn release_flight(ctx: &ThreadContext, f: &mut InFlight, how: &'static str) {
         cpu_ms = ms(charge.total),
         own_ms = ms(charge.own),
         shared_ms = ms(charge.total.saturating_sub(charge.own)),
-        limit_ms = ctx.limits.cpu_ms,
+        limit_ms = f.cpu_limit_ms,
         wall_ms = ms(t.start.elapsed().as_nanos() as u64),
         slices = t.slices,
         max_slice_ms = ms(t.max_slice_ns),
@@ -3815,7 +3818,7 @@ async fn serve(
                 match code {
                     ErrorCode::CpuLimit => {
                         f.insert("cpu_ms".into(), flight.meter(ctx, status).cpu_ms.into());
-                        f.insert("limit_ms".into(), ctx.limits.cpu_ms.into());
+                        f.insert("limit_ms".into(), flight.cpu_limit_ms.into());
                     }
                     ErrorCode::Oom => {
                         f.insert("peak_heap_bytes".into(), flight.peak_heap.into());
@@ -4241,7 +4244,14 @@ fn start_dispatch(
     let trace = with_attribution(|a| {
         a.admitted += 1;
         let now = a.watch.now_ns();
-        a.ledger.admit(token, now);
+        match &job.event {
+            // ops.md section 20: a job attempt runs under the job budget.
+            Some(ev) if ev.job.is_some() => {
+                a.ledger
+                    .admit_with_limit(token, now, Duration::from_millis(ctx.limits.job_cpu_ms))
+            }
+            _ => a.ledger.admit(token, now),
+        }
         a.trace.then(|| CpuTrace::begin(a.admitted))
     })
     .flatten();
@@ -4266,6 +4276,11 @@ fn start_dispatch(
             event: job.event.as_ref().map(EventEnvelope::route),
             realtime_phase: job.realtime.as_ref().map(|r| r.phase.as_str()),
             invoke: job.invoke.as_ref().map(Invoke::route),
+            cpu_limit_ms: if job.event.as_ref().is_some_and(|e| e.job.is_some()) {
+                ctx.limits.job_cpu_ms
+            } else {
+                ctx.limits.cpu_ms
+            },
             cpu_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
