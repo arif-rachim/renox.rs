@@ -88,6 +88,18 @@ export async function hasPassword(ctx: AuthCtx): Promise<boolean> {
   return row !== null && row.password_hash.startsWith("$");
 }
 
+/**
+ * The signed-in user's phone in E.164 when it is verified, else null; null
+ * when signed out (#794): an app links its own records to the person by it
+ * (a customer portal), since auth__users is the module's own table.
+ */
+export async function verifiedPhone(ctx: AuthCtx): Promise<string | null> {
+  const u = await core.currentUser(ctx);
+  if (u === null) return null;
+  const row = await ctx.db.queryOne<{ phone: string | null }>("select phone from auth__users where id = ? and phone_verified_at is not null", [u.id]);
+  return row?.phone ?? null;
+}
+
 /** The signed-in user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`); a page sends `loginUrl(next)` instead. */
 export async function requireUser(ctx: AuthCtx): Promise<User> {
   const u = await core.currentUser(ctx);

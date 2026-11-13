@@ -166,16 +166,20 @@ export const TICKET_SECONDS = 10 * 60;
 
 /**
  * `auth.after_login` for every sign-in method (password, magic link, OAuth,
- * phone, passkey): the fillers get `{ user_id, next?, resume }`. `resume` is
+ * phone, passkey): the fillers get `{ user_id, method, next?, resume }`
+ * (`method` names the check that ran, #794). `resume` is
  * a single-use ticket (10 minutes, stored hashed): a filler that halts (2fa,
  * #287) keeps it and, once its own check passed, calls `auth.resumeLogin`
  * with it to start the session. Without a halt the ticket is spent at once.
  */
-export async function afterLogin(ctx: AuthCtx, userId: string, next?: string): Promise<{ halt: false } | { halt: true; response: Response }> {
+/** The sign-in method an `auth.after_login` filler is told (#794); UAE PASS signs in through the OAuth path. */
+export type LoginMethod = "password" | "magic" | "oauth" | "phone" | "passkey";
+
+export async function afterLogin(ctx: AuthCtx, userId: string, method: LoginMethod, next?: string): Promise<{ halt: false } | { halt: true; response: Response }> {
   const ticket = randomHex(32);
   const hash = await sha256Hex(ticket);
   await ctx.db.execute("insert into auth__login_tickets (ticket_hash, user_id, next, expires_at) values (?, ?, ?, ?)", [hash, userId, next ?? null, now() + TICKET_SECONDS]);
-  const hook = await ctx.hooks.run("auth.after_login", { user_id: userId, ...(next ? { next } : {}), resume: ticket });
+  const hook = await ctx.hooks.run("auth.after_login", { user_id: userId, method, ...(next ? { next } : {}), resume: ticket });
   if (hook.halt) return { halt: true, response: hook.response };
   await ctx.db.execute("delete from auth__login_tickets where ticket_hash = ?", [hash]);
   return { halt: false };
@@ -220,7 +224,7 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   await ctx.db.execute("delete from auth__attempts where bucket = ?", [acct]);
   const user: User = { id: row.id, email: row.email, display_name: row.display_name, created_at: row.created_at };
   // A filler that halts (2fa, F5) answers instead; no session is started yet.
-  const hook = await afterLogin(ctx, user.id, input.next);
+  const hook = await afterLogin(ctx, user.id, "password", input.next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });

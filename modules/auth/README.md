@@ -53,6 +53,7 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `requireUser()` | The user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`; through the broker, `RENOX_MODULE_SERVICE`) |
 | `setDisplayName(name)` | Sets the signed-in user's display name (1 to 80 characters, trimmed): `{ display_name }` or `{ error }`; `AUTH_REQUIRED` when signed out. For a phone-only account, which starts with none (#773) |
 | `hasPassword()` | Whether the signed-in user has a password: `false` for an account made by phone sign-up, and when signed out (#773) |
+| `verifiedPhone()` | The signed-in user's phone in E.164 when it is verified, else `null`; `null` when signed out. An app links its own records to the person by it (#794) |
 | `loginUrl(next?)` | `/auth/login?next=…`; `next` kept only when it is a path of the app |
 | `register({ email, password, display_name? })` | `{ message }` (a confirmation link is mailed; the same message when the email already has an account, which gets a mail saying so) or `{ error }` for a bad email or password |
 | `login({ email, password })` | `{ user, cookie }` or `{ error }`: the same error for an unknown email, a wrong password, and a locked account |
@@ -97,7 +98,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | Hook | When | A filler may |
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
-| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, next?, resume }`) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
+| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, method, next?, resume }`; `method` is `password`, `magic`, `oauth` (UAE PASS too), `phone` or `passkey`, #794) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
 | `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
 | `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |

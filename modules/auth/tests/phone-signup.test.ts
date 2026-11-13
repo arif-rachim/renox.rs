@@ -149,4 +149,21 @@ describe.skipIf(!worker)("phone sign-up", () => {
     expect(authCookie(halted)).toBeUndefined();
     withDb((db) => db.query("delete from otpbox__halt").run());
   });
+
+  test("verifiedPhone() and the sign-in method that auth.after_login is told (#794)", async () => {
+    const id = userRows(NEW_PHONE)[0]?.id as string;
+    const methods = (user: string) => t.db.query<{ method: string }>("select method from otpbox__logins where user_id = ? order by seq", [user]).map((r) => r.method);
+    const v = t.as("verified-phone");
+    expect(await v.service("auth").verifiedPhone()).toBeNull();
+    await v.action("/auth/phone", "default", { phone: NEW_PHONE, next: "/" });
+    expect((await v.action("/auth/phone/verify", "default", { phone: NEW_PHONE, code: lastCode(NEW_PHONE), next: "/" })).status).toBe(303);
+    expect(await v.service("auth").verifiedPhone()).toBe(NEW_PHONE);
+    expect(methods(id).at(-1)).toBe("phone");
+    // A password account with no phone: null, and the method is password.
+    const pw = t.as("pw-method");
+    expect((await pw.action("/auth/login", "default", { email: "pw@example.com", password: "correct horse battery" })).status).toBe(303);
+    expect(await pw.service("auth").verifiedPhone()).toBeNull();
+    const pwId = t.db.query<{ id: string }>("select id from auth__users where email = ?", ["pw@example.com"])[0]?.id as string;
+    expect(methods(pwId).at(-1)).toBe("password");
+  });
 });

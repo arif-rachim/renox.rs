@@ -154,7 +154,7 @@ export async function verifyLoginCode(ctx: AuthCtx, phoneInput: unknown, code: u
   if (consumed === null) return { ok: false, error: GENERIC_PHONE_ERROR };
   const user = consumed.kind === "signup" ? await createPhoneUser(ctx, phone as string) : await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where id = ?`, [consumed.userId]);
   if (user === null) return { ok: false, error: GENERIC_PHONE_ERROR };
-  const hook = await afterLogin(ctx, user.id, next);
+  const hook = await afterLogin(ctx, user.id, "phone", next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });

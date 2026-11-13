@@ -113,7 +113,7 @@ export async function signInWithMagic(ctx: AuthCtx, token: string): Promise<{ ok
   if (userId === null) return { ok: false };
   // The link proves the mailbox: mark the email verified.
   await ctx.db.execute("update auth__users set email_verified_at = coalesce(email_verified_at, ?) where id = ?", [now(), userId]);
-  const hook = await afterLogin(ctx, userId);
+  const hook = await afterLogin(ctx, userId, "magic");
   if (hook.halt) return { ok: true, cookie: "", halt: hook.response };
   const session = await startSession(ctx, userId);
   await ctx.events.emit("auth.login", { user_id: userId, at: now() });

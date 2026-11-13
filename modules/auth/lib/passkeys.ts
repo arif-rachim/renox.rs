@@ -111,7 +111,7 @@ export async function finishLogin(ctx: Ctx, input: { credentialId: unknown; clie
   await ctx.db.execute("update auth__passkeys set counter = ?, last_used_at = ? where id = ?", [counter, now(), pk.id]);
   const user = await ctx.db.queryOne<User>(`select ${USER_COLUMNS} from auth__users where id = ?`, [pk.user_id]);
   if (user === null) return fail;
-  const hook = await afterLogin(ctx, user.id, next);
+  const hook = await afterLogin(ctx, user.id, "passkey", next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });
