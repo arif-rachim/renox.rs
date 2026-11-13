@@ -12,6 +12,7 @@ import { checkArtifactFiles } from "@renox/artifact-validate";
 
 import { check } from "../src/commands/check.ts";
 import { buildFiles } from "../src/lib/build.ts";
+import { LAST_WORKER_WITHOUT_MODULE_ERRORS, moduleErrorCodes } from "../src/lib/hook-keys.ts";
 import { errorCodeProblems, readManifest } from "../src/lib/modules/manifest.ts";
 import { projectProblems } from "../src/lib/modules/resolve.ts";
 import { app, writeModule } from "./modules-fixture.ts";
@@ -53,10 +54,43 @@ test("renox check's project rules refuse a bad code of an installed module (MF18
   rmSync(dir, { recursive: true });
 });
 
+/** Runs `f` with RENOX_BUILD_MODULE_ERRORS set to `value` (undefined: unset), then restores it. */
+async function withGate<T>(value: string | undefined, f: () => Promise<T> | T): Promise<T> {
+  const before = process.env.RENOX_BUILD_MODULE_ERRORS;
+  if (value === undefined) delete process.env.RENOX_BUILD_MODULE_ERRORS;
+  else process.env.RENOX_BUILD_MODULE_ERRORS = value;
+  try {
+    return await f();
+  } finally {
+    if (before === undefined) delete process.env.RENOX_BUILD_MODULE_ERRORS;
+    else process.env.RENOX_BUILD_MODULE_ERRORS = before;
+  }
+}
+
+test("the codes are written only after worker 0.9.0, which refuses the field; RENOX_BUILD_MODULE_ERRORS overrides", async () => {
+  expect(LAST_WORKER_WITHOUT_MODULE_ERRORS).toBe("0.9.0");
+  await withGate(undefined, () => {
+    expect(moduleErrorCodes("0.9.0")).toBe(false);
+    expect(moduleErrorCodes("0.8.0")).toBe(false);
+    expect(moduleErrorCodes("0.9.1")).toBe(true);
+    expect(moduleErrorCodes("0.10.0")).toBe(true);
+  });
+  await withGate("1", () => expect(moduleErrorCodes("0.9.0")).toBe(true));
+  await withGate("0", () => expect(moduleErrorCodes("0.10.0")).toBe(false));
+});
+
 describe.skipIf(!worker)("renox build and check with [exports.errors]", () => {
+  test("with the pinned worker that refuses the field, the declared codes stay out of the artifact; MF18 still applies", async () => {
+    const dir = await shopWithAuth({}, { "module.toml": `${AUTH_TOML}\n${errorsToml({ AUTH_REQUIRED: "No signed-in user" })}` });
+    const r = await withGate("0", () => buildFiles(dir));
+    expect(checkArtifactFiles(r.files).violations).toEqual([]);
+    expect("errors" in ((r.manifest.modules?.[0] as { exports: Record<string, unknown> }).exports)).toBe(false);
+    expect((await check(dir)).errors.filter((e) => e.message.startsWith("MF18"))).toEqual([]);
+  });
+
   test("the artifact carries exports.errors, which the shared validator accepts", async () => {
     const dir = await shopWithAuth({}, { "module.toml": `${AUTH_TOML}\n${errorsToml({ AUTH_REQUIRED: "No signed-in user" })}` });
-    const r = await buildFiles(dir);
+    const r = await withGate("1", () => buildFiles(dir));
     expect(checkArtifactFiles(r.files).violations).toEqual([]);
     const auth = r.manifest.modules?.[0] as { exports: Record<string, unknown> };
     expect(auth.exports.errors).toEqual(["AUTH_REQUIRED"]);

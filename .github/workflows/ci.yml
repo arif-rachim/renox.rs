@@ -556,6 +556,15 @@ jobs:
           chmod +x "$dir/renox-worker"
           echo "RENOX_WORKER_PATH=$dir/renox-worker" >> "$GITHUB_ENV"
           echo "renox-worker for the ts tests: $source" | tee -a "$GITHUB_STEP_SUMMARY"
+          # #769: renox build writes modules[].exports.errors only once the
+          # pinned worker reads it (cli/src/lib/hook-keys.ts moduleErrorCodes);
+          # a worker built from source that has the host filter does, so the
+          # ts tests build with it. Probed in the binary, not by version: a
+          # source build still says the pinned version.
+          if grep -aq cause_details_truncated "$dir/renox-worker"; then
+            echo "RENOX_BUILD_MODULE_ERRORS=1" >> "$GITHUB_ENV"
+            echo "module error codes in the artifact: on (the worker has #769)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       # The pass/skip/fail counts go to the run summary: the worker tests
       # count as run there, not skipped (#186).
       - name: make ts-test
