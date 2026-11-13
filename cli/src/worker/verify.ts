@@ -41,20 +41,20 @@ export const PINNED_WORKER: {
   sha256: Readonly<Record<string, string>>;
   pdf: Readonly<Record<string, string>>;
 } = {
-  version: "0.9.0",
+  version: "0.10.0",
   sha256: {
-    "x86_64-unknown-linux-gnu": "b6f942b29ad6cdf797d70a7e20e7e5d66e83ee02fd7f2d456062f99a535abc0a",
-    "aarch64-unknown-linux-gnu": "e1e6195f7e81f249329fef15e3f95ec752af6bf0e668f0b440848416d4791b37",
-    "x86_64-apple-darwin": "a77d91d5540c19758352294c081c56e833c655b0c83c0802ba08636131991374",
-    "aarch64-apple-darwin": "1c225e217e7773863c6112b0666c5b15feafb062b87def7bb96db62ce4eb8b03",
+    "x86_64-unknown-linux-gnu": "5f6eb6a3314863d41e202f5f1c5b5a764fa0047b33e8c2d56c2983e9fcb37348",
+    "aarch64-unknown-linux-gnu": "48f2835ddd1d1da56d00768667ac7556a80c87827907f881fe858a725710f58f",
+    "x86_64-apple-darwin": "e2be89be2675e1b2706bd4f3340ece076903a8520ee6a847106446ca8116a0c9",
+    "aarch64-apple-darwin": "9709cf78dab2b3c92ce937e2eda570cd591066d30c95bdbe859ef1980bd2fdd5",
     // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
-    "x86_64-pc-windows-msvc": "8c79e5df41989be37bd5bc75a22f2f7190e9d320bc5d4891dcd935e0b32d8957",
+    "x86_64-pc-windows-msvc": "50b4f6c54e447694fa6943095d3ebc7cfa25ecc52384f50e95ef25b0b47b7a18",
   },
   pdf: {
-    "x86_64-unknown-linux-gnu": "6d641b0dffe00f27ae358766cd6bec6bbd1401ffa87a20c4704fcff108bebe30",
-    "aarch64-unknown-linux-gnu": "7f14589c057fe2a2b92cace3b4b2af6a8fba1eeaa6454a2e57dd5550c3cbea3e",
-    "x86_64-apple-darwin": "5c0da6c494a18db6f40d7e4520cc8ffcd27426c7cf295f1e09d04cd268a03c37",
-    "aarch64-apple-darwin": "ce32dd5d27d119e120eecb7f1f2c53e3a30aeab81ec648600f601580caabb401",
+    "x86_64-unknown-linux-gnu": "1417fc4664fcf06770d15fb84cf92813f2cd8749f7afc1e3b5fc3ba0154fa101",
+    "aarch64-unknown-linux-gnu": "a4f2b2a59747d3bcbf3b4dfc4a087479ce67fe224bcb2a6fa2cf9c9268686d30",
+    "x86_64-apple-darwin": "49a3a1e7122e324f39f6ad6e12363413c52d74b5d36f91d9df6340959617732a",
+    "aarch64-apple-darwin": "1affa97124122b9943aba1ab456da3a898299edafd182a155f4adfc521b31898",
   },
 };
 
