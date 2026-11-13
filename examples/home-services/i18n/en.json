@@ -264,7 +264,18 @@
       "status": "Choose a status."
     },
     "outside_hours": "Only the scheduled jobs outside the branch's working hours.",
-    "outside_clear": "Show all jobs"
+    "outside_clear": "Show all jobs",
+    "badge": {
+      "self_booking": "Booked online"
+    },
+    "requested": {
+      "title": "Requested time",
+      "intro": "The customer booked online and asked for",
+      "technician": "Technician free at that time",
+      "confirm": "Confirm",
+      "propose": "Propose another time",
+      "none": "No technician of this branch is free at that time. Propose another time below."
+    }
   },
   "dispatch": {
     "title": "Dispatch board",
@@ -277,7 +288,9 @@
       "new": "New job {number} in {column}.",
       "moved": "Job {number} moved to {column}.",
       "updated": "Job {number} updated in {column}."
-    }
+    },
+    "wants": "Wants",
+    "to_confirm": "Online bookings to confirm: {n}"
   },
   "visits": {
     "title": "My visits",
@@ -592,7 +605,8 @@
       "amc_renewals": "Contracts ending this month",
       "branch": "Branch: {branch}",
       "title": "Today in this branch",
-      "open": "Open"
+      "open": "Open",
+      "online_to_confirm": "Online bookings to confirm"
     },
     "settings": {
       "title": "Branding and settings",
@@ -618,7 +632,19 @@
         "en": "Payment instructions (English)",
         "ar": "Payment instructions (Arabic)"
       },
-      "save": "Save settings"
+      "save": "Save settings",
+      "portal": {
+        "title": "Customer portal",
+        "hint": "What your customers may do on /book and in their account.",
+        "auto_confirm": "Confirm online bookings automatically",
+        "auto_confirm_hint": "On: a booking is scheduled at once with the technician of the chosen time. Off: it waits for a dispatcher to confirm it.",
+        "cutoff": "Customers may change a visit until (hours before)",
+        "cutoff_hint": "From 0 to 168 hours. After that the customer calls the branch.",
+        "reschedules": "Reschedules allowed per visit",
+        "reschedules_hint": "From 0 to 5.",
+        "link": "The booking link to share",
+        "link_hint": "Send it to your customers or put it on your website."
+      }
     },
     "branches": {
       "title": "Branches",
@@ -707,7 +733,9 @@
       "hours_step": "Times are on the half hour (for example 08:00 or 08:30).",
       "hours_order": "The closing time must be after the opening time.",
       "hours_none": "At least one day must be open.",
-      "payment_instructions": "The payment instructions are at most 500 characters."
+      "payment_instructions": "The payment instructions are at most 500 characters.",
+      "portal_cutoff_hours": "Enter a whole number of hours from 0 to 168.",
+      "portal_max_reschedules": "Enter a whole number from 0 to 5."
     },
     "import": {
       "title": "Import from Excel",
@@ -890,7 +918,9 @@
     "display_name": "Your name",
     "payment_instructions_en": "Payment instructions (English)",
     "payment_instructions_ar": "Payment instructions (Arabic)",
-    "reason_other": "More about the reason"
+    "reason_other": "More about the reason",
+    "portal_cutoff_hours": "Customers may change a visit until (hours before)",
+    "portal_max_reschedules": "Reschedules allowed per visit"
   },
   "problem": {
     "title": "The form could not be saved",

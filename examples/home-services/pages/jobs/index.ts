@@ -1,5 +1,6 @@
 // GET /jobs: the active branch's jobs, filtered by status, technician and day
-// (`?status=scheduled&technician=<user id>&day=2026-11-09`). The guard is
+// (`?status=scheduled&technician=<user id>&day=2026-11-09`) and by where they
+// came from (`?source=self_booking`: "Booked online", #779). The guard is
 // `job.read`; `?outside_hours=1` keeps the jobs still to come that fall outside the
 // branch's working hours (the link /admin/branches shows after the hours change);
 // `?branch=<id>` names another branch of the company for the owner (`settings.read`). A technician sees only the jobs assigned to them (the policy
@@ -32,7 +33,9 @@ export async function load(ctx: LoaderContext) {
   const askedTech = ctx.url.searchParams.get("technician") ?? "";
   const technicians = all ? await techniciansOf(ctx, branch) : [];
   const technician = technicians.some((t) => t.id === askedTech) ? askedTech : "";
-  const rows = await listJobs(scopedDb(ctx.db, branch), { status, technician, day: dayKey }, all ? null : (ctx.principal?.id ?? "-"));
+  // `?source=self_booking`: the jobs booked online (#779), the board's header count links here.
+  const online = ctx.url.searchParams.get("source") === "self_booking";
+  const rows = await listJobs(scopedDb(ctx.db, branch), { status, technician, day: dayKey, source: online ? "self_booking" : "" }, all ? null : (ctx.principal?.id ?? "-"));
   const outsideIds = outsideOnly ? new Set(await jobsOutsideHours(ctx.db, scopedDb(ctx.db, branch), branch.id, Math.floor(Date.now() / 1000))) : null;
   const scoped = scopedDb(ctx.db, branch);
   const customers = new Map((await scoped.query<{ id: string; name: string }>("select id, name from app__customers", [])).map((c) => [c.id, c.name]));
@@ -48,6 +51,7 @@ export async function load(ctx: LoaderContext) {
     priorities: PRIORITIES,
     technicians: technicians.map((t) => ({ id: t.id, name: t.name, current: t.id === technician })),
     outside_hours: outsideOnly,
+    online,
     branch_id: branch.id,
     jobs: rows.filter((j) => outsideIds === null || outsideIds.has(j.id)).map((j) => ({
       id: j.id,
@@ -58,6 +62,7 @@ export async function load(ctx: LoaderContext) {
       service: services.get(j.service_id) ?? "",
       technician: j.technician_user_id === null ? "" : (names.get(j.technician_user_id) ?? ""),
       start: j.scheduled_start === null ? "" : `${day(j.scheduled_start)} ${clock(j.scheduled_start)}`,
+      online: j.source === "self_booking",
     })),
   };
 }

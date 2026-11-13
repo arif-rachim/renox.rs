@@ -50,11 +50,13 @@ export type JobRow = {
   created_by: string;
   created_at: number;
   updated_at: number;
+  /** Where it came from (`JobSource`): a `new` self_booking keeps the customer's requested time in scheduled_start/end. */
+  source: string;
 };
 
 export type EventRow = { id: number; at: number; by_user_id: string | null; from_status: JobStatus | null; to_status: JobStatus | null; note: string };
 
-const COLUMNS = "id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at";
+const COLUMNS = "id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source";
 
 const now = (): number => Math.floor(Date.now() / 1000);
 const newId = (): string => `jb_${crypto.randomUUID().replace(/-/gu, "").slice(0, 16)}`;
@@ -73,14 +75,16 @@ export interface JobFilter {
   technician: string;
   /** Local `YYYY-MM-DD`: jobs scheduled on that day. */
   day: string;
+  /** `self_booking`: only the jobs booked online (#779); empty: every source. */
+  source?: string;
 }
 
 /** The branch's jobs, filtered; `only` limits them to one technician's (a technician's own list). Unscheduled jobs have no day and never match a day filter. */
 export async function listJobs(sdb: DbStatements, f: JobFilter, only: string | null): Promise<JobRow[]> {
   const from = f.day === "" ? 0 : Math.floor(Date.parse(`${f.day}T00:00:00Z`) / 1000) - OFFSET_MS / 1000;
   return sdb.query<JobRow>(
-    `select ${COLUMNS} from app__jobs where (?1 = '' or status = ?1) and (?2 = '' or technician_user_id = ?2) and (?3 = '' or (scheduled_start >= ?4 and scheduled_start < ?4 + 86400)) and (?5 = '' or technician_user_id = ?5) order by coalesce(scheduled_start, created_at), number limit 300`,
-    [f.status, f.technician, f.day, from, only ?? ""],
+    `select ${COLUMNS} from app__jobs where (?1 = '' or status = ?1) and (?2 = '' or technician_user_id = ?2) and (?3 = '' or (scheduled_start >= ?4 and scheduled_start < ?4 + 86400)) and (?5 = '' or technician_user_id = ?5) and (?6 = '' or source = ?6) order by coalesce(scheduled_start, created_at), number limit 300`,
+    [f.status, f.technician, f.day, from, only ?? "", f.source ?? ""],
   );
 }
 
@@ -119,6 +123,7 @@ const fail = (status: 403 | 404 | 409 | 422, message: string): Outcome => ({ ok:
 export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: DbStatements, job: JobRow) {
   const customer = await sdb.queryOne<{ name: string }>("select name from app__customers where id = ?", [job.customer_id]);
   const service = await ctx.db.queryOne<{ name_en: string }>("select name_en from app__services where id = ?", [job.service_id]);
+  const online = onlineOf(job);
   return {
     id: job.id,
     number: job.number,
@@ -127,8 +132,27 @@ export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: DbSta
     customer: customer?.name ?? "",
     service: service?.name_en ?? "",
     technician: job.technician_user_id === null ? "" : await memberName(ctx.db, branch, job.technician_user_id),
-    start: job.scheduled_start === null ? "" : `${dayOf(job.scheduled_start)} ${clock(job.scheduled_start)}`,
+    // A self-booking waiting for the dispatcher is not scheduled: its card says the time it wants instead.
+    start: job.scheduled_start === null || online.wants !== "" ? "" : `${dayOf(job.scheduled_start)} ${clock(job.scheduled_start)}`,
+    ...online,
   };
+}
+
+/**
+ * What a card shows of a self-booking (#779): `online` for the "Booked online"
+ * badge, and while it waits for the dispatcher (`new`, with the requested time
+ * kept) the weekday (0 is Sunday, Dubai) and the times it wants, `wants`.
+ */
+export function onlineOf(job: Pick<JobRow, "source" | "status" | "scheduled_start" | "scheduled_end">): { online: boolean; wants: string; wants_wd: number } {
+  const online = job.source === "self_booking";
+  if (!online || job.status !== "new" || job.scheduled_start === null) return { online, wants: "", wants_wd: 0 };
+  const end = job.scheduled_end ?? job.scheduled_start + 3600;
+  return { online, wants: `${clock(job.scheduled_start)}–${clock(end)}`, wants_wd: new Date(job.scheduled_start * 1000 + OFFSET_MS).getUTCDay() };
+}
+
+/** The branch's self-bookings that wait for the dispatcher (`new`): the board's header and the admin tile count them. `sdb` is fenced to the branch. */
+export async function onlineToConfirm(sdb: DbStatements): Promise<number> {
+  return (await sdb.queryOne<{ n: number }>("select count(*) as n from app__jobs where status = 'new' and source = 'self_booking'", []))?.n ?? 0;
 }
 
 /** Publishes the job's card to the branch's board as out-of-band swaps (partials/job-card.html). */
@@ -315,8 +339,8 @@ export interface ScheduleOptions {
   readonly event?: string;
   /** Hand the catalogue and the technician to `booking` first (default true). That needs `booking.manage`, which a customer does not hold: the portal searches what `booking` already holds, as /book does. */
   readonly sync?: boolean;
-  /** The customer's message: `visit_scheduled` (default) or `visit_moved` (their own move). */
-  readonly message?: "visit_scheduled" | "visit_moved";
+  /** The customer's message: `visit_scheduled` (default), `visit_moved` (their own move) or `booking_moved` (the dispatcher proposes another time for a self-booking, #779). */
+  readonly message?: "visit_scheduled" | "visit_moved" | "booking_moved";
 }
 
 /**

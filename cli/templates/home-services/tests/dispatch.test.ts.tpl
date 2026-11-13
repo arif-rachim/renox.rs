@@ -343,3 +343,100 @@ describe("the busy board", () => {
     }
   });
 });
+
+// A self-booking (#779): a visitor books on /book, signs in with the WhatsApp code and confirms; the job is `new`
+// (auto-confirm is off by default) with the requested time and no technician. Its card carries the "Booked online"
+// badge and the time it wants, and the board's header counts the bookings to confirm, linking to the list's filter.
+describe("self-bookings on the board (#779)", () => {
+  const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
+  const write = (sql: string, params: (string | number | null)[]) => {
+    const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
+    try {
+      db.run(sql, params);
+    } finally {
+      db.close();
+    }
+  };
+  const PHONE = "+971507779001";
+  const DAY = (() => {
+    for (let i = 1; i < 7; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    throw new Error("no working day ahead");
+  })();
+  const WEEKDAYS = { en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], ar: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"] };
+  const clock = (ms: number) => new Date(ms + 4 * 3_600_000).toISOString().slice(11, 16);
+  const booker = t.as("booker");
+  let id = "";
+  let number = "";
+  let start = 0;
+  let end = 0;
+
+  test("a booking confirmed on /book reaches the board over the WebSocket, with the badge and the time it wants", async () => {
+    const service = String(rows("select id from app__services where code = 'AC-SERVICE'")[0]?.id);
+    const area = String(rows("select name_en from gcc__areas where emirate = 'AE-DU' order by name_en limit 1")[0]?.name_en);
+    const place = { service, emirate: "AE-DU", area, address: "Marina Gate 2, flat 3301", makani: "", notes: "", day: DAY };
+    const step2 = await booker.page(`/book?${new URLSearchParams({ ...place, step: "2" }).toString()}`);
+    const slot = /name="slot" value="([^"]+)"/u.exec(step2.html)?.[1] ?? "";
+    expect(slot).not.toBe("");
+    const held = await booker.action("/book", "hold", { ...place, slot, name: "Nadia Online", phone: PHONE, language: "en" });
+    expect(held.status).toBe(303);
+    const draft = /\/book\/confirm\/(bd_[0-9a-f]{32})/u.exec(decodeURIComponent(held.headers.get("location") ?? ""))?.[1] ?? "";
+    expect(draft).not.toBe("");
+    expect((await phoneSignIn(booker, rows, write, PHONE, `/book/confirm/${draft}`)).status).toBe(303);
+    const ws = await dina.ws("/ws/dispatch/dubai");
+    await Bun.sleep(300);
+    const done = await booker.action(`/book/confirm/${draft}`, "confirm", {});
+    expect(done.status).toBe(303);
+    number = (done.headers.get("location") ?? "").slice("/my?booked=".length);
+    const job = rows("select * from app__jobs where number = ?", [number])[0] as Record<string, unknown>;
+    expect(job).toMatchObject({ status: "new", source: "self_booking", technician_user_id: null });
+    id = String(job.id);
+    start = Number(job.scheduled_start) * 1000;
+    end = Number(job.scheduled_end) * 1000;
+    const card = await nextCard(ws);
+    expect(card).toContain('<div id="col-new" hx-swap-oob="afterbegin">');
+    expect(card).toContain(`id="job-${id}"`);
+    expect(card).toContain('<span class="badge">Booked online</span>');
+    expect(card).toContain(`Wants ${WEEKDAYS.en[new Date(start + 4 * 3_600_000).getUTCDay()]} <span dir="ltr">${clock(start)}–${clock(end)}</span>`);
+    ws.close();
+  });
+
+  test("the card on the board in English and Arabic: the badge and the requested time, not a scheduled time", async () => {
+    const wd = new Date(start + 4 * 3_600_000).getUTCDay();
+    const en = await dina.page("/dispatch?lang=en");
+    const card = /<article id="job-[^"]+"[^>]*>(?:(?!<\/article>)[^])*<\/article>/gu;
+    const mine = (html: string) => (html.match(card) ?? []).find((c) => c.includes(`id="job-${id}"`)) ?? "";
+    expect(en.html).toMatch(new RegExp(`id="col-new"[^]*id="job-${id}"[^]*id="col-scheduled"`, "u"));
+    expect(mine(en.html)).toContain('<span class="badge">Booked online</span>');
+    expect(mine(en.html)).toContain(`<small class="wants" dir="auto">Wants ${WEEKDAYS.en[wd]} <span dir="ltr">${clock(start)}–${clock(end)}</span></small>`);
+    // The requested time is not shown as if it were scheduled.
+    expect(mine(en.html)).toContain('<small dir="ltr"></small>');
+    const ar = await dina.page("/dispatch?lang=ar");
+    expect(mine(ar.html)).toContain('<span class="badge">حُجز عبر الإنترنت</span>');
+    expect(mine(ar.html)).toContain(`يطلب ${WEEKDAYS.ar[wd]} <span dir="ltr">${clock(start)}–${clock(end)}</span>`);
+    await dina.page("/dispatch?lang=en");
+    // A staff job has no badge.
+    expect((en.html.match(card) ?? []).find((c) => c.includes('id="job-jb_seed_01"'))).not.toContain("badge");
+  });
+
+  test("the header counts the bookings to confirm and links to the list's filter, which lists them", async () => {
+    const waiting = Number(rows("select count(*) as n from app__jobs where branch_id = 'br_dubai' and status = 'new' and source = 'self_booking'")[0]?.n);
+    expect(waiting).toBeGreaterThanOrEqual(1);
+    const en = await dina.page("/dispatch?lang=en");
+    expect(en.html).toContain(`<p class="notice" id="online-to-confirm"><a href="/jobs?source=self_booking">Online bookings to confirm: ${waiting}</a></p>`);
+    const ar = await dina.page("/dispatch?lang=ar");
+    expect(ar.html).toContain(`حجوزات عبر الإنترنت بانتظار التأكيد: ⁨${waiting}⁩`);
+    await dina.page("/dispatch?lang=en");
+    const list = await dina.page("/jobs?source=self_booking");
+    expect(list.status).toBe(200);
+    expect(list.html).toContain(number);
+    expect(list.html).not.toContain("J-000001");
+    expect(list.html).toMatch(/<input type="checkbox" name="source" value="self_booking" checked/u);
+    // Once nothing waits, the header says nothing.
+    write("update app__jobs set status = 'cancelled' where branch_id = 'br_dubai' and status = 'new' and source = 'self_booking'", []);
+    expect((await dina.page("/dispatch")).html).not.toContain('id="online-to-confirm"');
+  });
+});

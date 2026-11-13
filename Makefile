@@ -69,7 +69,7 @@ ifndef ID
 endif
 	bench/run.sh $(ID) $(ARGS)
 
-# Lighthouse of the home-services dispatch board and visit page (bench/lighthouse, #725);
+# Lighthouse of the home-services dispatch board, visit page and /book step 1 (bench/lighthouse, #725, #779);
 # with the busy-day seed (200 jobs today, #728); needs RENOX_WORKER_PATH and Playwright's Chromium;
 # not part of `make test`.
 lighthouse:

@@ -115,6 +115,26 @@ rw((db) => {
   db.run("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_02', 'INV-000950', 12600, ?, null, 'u_dxb_accountant', ?)", [now + 30 * 86_400, now]);
 });
 
+// Two self-bookings of Peter's waiting for the dispatcher (#779): one at a time the technicians are free (the
+// confirm form) and one on a Sunday, when the branch is closed (no technician free: Confirm disabled).
+const ONLINE_AT = Math.floor(Date.parse(`${BOOK_DAY}T00:00:00Z`) / 1000) - 4 * 3600 + 16 * 3600;
+const ONLINE_SUNDAY = (() => {
+  for (let i = 1; i < 8; i++) {
+    const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+    if (local.getUTCDay() === 0) return Math.floor(Date.parse(`${local.toISOString().slice(0, 10)}T00:00:00Z`) / 1000) - 4 * 3600 + 10 * 3600;
+  }
+  return 0;
+})();
+rw((db) => {
+  const handyman = Number((db.query("select id from app__services where code = 'HANDYMAN'").get() as { id: number }).id);
+  for (const [id, number, at] of [["jb_a11y_online", "J-000991", ONLINE_AT], ["jb_a11y_online_none", "J-000992", ONLINE_SUNDAY]] as [string, string, number][]) {
+    db.run(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values (?, 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', null, ?, 'new', 'normal', ?, '', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [id, number, handyman, at, at + 3600, now, now],
+    );
+  }
+});
+
 // Ali checks in to his job J-000006 and records a part: its visit page then holds every form (J-000010 is still before check-in).
 expect((await ali.action("/me/visits/jb_seed_06", "checkin", {})).status).toBe(303);
 expect((await ali.action("/me/visits/jb_seed_06", "part", { description: "Hose", qty: "1", price: "10" })).status).toBe(303);
@@ -259,6 +279,9 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/jobs/jb_seed_05", as: () => dispatcher, note: "scheduled" },
   { path: "/jobs/jb_seed_10", as: () => dispatcher, note: "in progress, with a visit" },
   { path: "/jobs/jb_seed_12", as: () => dispatcher, note: "done, with a report" },
+  { path: "/jobs/jb_a11y_online", as: () => dispatcher, note: "a self-booking to confirm (#779)" },
+  { path: "/jobs/jb_a11y_online_none", as: () => dispatcher, note: "a self-booking with no technician free (#779)" },
+  { path: "/jobs?source=self_booking", as: () => dispatcher, note: "booked online (#779)" },
   { path: "/dispatch", as: () => dispatcher },
   { path: "/services", as: () => owner },
   { path: "/contracts", as: () => owner },

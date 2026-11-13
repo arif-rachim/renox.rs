@@ -43,5 +43,10 @@
     "template": "visit_cancelled",
     "subject": "Your visit {job} is cancelled",
     "body": "Hello {name}, your visit {job} is cancelled."
+  },
+  "booking_moved": {
+    "template": "booking_moved",
+    "subject": "We moved your booking {job}",
+    "body": "Hello {name}, we moved your booking {job} to {when}. Reply if this does not suit you."
   }
 }

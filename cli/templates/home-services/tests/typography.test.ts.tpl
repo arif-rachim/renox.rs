@@ -225,6 +225,43 @@ describe("changing a visit on /my in Arabic isolates its number, days, times and
   });
 });
 
+describe("the dispatcher's side of self-booking in Arabic isolates the number, the day and the requested times left to right (#779)", () => {
+  const day = (() => {
+    for (let i = 1; i < 7; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    return "";
+  })();
+  const at = Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) - 4 * 3600 + 15 * 3600;
+
+  test("/jobs/<self-booking> and the board's card", async () => {
+    const handyman = Number(t.db.query<{ id: number }>("select id from app__services where code = 'HANDYMAN'")[0]?.id);
+    plant(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values ('jb_rtl_online', 'br_dubai', 'cu_dxb_03', 'st_dxb_03a', null, 'J-000993', 'new', 'normal', ?, '', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [handyman, at, at + 3600, at - 86_400, at - 86_400],
+    );
+    const job = await dispatcher.page("/jobs/jb_rtl_online?lang=ar");
+    expect(job.status).toBe(200);
+    expect(job.html).toContain('id="requested"');
+    for (const v of ["J-000993", `${day} 15:00–16:00`]) expect([v, isolated(job.html, v)]).toEqual([v, true]);
+    const board = await dispatcher.page("/dispatch?lang=ar");
+    for (const v of ["J-000993", "15:00–16:00"]) expect([v, isolated(board.html, v)]).toEqual([v, true]);
+    const list = await dispatcher.page("/jobs?source=self_booking&lang=ar");
+    for (const v of ["J-000993", `${day} 15:00`]) expect([v, isolated(list.html, v)]).toEqual([v, true]);
+  });
+
+  test("/admin/settings: the portal's numbers and the booking link", async () => {
+    const owner = t.as("rtl-owner");
+    expect((await owner.action("/auth/login", "default", { email: "owner@fixit.example", password: PASSWORD, next: "/admin/settings" })).status).toBe(303);
+    const res = await owner.page("/admin/settings?lang=ar");
+    // The owner without a second factor may still read the page (settings.read); the portal's fields are left to right.
+    expect(res.status).toBe(200);
+    expect(res.html).toMatch(/<input type="number" name="portal_cutoff_hours" dir="ltr"/u);
+    expect(res.html).toMatch(/<input type="url" readonly dir="ltr" value="https:\/\/[^"]+\/book"/u);
+  });
+});
+
 // -- the Arabic catalogue ---------------------------------------------------------------------------------------------------
 
 function flat(o: unknown, prefix = ""): Record<string, string> {

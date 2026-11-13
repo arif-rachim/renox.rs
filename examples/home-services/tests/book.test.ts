@@ -376,3 +376,35 @@ describe("/services: the owner takes a service off /book", () => {
     expect((await t.as("fresh").page("/book?lang=en")).html).toContain("Handyman");
   });
 });
+
+// The owner's switch (#779, "Confirm online bookings automatically" on /admin/settings): with it on, the job is
+// `scheduled` with the technician of the chosen slot right after /book, so the dispatcher has nothing to confirm.
+describe("auto-confirm on: the dispatcher has nothing to confirm (#779)", () => {
+  test("the job is scheduled with a technician right after /book; its page has the badge and no requested time; nothing more waits", async () => {
+    write("delete from app__booking_draft_log");
+    write("insert or replace into app__settings (key, value) values ('portal_auto_confirm', '1')");
+    try {
+      const dispatcher = t.as("dispatcher");
+      expect((await dispatcher.action("/auth/login", "default", { email: "dispatcher.dubai@fixit.example", password: PASSWORD, next: "/dispatch" })).status).toBe(303);
+      const waiting = () => Number(rows("select count(*) as n from app__jobs where branch_id = 'br_dubai' and status = 'new' and source = 'self_booking'")[0]?.n);
+      const before = waiting();
+      const visitor = t.as("visitor");
+      const h = await hold(visitor, "");
+      expect(h.res.status).toBe(303);
+      const done = await visitor.action(located(h.res), "confirm", {});
+      expect(done.status).toBe(303);
+      const n = located(done).slice("/my?booked=".length);
+      const job = rows("select * from app__jobs where number = ?", [n])[0] as Record<string, unknown>;
+      expect(job).toMatchObject({ status: "scheduled", source: "self_booking", technician_user_id: h.slot.slice(0, h.slot.indexOf("@")) });
+      expect(job.booking_id).not.toBeNull();
+      expect(waiting()).toBe(before);
+      const page = await dispatcher.page(`/jobs/${String(job.id)}?lang=en`);
+      expect(page.status).toBe(200);
+      expect(page.html).toContain('<span class="badge" id="job-online">Booked online</span>');
+      expect(page.html).toMatch(/id="job-status"[^>]*>Scheduled<\/span>/u);
+      expect(page.html).not.toContain('id="requested"');
+    } finally {
+      write("delete from app__settings where key = 'portal_auto_confirm'");
+    }
+  });
+});

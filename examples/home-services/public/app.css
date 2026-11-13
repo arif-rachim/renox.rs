@@ -41,6 +41,8 @@ footer { padding: 1rem 1.5rem; text-align: center; }
 .job-card.priority-high .priority { color: var(--rx-warn); }
 .job-card.priority-urgent .priority { color: var(--rx-bad); }
 .job-card em { font-style: normal; font-weight: 600; }
+/* "Booked online" (#779): a word in a box, not a colour. */
+.badge { display: inline-block; padding: 0 .375rem; border: 1px solid var(--rx-rule-strong); border-radius: .25rem; font-size: .8125rem; font-weight: 600; }
 .timeline { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
 .work-links { display: flex; gap: 1rem; }
 

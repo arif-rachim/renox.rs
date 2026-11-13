@@ -43,5 +43,10 @@
     "template": "visit_cancelled",
     "subject": "تم إلغاء زيارتك {job}",
     "body": "مرحباً {name}، تم إلغاء زيارتك {job}."
+  },
+  "booking_moved": {
+    "template": "booking_moved",
+    "subject": "نقلنا حجزك {job}",
+    "body": "مرحباً {name}، نقلنا حجزك {job} إلى {when}. أرسل لنا رداً إذا لم يناسبك هذا الموعد."
   }
 }
