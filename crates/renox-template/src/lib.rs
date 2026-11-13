@@ -32,6 +32,9 @@ pub mod filters;
 #[cfg(feature = "render")]
 pub mod render;
 pub mod shell;
+#[cfg(any(feature = "compiler", feature = "render"))]
+#[allow(dead_code)] // each feature uses one half
+mod source_map;
 #[cfg(feature = "compiler")]
 pub mod transpile;
 #[cfg(all(feature = "compiler", target_arch = "wasm32"))]

@@ -44,5 +44,5 @@ pub use artifact::{ArtifactDir, ArtifactError, ArtifactStore, LocalArtifactStore
 pub use cell::{Cell, CellKey};
 pub use config::WorkerConfig;
 pub use manager::{CellError, CellManager, DeploymentLookup, DeploymentMeta, ManagerConfig};
-pub use tiers::{Tier, TierName, Tiers};
+pub use tiers::{Tier, TierName, TierOverride, Tiers};
 pub use worker::{Worker, WorkerError};

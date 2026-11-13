@@ -3,6 +3,6 @@ source: crates/renox-template/tests/compile.rs
 expression: text
 ---
 == pages/index (Page)
-<a{% with __attr = p.url %}{% if __attr is not false and __attr is not none and __attr is defined %} href="{{ (__attr) | __url }}"{% endif %}{% endwith %}{% with __attr = p.name ~ ' (' ~ p.sku ~ ')' %}{% if __attr is not false and __attr is not none and __attr is defined %} title="{{ __attr }}"{% endif %}{% endwith %}{% with __attr = p.ok and not p.hidden %}{% if __attr is not false and __attr is not none and __attr is defined %} data-visible="{{ __attr }}"{% endif %}{% endwith %} dir="auto">{{ p.name }}</a>
+{#@ pages/index:1 #}<a{% with __attr = p.url %}{% if __attr is not false and __attr is not none and __attr is defined %} href="{{ (__attr) | __url }}"{% endif %}{% endwith %}{% with __attr = p.name ~ ' (' ~ p.sku ~ ')' %}{% if __attr is not false and __attr is not none and __attr is defined %} title="{{ __attr }}"{% endif %}{% endwith %}{% with __attr = p.ok and not p.hidden %}{% if __attr is not false and __attr is not none and __attr is defined %} data-visible="{{ __attr }}"{% endif %}{% endwith %} dir="auto">{{ p.name }}</a>
 
 -- fragments: {}

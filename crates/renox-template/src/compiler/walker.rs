@@ -25,6 +25,7 @@ use minijinja::Environment;
 use super::attrs::{self, DIRECTIVES, Segment};
 use super::parse::Document;
 use super::{CompileCx, Component, MAX_COMPONENT_DEPTH, Prop, PropType};
+use crate::source_map::{self, Mark};
 use crate::{Diagnostic, Fragment, PLATFORM_VAR};
 
 const VOID_ELEMENTS: [&str; 13] = [
@@ -95,6 +96,8 @@ pub(crate) struct Emitter<'c, 'p> {
     slots: Vec<String>,
     diags: Vec<Diagnostic>,
     components: Vec<String>,
+    /// Where code starts, for the line markers (`source_map`).
+    marks: Vec<Mark>,
     next_id: usize,
     /// Non-zero inside a loop body or an inlined component: a block there would
     /// not see the loop variable or the props when rendered on its own.
@@ -287,6 +290,7 @@ impl<'c, 'p> Emitter<'c, 'p> {
             slots: Vec::new(),
             diags: Vec::new(),
             components: Vec::new(),
+            marks: Vec::new(),
             next_id: 0,
             scoped: 0,
         }
@@ -294,11 +298,21 @@ impl<'c, 'p> Emitter<'c, 'p> {
 
     pub fn finish(self) -> EmitResult {
         EmitResult {
-            source: self.out,
+            source: source_map::insert(self.out, &self.marks),
             fragments: self.fragments,
             slots: self.slots,
             diags: self.diags,
         }
+    }
+
+    /// Notes that the code emitted from here on comes from `line` of the
+    /// file of `ctx` (becomes a line marker if code follows).
+    fn mark(&mut self, file: &str, line: usize) {
+        self.marks.push(Mark {
+            offset: self.out.len(),
+            file: file.to_string(),
+            line,
+        });
     }
 
     fn error(&mut self, ctx: &Ctx, node: &Handle, attr: Option<&str>, message: impl Into<String>) {
@@ -484,6 +498,8 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 );
                 continue;
             }
+            let (line, _) = ctx.doc.position(node, None);
+            self.mark(&ctx.file, line);
             let mut group = vec![node.clone()];
             let continues = |n: &Handle, first: &Handle| {
                 if has_attr(first, "r-if") {
@@ -710,6 +726,13 @@ impl<'c, 'p> Emitter<'c, 'p> {
 
     /// Text with `{{ }}` interpolations; static parts escaped.
     fn emit_text(&mut self, ctx: &Ctx, parent: Option<&Handle>, text: &str) {
+        if let Some(Segment::Interp(inner)) = attrs::segments(text)
+            .into_iter()
+            .find(|s| matches!(s, Segment::Interp(_)))
+        {
+            let (line, _) = ctx.doc.text_position(parent, &format!("{{{{{inner}}}}}"));
+            self.mark(&ctx.file, line);
+        }
         for seg in attrs::segments(text) {
             match seg {
                 Segment::Static(s) => attrs::escape_text(s, &mut self.out),
@@ -1745,6 +1768,8 @@ impl<'c, 'p> Emitter<'c, 'p> {
         if !first.is_empty() {
             self.out.push_str("{% endwith %}");
         }
+        let (line, _) = ctx.doc.position(node, None);
+        self.mark(&ctx.file, line);
     }
 
     /// Once per component: a component that declares `<r-props>` may only

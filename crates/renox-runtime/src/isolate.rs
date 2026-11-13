@@ -281,8 +281,13 @@ impl Invoke {
 pub enum InvokeOutcome {
     /// The value as JSON text.
     Ok(String),
-    /// The code threw; its `code` when it was a `RenoxError`.
-    Threw { code: Option<String> },
+    /// The code threw; its `code` when it was a `RenoxError`, and (#769)
+    /// for a cross-isolate service call, what the callee's bootstrap
+    /// reported of a declared error (checked again by the host).
+    Threw {
+        code: Option<String>,
+        cause: Option<crate::ops::modules::RawCause>,
+    },
     /// The tool's output is over 256 KB of JSON (ops.md section 19).
     OutputTooLarge,
     /// No such tool or service.
@@ -1547,6 +1552,7 @@ impl Pool {
             }
         };
         let deadline = call.deadline;
+        let target = call.target.clone();
         let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let (reply_tx, reply_rx) = oneshot::channel();
         let job = DispatchJob {
@@ -1598,7 +1604,18 @@ impl Pool {
                     }
                     InvokeOutcome::Ok(json) => CrossResult::Ok(json),
                     InvokeOutcome::OutputTooLarge => CrossResult::TooLarge,
-                    InvokeOutcome::Threw { code } => CrossResult::Threw { code },
+                    // #769: the trusted side of a declared error: the code
+                    // must be in the callee's `exports.errors` (artifact),
+                    // the details are filtered and redacted here again.
+                    InvokeOutcome::Threw { code, cause } => CrossResult::Threw {
+                        code,
+                        cause: cause.and_then(|raw| {
+                            let redactor =
+                                crate::ops::secrets::Redactor::new(self.spec.secrets.values());
+                            self.modules
+                                .declared_cause(&target, &raw, |s| redactor.redact(s).into_owned())
+                        }),
+                    },
                     InvokeOutcome::NoHandler | InvokeOutcome::Forbidden => CrossResult::NoHandler,
                     InvokeOutcome::Failed(code) => CrossResult::Failed(code.as_str().to_string()),
                 };
@@ -2358,8 +2375,31 @@ fn entry_owner(id: &str) -> &str {
         .unwrap_or(crate::ops::modules::APP)
 }
 
-/// The pool, as the cross-isolate ops of its isolates reach it.
-struct PoolLink(Arc<OnceLock<Weak<Pool>>>);
+/// The pool, as the cross-isolate ops of its isolates reach it, with the
+/// identity of the isolate that calls (`ThreadContext::only`).
+struct PoolLink {
+    link: Arc<OnceLock<Weak<Pool>>>,
+    /// `None`: the app's isolate; `Some(m)`: the isolate of `isolate` module `m`.
+    only: Option<String>,
+    modules: Arc<ModuleRegistry>,
+}
+
+impl PoolLink {
+    /// ops.md 1.19.0 section 15.2 (#763): the caller a cross-isolate call
+    /// carries (the callee's `ctx.caller`) must be code this isolate runs:
+    /// the app or one of its `shared` modules in the app's isolate, the
+    /// module itself in a module's isolate. Anything else is refused before
+    /// the callee's isolate is reached.
+    fn may_call_as(&self, caller: &str) -> bool {
+        match &self.only {
+            None => {
+                caller == crate::ops::modules::APP
+                    || (self.modules.get(caller).is_some() && !self.modules.is_isolated(caller))
+            }
+            Some(m) => m == caller,
+        }
+    }
+}
 
 impl crate::ops::modules::CrossCaller for PoolLink {
     fn call(
@@ -2375,7 +2415,10 @@ impl crate::ops::modules::CrossCaller for PoolLink {
             >,
         >,
     > {
-        let pool = self.0.get().and_then(Weak::upgrade);
+        let pool = self
+            .may_call_as(&call.caller)
+            .then(|| self.link.get().and_then(Weak::upgrade))
+            .flatten();
         Box::pin(async move {
             match pool {
                 Some(pool) => pool.cross_call(call).await,
@@ -2677,9 +2720,11 @@ async fn create_worker(
                 })
                 .collect(),
         ));
-        state.put(crate::ops::modules::CrossEnv(Rc::new(PoolLink(
-            ctx.link.clone(),
-        ))));
+        state.put(crate::ops::modules::CrossEnv(Rc::new(PoolLink {
+            link: ctx.link.clone(),
+            only: ctx.only.clone(),
+            modules: ctx.modules.clone(),
+        })));
         // ops.md 1.7.0 section 21: the file store and each owner's allowed types.
         let allowed = storage_allowed_types(&ctx.artifact.manifest, &ctx.modules);
         let (mode, key_name) = crate::ops::ai::mode_of(
@@ -3235,6 +3280,12 @@ struct JsOutcome {
     /// `RENOX_DB_SCOPE`: the error's details and a principal summary, as
     /// JSON, for the tenant log (the dev overlay reads them, #294).
     details_json: Option<String>,
+    /// `KIND_THROW` of a cross-isolate service call (#769): the declared
+    /// code, its filtered details as JSON, and whether they were dropped.
+    /// Untrusted: the host checks them again (`ModuleRegistry::declared_cause`).
+    cause_code: Option<String>,
+    cause_details_json: Option<String>,
+    cause_details_truncated: Option<bool>,
 }
 
 const KIND_OK: u8 = 0;
@@ -3271,6 +3322,9 @@ struct InFlight {
     route: usize,
     /// An event delivery: its `EVENT <module> <name>` route.
     event: Option<String>,
+    /// The CPU limit this request runs under, ms: the tier's `cpu_ms`, or
+    /// its `job_cpu_ms` for a job attempt.
+    cpu_limit_ms: u64,
     /// A realtime run: its phase, for the log line of a throw.
     realtime_phase: Option<&'static str>,
     /// An invocation (#285): its meter route.
@@ -3349,7 +3403,7 @@ fn release_flight(ctx: &ThreadContext, f: &mut InFlight, how: &'static str) {
         cpu_ms = ms(charge.total),
         own_ms = ms(charge.own),
         shared_ms = ms(charge.total.saturating_sub(charge.own)),
-        limit_ms = ctx.limits.cpu_ms,
+        limit_ms = f.cpu_limit_ms,
         wall_ms = ms(t.start.elapsed().as_nanos() as u64),
         slices = t.slices,
         max_slice_ms = ms(t.max_slice_ns),
@@ -3787,7 +3841,7 @@ async fn serve(
                 match code {
                     ErrorCode::CpuLimit => {
                         f.insert("cpu_ms".into(), flight.meter(ctx, status).cpu_ms.into());
-                        f.insert("limit_ms".into(), ctx.limits.cpu_ms.into());
+                        f.insert("limit_ms".into(), flight.cpu_limit_ms.into());
                     }
                     ErrorCode::Oom => {
                         f.insert("peak_heap_bytes".into(), flight.peak_heap.into());
@@ -4213,7 +4267,14 @@ fn start_dispatch(
     let trace = with_attribution(|a| {
         a.admitted += 1;
         let now = a.watch.now_ns();
-        a.ledger.admit(token, now);
+        match &job.event {
+            // ops.md section 20: a job attempt runs under the job budget.
+            Some(ev) if ev.job.is_some() => {
+                a.ledger
+                    .admit_with_limit(token, now, Duration::from_millis(ctx.limits.job_cpu_ms))
+            }
+            _ => a.ledger.admit(token, now),
+        }
         a.trace.then(|| CpuTrace::begin(a.admitted))
     })
     .flatten();
@@ -4238,6 +4299,11 @@ fn start_dispatch(
             event: job.event.as_ref().map(EventEnvelope::route),
             realtime_phase: job.realtime.as_ref().map(|r| r.phase.as_str()),
             invoke: job.invoke.as_ref().map(Invoke::route),
+            cpu_limit_ms: if job.event.as_ref().is_some_and(|e| e.job.is_some()) {
+                ctx.limits.job_cpu_ms
+            } else {
+                ctx.limits.cpu_ms
+            },
             cpu_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
@@ -4465,10 +4531,24 @@ fn finish_invoke(
         Ok(o) => (
             InvokeOutcome::Threw {
                 code: o.code.clone(),
+                cause: o
+                    .cause_code
+                    .clone()
+                    .map(|code| crate::ops::modules::RawCause {
+                        code,
+                        details_json: o.cause_details_json.clone(),
+                        truncated: o.cause_details_truncated == Some(true),
+                    }),
             },
             MeterStatus::Error,
         ),
-        Err(_) => (InvokeOutcome::Threw { code: None }, MeterStatus::Error),
+        Err(_) => (
+            InvokeOutcome::Threw {
+                code: None,
+                cause: None,
+            },
+            MeterStatus::Error,
+        ),
     };
     if matches!(result, InvokeOutcome::Threw { .. }) {
         let mut f = serde_json::Map::new();
