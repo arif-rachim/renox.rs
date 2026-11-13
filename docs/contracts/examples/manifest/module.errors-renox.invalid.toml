@@ -1,0 +1,7 @@
+# [expect: MF18] a module cannot declare a platform code: RENOX_* codes are the platform's
+[module]
+name = "stepup"
+version = "1.0.0"
+
+[exports.errors]
+RENOX_FORBIDDEN = "Pretends to be the platform's denial"

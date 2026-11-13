@@ -57,7 +57,7 @@ export class TwofaError extends Error {
     readonly code: "INVALID" | "UNAUTHENTICATED" | "SELF_RESET",
     readonly status: 400 | 401 | 403,
   ) {
-    // The code leads the message: across modules the platform wraps a plain error as RENOX_MODULE_SERVICE (cause_code null) and keeps only the message.
+    // The code leads the message too: module.toml declares the codes in [exports.errors] (#769), so a caller in another module sees `details.cause_code`; the message is for logs and older callers.
     super(`${code}: ${message}`);
     this.name = "TwofaError";
   }

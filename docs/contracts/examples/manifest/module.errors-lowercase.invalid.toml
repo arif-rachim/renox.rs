@@ -1,0 +1,7 @@
+# [expect: MF18] an error code is upper case, digits and underscores, 3 to 64 characters
+[module]
+name = "stepup"
+version = "1.0.0"
+
+[exports.errors]
+step_up = "Lower case"

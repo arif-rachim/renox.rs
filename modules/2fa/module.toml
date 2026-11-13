@@ -1,6 +1,6 @@
 [module]
 name = "twofa"
-version = "1.1.0"
+version = "1.2.0"
 description = "Two-step verification: TOTP, passkeys and recovery codes after the password, mfa_verified on the principal, step-up for sensitive actions"
 
 [dependencies]
@@ -31,6 +31,13 @@ isEnrolled = "Whether a user has a second factor: (user_id) -> boolean"
 requireRecent = "Step-up for sensitive actions: resolves when this session verified within `within` minutes (default step_up_minutes), else throws STEP_UP_REQUIRED with the verify URL"
 reset = "Reset another user's second factor: (user_id) -> { reset: boolean }; needs twofa.reset on that user and a recent second factor of the caller, never on oneself; the next sign-in enrols again"
 verifiedAt = "When this session last passed the second factor (Unix ms), or null"
+
+# #769: the codes a caller in another module or the app sees as details.cause_code (ops.md section 15.2, "Errors").
+[exports.errors]
+STEP_UP_REQUIRED = "requireRecent and reset: no recent second factor on this session; details.verify_url is the verify page with next"
+INVALID = "reset: the argument is not a user id"
+UNAUTHENTICATED = "reset: no signed-in caller"
+SELF_RESET = "reset: the target is the caller, who uses /2fa and their recovery codes instead"
 
 [[slots]]
 name = "account.sections"

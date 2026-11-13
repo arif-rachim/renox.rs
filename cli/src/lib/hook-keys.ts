@@ -38,6 +38,31 @@ export function lazyModuleEntries(pinned: string = WORKER_VERSION): boolean {
   return have !== null && need !== null && compareVersions(have, need) >= 0;
 }
 
+/**
+ * The last `renox-worker` release whose artifact schema has no
+ * `modules[].exports.errors` (artifact 1.11, #769): it refuses an artifact
+ * that carries the field (V3, "Additional properties are not allowed").
+ */
+export const LAST_WORKER_WITHOUT_MODULE_ERRORS = "0.9.0";
+
+/**
+ * Whether `renox build` writes a module's declared error codes
+ * (`[exports.errors]`, MF18) into the artifact's `modules[].exports.errors`:
+ * only once the pinned worker is newer than
+ * {@link LAST_WORKER_WITHOUT_MODULE_ERRORS}, so a build never makes an
+ * artifact its own worker refuses. Until then the codes are checked (MF18)
+ * but do not cross to a caller. `RENOX_BUILD_MODULE_ERRORS=1` (or `0`)
+ * overrides it, for the tests against a worker built from source.
+ */
+export function moduleErrorCodes(pinned: string = WORKER_VERSION): boolean {
+  const env = process.env.RENOX_BUILD_MODULE_ERRORS;
+  if (env === "1") return true;
+  if (env === "0") return false;
+  const have = parseVersion(pinned);
+  const last = parseVersion(LAST_WORKER_WITHOUT_MODULE_ERRORS);
+  return have !== null && last !== null && compareVersions(have, last) > 0;
+}
+
 export interface HookKeys {
   hooks: string[];
   on: string[];

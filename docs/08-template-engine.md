@@ -36,6 +36,8 @@ Templates are valid HTML with logic expressed as attributes. At deploy time the 
 | Permission | `r-can="action" :resource="x"`, `r-cannot` | `{% if can(...) %}` (see `11-authorization.md`) |
 | Module component | `<billing:plan-badge :user="user" />` | namespaced macro |
 
+A component is inlined, so a line of the compiled template (`templates/<id>.jinja`) is not a line of the file you wrote. The compiler leaves line markers in it, minijinja comments such as `{#@ partials/grid:3 #}` before code that comes from another place; they render nothing, and the renderer maps the line of a render-limit stop or a `render_failed` error back to the file and line you wrote by the nearest marker (#682). An output-size stop is soft: the output stops growing at `max_output_bytes` and the render fails at the next loop start, with its location.
+
 A boolean prints as `true` or `false` in an interpolation (`{{ task.done }}` in text gives `true`). Inside `~`, `join` and list displays a boolean still has minijinja's `True`/`False` form.
 
 ### Attributes whose value is false, none or undefined

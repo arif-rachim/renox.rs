@@ -54,6 +54,65 @@ pub struct ModuleExports {
     pub hooks: Vec<String>,
     #[serde(default)]
     pub views: Vec<String>,
+    /// Artifact 1.11 (#769): the codes of `[exports.errors]` (manifest.md
+    /// MF18), the only codes of this module that cross to a caller.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
+/// ops.md section 15.2, "Errors" (#769): the most bytes of a declared
+/// error's details, serialised as JSON, that reach the caller.
+pub const MAX_CAUSE_DETAILS_BYTES: usize = 2048;
+
+/// manifest.md MF18: `^[A-Z][A-Z0-9_]{2,63}$` and not `RENOX_*`.
+pub fn is_module_error_code(code: &str) -> bool {
+    let b = code.as_bytes();
+    (3..=64).contains(&b.len())
+        && b[0].is_ascii_uppercase()
+        && b.iter()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == b'_')
+        && !code.starts_with("RENOX_")
+}
+
+/// A key named like a secret: it contains `token`, `secret`, `password`,
+/// `key` or `authorization`, in any case (ops.md section 15.2, "Errors").
+pub fn is_secret_key(key: &str) -> bool {
+    let k = key.to_ascii_lowercase();
+    ["token", "secret", "password", "key", "authorization"]
+        .iter()
+        .any(|s| k.contains(s))
+}
+
+/// Removes every member under a secret-named key, at every depth.
+pub fn strip_secret_keys(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(m) => {
+            m.retain(|k, _| !is_secret_key(k));
+            m.values_mut().for_each(strip_secret_keys);
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(strip_secret_keys),
+        _ => {}
+    }
+}
+
+/// What a callee's isolate reports about a thrown declared error (#769),
+/// before the host checks it: untrusted, filtered by
+/// [`ModuleRegistry::declared_cause`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawCause {
+    pub code: String,
+    pub details_json: Option<String>,
+    pub truncated: bool,
+}
+
+/// A declared error code and its filtered details, as the caller's
+/// `ModuleServiceError` carries them (`cause_code`, `cause_details`,
+/// `cause_details_truncated`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredCause {
+    pub code: String,
+    pub details: Option<serde_json::Value>,
+    pub truncated: bool,
 }
 
 /// One installed module as the bootstrap receives it (`ops.schema.json`
@@ -269,6 +328,51 @@ impl ModuleRegistry {
         self.get(module).map(|m| m.permissions.secrets.as_slice())
     }
 
+    /// The trusted side of ops.md section 15.2, "Errors" (#769), for a
+    /// callee in another isolate: `raw.code` crosses only when `module`
+    /// declares it in the artifact's `exports.errors` (and it is an MF18
+    /// code); its details only as JSON, secret-named keys removed at every
+    /// depth, secret values redacted by `redact`, at most
+    /// [`MAX_CAUSE_DETAILS_BYTES`], else dropped with `truncated`. `None`:
+    /// the error crosses as an undeclared one (no cause).
+    pub fn declared_cause(
+        &self,
+        module: &str,
+        raw: &RawCause,
+        redact: impl Fn(&str) -> String,
+    ) -> Option<DeclaredCause> {
+        if !is_module_error_code(&raw.code)
+            || !self
+                .get(module)
+                .is_some_and(|m| m.exports.errors.iter().any(|c| c == &raw.code))
+        {
+            return None;
+        }
+        let mut out = DeclaredCause {
+            code: raw.code.clone(),
+            details: None,
+            truncated: raw.truncated,
+        };
+        let Some(json) = raw.details_json.as_deref() else {
+            return Some(out);
+        };
+        if json.len() > MAX_CROSS_BYTES {
+            out.truncated = true;
+            return Some(out);
+        }
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) else {
+            out.truncated = true;
+            return Some(out);
+        };
+        strip_secret_keys(&mut value);
+        let text = redact(&value.to_string());
+        match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(v) if text.len() <= MAX_CAUSE_DETAILS_BYTES => out.details = Some(v),
+            _ => out.truncated = true,
+        }
+        Some(out)
+    }
+
     /// The JSON list handed to the bootstrap's `harden` (`ops.md` section 11, step 3).
     pub fn to_json(&self) -> String {
         serde_json::to_string(&self.modules).unwrap_or_else(|_| "[]".into())
@@ -314,6 +418,70 @@ mod tests {
         assert_eq!(r.policy(Some("app")).unwrap().unwrap().module, "app");
         assert!(ModuleRegistry::default().policy(None).unwrap().is_none());
         assert!(r.policy(Some("billing")).is_err());
+    }
+
+    #[test]
+    fn declared_cause_is_filtered_by_the_host() {
+        let mut e = entry("twofa", &[]);
+        e["exports"]["errors"] = serde_json::json!(["STEP_UP_REQUIRED"]);
+        let r = ModuleRegistry::from_manifest(Some(&serde_json::json!([e]))).unwrap();
+        let raw = |code: &str, json: Option<&str>| RawCause {
+            code: code.into(),
+            details_json: json.map(Into::into),
+            truncated: false,
+        };
+        let id = |s: &str| s.to_string();
+        // Declared: the details cross, secret-named keys removed at every depth.
+        let c = r
+            .declared_cause(
+                "twofa",
+                &raw(
+                    "STEP_UP_REQUIRED",
+                    Some(r#"{"verify_url":"/2fa/verify","apiKey":"k","nested":{"Session_Token":"t","ok":[{"password":"p","n":1}]}}"#),
+                ),
+                id,
+            )
+            .unwrap();
+        assert_eq!(c.code, "STEP_UP_REQUIRED");
+        assert_eq!(
+            c.details,
+            Some(
+                serde_json::json!({ "verify_url": "/2fa/verify", "nested": { "ok": [{ "n": 1 }] } })
+            )
+        );
+        assert!(!c.truncated);
+        // Undeclared, another module's, RENOX_*, or not an MF18 code: no cause.
+        assert!(r.declared_cause("twofa", &raw("OTHER", None), id).is_none());
+        assert!(
+            r.declared_cause("org", &raw("STEP_UP_REQUIRED", None), id)
+                .is_none()
+        );
+        assert!(
+            r.declared_cause("twofa", &raw("RENOX_FORBIDDEN", None), id)
+                .is_none()
+        );
+        assert!(!is_module_error_code("ab"));
+        assert!(!is_module_error_code("step_up"));
+        assert!(is_module_error_code("STEP_UP_REQUIRED"));
+        // Over 2 KiB, or not JSON: dropped, truncated.
+        let big = format!(r#"{{"x":"{}"}}"#, "a".repeat(MAX_CAUSE_DETAILS_BYTES));
+        let c = r
+            .declared_cause("twofa", &raw("STEP_UP_REQUIRED", Some(&big)), id)
+            .unwrap();
+        assert!(c.details.is_none() && c.truncated);
+        let c = r
+            .declared_cause("twofa", &raw("STEP_UP_REQUIRED", Some("{")), id)
+            .unwrap();
+        assert!(c.details.is_none() && c.truncated);
+        // Secret values are redacted.
+        let c = r
+            .declared_cause(
+                "twofa",
+                &raw("STEP_UP_REQUIRED", Some(r#"{"note":"s3cr3t-value"}"#)),
+                |s: &str| s.replace("s3cr3t-value", "[redacted]"),
+            )
+            .unwrap();
+        assert_eq!(c.details, Some(serde_json::json!({ "note": "[redacted]" })));
     }
 
     #[test]
@@ -371,7 +539,7 @@ mod cross_ops {
     use deno_error::JsErrorBox;
 
     use super::MAX_CROSS_BYTES;
-    use crate::ops::request::{live_request, op_error};
+    use crate::ops::request::live_request;
 
     /// What crosses: a service (`<target>.<name>(...args)`) or the filler
     /// of hook `name` that module `target` provides.
@@ -411,8 +579,12 @@ mod cross_ops {
     pub enum CrossResult {
         /// The result as JSON.
         Ok(String),
-        /// The callee threw; its code when it was a `RenoxError`.
-        Threw { code: Option<String> },
+        /// The callee threw; its code when it was a `RenoxError`, and (#769)
+        /// a declared code of the callee's module with its filtered details.
+        Threw {
+            code: Option<String>,
+            cause: Option<super::DeclaredCause>,
+        },
         /// The result is over [`MAX_CROSS_BYTES`].
         TooLarge,
         /// No such service or filler in the callee's isolate.
@@ -452,11 +624,35 @@ mod cross_ops {
         reason: Option<&str>,
         cause: Option<&str>,
     ) -> JsErrorBox {
-        op_error(
-            "RENOX_MODULE_SERVICE",
-            serde_json::json!({ "module": target, "service": name, "reason": reason, "cause_code": cause }),
-            &format!("{target}.{name} failed"),
-        )
+        declared_service_error(target, name, reason, cause, None)
+    }
+
+    /// #769: a declared cause replaces `cause` and adds `cause_details`
+    /// and `cause_details_truncated` (already filtered by the host).
+    fn declared_service_error(
+        target: &str,
+        name: &str,
+        reason: Option<&str>,
+        cause: Option<&str>,
+        declared: Option<&super::DeclaredCause>,
+    ) -> JsErrorBox {
+        let mut details = serde_json::json!({ "module": target, "service": name, "reason": reason, "cause_code": cause });
+        if let Some(d) = declared {
+            details["cause_code"] = d.code.clone().into();
+            if let Some(v) = &d.details {
+                details["cause_details"] = v.clone();
+            }
+            if d.truncated {
+                details["cause_details_truncated"] = true.into();
+            }
+        }
+        // `op_error`'s `code|details|message` form ends the details at the
+        // next `|`: one inside a JSON string is written `\u007c`, which
+        // parses back to the same text.
+        let details = details.to_string().replace('|', "\\u007c");
+        JsErrorBox::generic(format!(
+            "RENOX_MODULE_SERVICE|{details}|{target}.{name} failed"
+        ))
     }
 
     /// `op_modules_call(token, kind, caller, target, name, argsJson, tx)`:
@@ -538,11 +734,12 @@ mod cross_ops {
                 Some("no_handler"),
                 None,
             )),
-            CrossResult::Threw { code } => Err(module_service_error(
+            CrossResult::Threw { code, cause } => Err(declared_service_error(
                 &target,
                 &name,
                 Some("threw"),
                 code.as_deref(),
+                cause.as_ref(),
             )),
             CrossResult::Failed(code) => Err(module_service_error(
                 &target,

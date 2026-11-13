@@ -1,0 +1,14 @@
+# 1.7.0 (#769): a module declares the error codes its services throw to
+# callers (MF18); a caller in another module sees one as details.cause_code,
+# with the error's details (filtered) as details.cause_details (ops.md
+# section 15.2, "Errors").
+[module]
+name = "stepup"
+version = "1.0.0"
+
+[exports.services]
+requireRecent = "Resolves when this session verified recently, else throws STEP_UP_REQUIRED"
+
+[exports.errors]
+STEP_UP_REQUIRED = "The session must verify again; details.verify_url is where"
+SELF_RESET = "A user tried to reset their own second factor"

@@ -28,6 +28,7 @@ export interface PwPage {
 }
 export interface PwContext {
   newPage(): Promise<PwPage>;
+  cookies(urls?: string[]): Promise<{ name: string; value: string }[]>;
   close(): Promise<void>;
 }
 export interface PwBrowser {
@@ -35,7 +36,7 @@ export interface PwBrowser {
   close(): Promise<void>;
 }
 export interface Pw {
-  chromium: { launch(): Promise<PwBrowser> };
+  chromium: { launch(opts?: { args?: string[] }): Promise<PwBrowser> };
 }
 
 export function loadPlaywright(): Pw | null {
@@ -52,4 +53,19 @@ export function loadPlaywright(): Pw | null {
       return null;
     }
   }
+}
+
+/**
+ * Under RENOX_JOURNEY=1 (journey.yml, `make journey`, #586) a browser test may
+ * not skip: it fails with this message when Playwright cannot be loaded or no
+ * worker is set. Under the variable Playwright must come from PLAYWRIGHT_PATH,
+ * the one pinned version the workflows install, not whatever the machine has
+ * globally. Without the variable the tests skip as before. Returns the error
+ * to throw, or null.
+ */
+export function journeyMissing(pw: unknown, worker: string | undefined): string | null {
+  if (process.env.RENOX_JOURNEY !== "1") return null;
+  if (!process.env.PLAYWRIGHT_PATH || pw === null || pw === undefined) return "Playwright is required (PLAYWRIGHT_PATH)";
+  if (!worker) return "renox-worker is required (RENOX_WORKER_PATH)";
+  return null;
 }

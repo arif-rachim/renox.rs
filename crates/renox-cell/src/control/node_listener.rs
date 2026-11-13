@@ -640,7 +640,9 @@ impl NodeListener {
         let answer = match outcome {
             Ok(InvokeOutcome::Ok(json)) => json,
             Ok(InvokeOutcome::NoHandler) => return not_found_because("app", "no_auth_module"),
-            Ok(InvokeOutcome::Threw { code }) if code.as_deref() == Some("RENOX_VALIDATION") => {
+            Ok(InvokeOutcome::Threw { code, .. })
+                if code.as_deref() == Some("RENOX_VALIDATION") =>
+            {
                 return validation("body", "refused by the auth module");
             }
             Ok(other) => {

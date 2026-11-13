@@ -13,20 +13,26 @@
 // `connect-src`, and the local API is plain http. A test below checks that the
 // production CSP names the production API.
 //
-// Skipped without RENOX_WORKER_PATH or without Playwright.
+// Skipped without RENOX_WORKER_PATH or without Playwright; under RENOX_JOURNEY=1
+// (journey.yml) it fails instead.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { totp } from "../../../sdk/src/totp.ts";
 import { assertScoped, harness, PASSWORD, signup, type Harness } from "../../api/tests/helpers.ts";
-import { ROLE_GRANTABLE, ROLE_SCOPES } from "../lib/scopes.ts";
+import { GRANTABLE_SCOPES, ROLE_GRANTABLE, ROLE_SCOPES } from "../lib/scopes.ts";
 import { devWithData } from "./helpers.ts";
-import { loadPlaywright, type PwBrowser } from "./playwright.ts";
+import { journeyMissing, loadPlaywright, type PwBrowser } from "./playwright.ts";
 
 setDefaultTimeout(120_000);
 
 const worker = process.env.RENOX_WORKER_PATH;
 const pw = loadPlaywright();
 const skip = !worker || pw === null;
+// Under RENOX_JOURNEY=1 the file fails instead of skipping (#586).
+const missing = journeyMissing(pw, worker);
+if (missing !== null) test("the browser tests can run (RENOX_JOURNEY=1)", () => {
+  throw new Error(missing ?? "");
+});
 
 let h: Harness;
 let api: ReturnType<typeof Bun.serve>;
@@ -258,7 +264,8 @@ describe.skipIf(skip)("device approval and tokens in Chromium", () => {
     await s.p.waitForSelector("#device-request:not([hidden])");
     expect(await s.p.textContent("#device-user-code")).toBe(code);
     expect(await s.p.textContent("#device-name")).toStartWith("renox CLI on ");
-    expect(await s.p.locator('#device-scopes input[name="scope"]').count()).toBe(11);
+    // Every grantable scope (13 since app:settings and app:people, #700), not a count written by hand.
+    expect(await s.p.locator('#device-scopes input[name="scope"]').count()).toBe(GRANTABLE_SCOPES.length);
     expect(await s.p.isChecked('#device-scopes input[value="registry:publish"]')).toBe(true);
     await s.p.click('#device-scopes input[value="registry:publish"]');
     await s.p.click("#device-approve");

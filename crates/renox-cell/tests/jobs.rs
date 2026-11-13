@@ -29,10 +29,12 @@ use renox_cell::cell::LocalSecrets;
 use renox_cell::manager::StaticTiers;
 use renox_cell::outbox::OutboxConfig;
 use renox_cell::pages::PlatformKey;
-use renox_cell::{CellManager, LocalArtifactStore, ManagerConfig, TierName, Tiers};
+use renox_cell::{CellManager, LocalArtifactStore, ManagerConfig, TierName, TierOverride, Tiers};
 use renox_data::{DbOptions, TenantDb, Value};
 use renox_gateway::{CellDispatcher, RequestCtx};
-use renox_meter::{Meter, MeterBatch, MeterConfig, MeterKind, MeterRecord, Sink, SinkError};
+use renox_meter::{
+    Meter, MeterBatch, MeterConfig, MeterKind, MeterRecord, MeterStatus, Sink, SinkError,
+};
 use renox_runtime::ops::jobs;
 use renox_runtime::{Runtime, RuntimeConfig};
 
@@ -67,6 +69,9 @@ export async function run(ctx) {
   const p = ctx.job.payload;
   if (p && p.throw) throw new Error("smtp down");
   if (p && p.spin) await new Promise((r) => setTimeout(r, p.spin));
+  // #768: CPU, not wall: busy-loop for `burn` ms, or until the limit kills the attempt.
+  if (p && p.burn) { while (Date.now() - started < p.burn) {} }
+  if (p && p.hang) { for (;;) {} }
   if (p && p.scoped) return probeScoped(ctx);
   await ctx.db.execute(
     "insert into app__runs (id, tick, attempt, payload, principal, kind, started, ended) values (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -100,10 +105,15 @@ import { jobs } from "renox:modules";
 export async function GET(ctx) {
   const q = ctx.url.searchParams;
   try {
+    if (q.get("burn")) {
+      const t = Date.now();
+      while (Date.now() - t < Number(q.get("burn"))) {}
+      return Response.json({ burned: true });
+    }
     if (q.get("enqueue")) {
       const fail = q.get("fail") === "1";
       const id = await ctx.db.transaction(async () => {
-        const id = await ctx.jobs.enqueue("report", JSON.parse(q.get("enqueue")));
+        const id = await ctx.jobs.enqueue(q.get("job") || "report", JSON.parse(q.get("enqueue")));
         if (fail) throw new Error("rolled back");
         return id;
       });
@@ -145,11 +155,14 @@ fn artifact(store: &Path) -> String {
         "code": { "format": "esm-dir", "entry": {
             "functions/f": "functions/f.js",
             "jobs/report": "jobs/report.js",
+            "jobs/other": "jobs/other.js",
             "modules/jobs/services": "modules/jobs/services.js",
         } },
         "routes": [
             { "kind": "function", "method": "GET", "path": "/", "module": "functions/f", "export": "GET" },
             { "kind": "job", "name": "report", "module": "jobs/report", "schedule": "* * * * *" },
+            // #768: a second job, queued only (its tick is every 1 January): the per-tenant bound spans jobs.
+            { "kind": "job", "name": "other", "module": "jobs/other", "schedule": "0 0 1 1 *" },
         ],
         "permissions": { "network": [], "secrets": [] },
         "authz": { "actions": [], "ownership": { "app__owned": { "owner": "user_id" } } },
@@ -162,6 +175,10 @@ fn artifact(store: &Path) -> String {
         ),
         ("code/functions/f.js", APP.into()),
         ("code/jobs/report.js", format!("{REPORT}{SCOPED_PROBE}")),
+        (
+            "code/jobs/other.js",
+            format!("{}{SCOPED_PROBE}", REPORT.replace("* * * * *", "0 0 1 1 *")),
+        ),
         ("code/modules/jobs/services.js", JOBS_MODULE.into()),
     ];
     for (p, src) in &files {
@@ -205,6 +222,10 @@ struct Node {
 }
 
 fn node(data: &Path, artifacts: &Path, hash: &str) -> Node {
+    node_with(data, artifacts, hash, Tiers::default())
+}
+
+fn node_with(data: &Path, artifacts: &Path, hash: &str, tiers: Tiers) -> Node {
     let records = Records::default();
     let meter = Meter::start(
         MeterConfig {
@@ -220,7 +241,7 @@ fn node(data: &Path, artifacts: &Path, hash: &str) -> Node {
             data_dir: data.to_path_buf(),
             artifacts: Arc::new(LocalArtifactStore::new(artifacts)),
             idle_timeout: Duration::from_secs(600),
-            tiers: Tiers::default(),
+            tiers,
             deployments: Arc::new(StaticTiers {
                 default_tier: TierName::Free,
                 tenant_tiers: BTreeMap::new(),
@@ -624,4 +645,115 @@ async fn a_job_uses_db_scoped_with_the_ownership_fence() {
         })
         .collect();
     assert_eq!(owners, vec![(1, "u1".to_string()), (3, "u2".to_string())]);
+}
+
+/// A free-tier node whose job budget is `job_cpu_ms` (the default is 2,000).
+fn node_job_budget(data: &Path, artifacts: &Path, hash: &str, job_cpu_ms: u64) -> Node {
+    let overrides = [(
+        TierName::Free,
+        TierOverride {
+            job_cpu_ms: Some(job_cpu_ms),
+            ..Default::default()
+        },
+    )]
+    .into();
+    node_with(data, artifacts, hash, Tiers::with_overrides(&overrides))
+}
+
+/// #768, `ops.md` section 20 ("CPU budget"): a job attempt runs under the
+/// tier's `job_cpu_ms` (free 2,000 ms), not the request's 50 ms. The same
+/// 500 ms of CPU is an `ok` job record and a `cpu_limit` request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_burning_500_ms_passes_on_free_and_a_request_burning_500_ms_fails() {
+    let (data, artifacts, hash) = setup();
+    let _ = clear_of_minute_boundary().await;
+    let n = node(&data, &artifacts, &hash);
+    let v = n.get("enqueue=%7B%22burn%22%3A500%7D").await;
+    assert!(v["id"].is_string(), "{v}");
+    assert!(eventually(Duration::from_secs(15), || !n.job_records().is_empty()).await);
+    let r = n.job_records();
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert_eq!(r[0].status, MeterStatus::Ok, "{r:?}");
+    assert!(
+        (400.0..2_000.0).contains(&r[0].cpu_ms),
+        "500 ms of CPU, over the request limit and under the job budget: {}",
+        r[0].cpu_ms
+    );
+    assert_eq!(runs(&data).len(), 1, "the job's write committed");
+
+    // The same loop in a request is killed at the request limit.
+    let v = n.get("burn=500").await;
+    assert_eq!(v["burned"], serde_json::Value::Null, "{v}");
+    let requests = || -> Vec<MeterRecord> {
+        n.records
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.kind.is_none() && r.status == MeterStatus::CpuLimit)
+            .cloned()
+            .collect()
+    };
+    assert!(eventually(Duration::from_secs(5), || !requests().is_empty()).await);
+    let req = requests();
+    assert!(
+        req[0].cpu_ms < 200.0,
+        "killed near 50 ms: {}",
+        req[0].cpu_ms
+    );
+}
+
+/// #768: a job attempt past its budget is `cpu_limit` with `kind: "job"`,
+/// killed at the budget (not at the request's limit), and a failed attempt
+/// of the normal retry table: `max_attempts` attempts, then dead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_past_its_cpu_budget_is_a_failed_attempt_with_kind_job() {
+    let (data, artifacts, hash) = setup();
+    let _ = clear_of_minute_boundary().await;
+    // The test's budget is 300 ms so that the kill is quick; the default
+    // (2,000 and 10,000) is asserted by the tier table's unit test.
+    let n = node_job_budget(&data, &artifacts, &hash, 300);
+    let v = n.get("enqueue=%7B%22hang%22%3Atrue%7D").await;
+    assert!(v["id"].is_string(), "{v}");
+    // `node()` allows two attempts.
+    assert!(eventually(Duration::from_secs(20), || n.job_records().len() >= 2).await);
+    let r = n.job_records();
+    assert_eq!(r.len(), 2, "{r:?}");
+    for rec in &r {
+        assert_eq!(rec.status, MeterStatus::CpuLimit, "{rec:?}");
+        assert_eq!(rec.kind, Some(MeterKind::Job));
+        assert!(
+            (250.0..600.0).contains(&rec.cpu_ms),
+            "killed at the job budget, not at 50 ms or later: {}",
+            rec.cpu_ms
+        );
+    }
+    assert!(runs(&data).is_empty());
+    let db = open(&data);
+    let dead = jobs::list(&db, &[], "dead", 10, None).unwrap();
+    assert_eq!(dead.items.len(), 1, "dead after max_attempts");
+}
+
+/// #768, the abuse bound (`ops.md` section 20, "CPU budget"): the outbox
+/// worker of a tenant's cell runs one delivery at a time, so a free tenant
+/// never holds more than one job attempt (and so more than one 2,000 ms
+/// budget) at once, across all its jobs. Six attempts of two jobs, 150 ms
+/// of CPU each, never overlap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tenant_runs_one_job_attempt_at_a_time_across_its_jobs() {
+    let (data, artifacts, hash) = setup();
+    let _ = clear_of_minute_boundary().await;
+    let n = node(&data, &artifacts, &hash);
+    for job in ["report", "other", "report", "other", "report", "other"] {
+        let v = n
+            .get(&format!("enqueue=%7B%22burn%22%3A150%7D&job={job}"))
+            .await;
+        assert!(v["id"].is_string(), "{v}");
+    }
+    assert!(eventually(Duration::from_secs(30), || runs(&data).len() == 6).await);
+    let r = runs(&data);
+    for w in r.windows(2) {
+        assert!(w[1].started >= w[0].ended, "attempts never overlap: {r:?}");
+    }
+    assert!(r.iter().all(|x| x.ended - x.started >= 100), "{r:?}");
 }
