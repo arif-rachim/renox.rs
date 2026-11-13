@@ -41,6 +41,15 @@ ignore = [
   # hickory-proto 0.25: renox-runtime (fetch resolver, #108) and deno_net.
   # Fixed only in 0.26 (semver-incompatible; renox-runtime's Cargo.toml).
   { id = "RUSTSEC-2026-0118", reason = "DNSSEC validation only; the dnssec feature is not enabled by renox-runtime or deno_net" },
+  # Three more flaws of hickory-proto 0.25's DNSSEC validation (NSEC and NSEC3
+  # at a zone cut accepted as proof), published 2026-11-13. No hickory-proto
+  # release fixes them: the validation code moved to hickory-net in 0.26.
+  # Same exposure as RUSTSEC-2026-0118 above: the validation code is behind
+  # the dnssec feature, which neither renox-runtime (features "tokio", "std")
+  # nor deno_net enables. Removed with the hickory 0.26 move (#731).
+  { id = "RUSTSEC-2026-0530", reason = "hickory-proto 0.25 DNSSEC validation (parent-side NSEC at a zone cut): the dnssec feature is not enabled, as RUSTSEC-2026-0118" },
+  { id = "RUSTSEC-2026-0531", reason = "hickory-proto 0.25 DNSSEC validation (child-side NSEC/NSEC3 as proof of no DS): the dnssec feature is not enabled, as RUSTSEC-2026-0118" },
+  { id = "RUSTSEC-2026-0532", reason = "hickory-proto 0.25 DNSSEC validation (parent-side NSEC3 at a zone cut): the dnssec feature is not enabled, as RUSTSEC-2026-0118" },
   { id = "RUSTSEC-2026-0119", reason = "hickory-proto 0.25 used by deno_net and renox-runtime; fix is 0.26, a renox-runtime dependency change (follow-up)" },
   # DNS message decode reserves memory from the header counts (about 18 MB
   # for one small spoofed packet, freed when the decode fails). The worker
