@@ -2358,8 +2358,31 @@ fn entry_owner(id: &str) -> &str {
         .unwrap_or(crate::ops::modules::APP)
 }
 
-/// The pool, as the cross-isolate ops of its isolates reach it.
-struct PoolLink(Arc<OnceLock<Weak<Pool>>>);
+/// The pool, as the cross-isolate ops of its isolates reach it, with the
+/// identity of the isolate that calls (`ThreadContext::only`).
+struct PoolLink {
+    link: Arc<OnceLock<Weak<Pool>>>,
+    /// `None`: the app's isolate; `Some(m)`: the isolate of `isolate` module `m`.
+    only: Option<String>,
+    modules: Arc<ModuleRegistry>,
+}
+
+impl PoolLink {
+    /// ops.md 1.19.0 section 15.2 (#763): the caller a cross-isolate call
+    /// carries (the callee's `ctx.caller`) must be code this isolate runs:
+    /// the app or one of its `shared` modules in the app's isolate, the
+    /// module itself in a module's isolate. Anything else is refused before
+    /// the callee's isolate is reached.
+    fn may_call_as(&self, caller: &str) -> bool {
+        match &self.only {
+            None => {
+                caller == crate::ops::modules::APP
+                    || (self.modules.get(caller).is_some() && !self.modules.is_isolated(caller))
+            }
+            Some(m) => m == caller,
+        }
+    }
+}
 
 impl crate::ops::modules::CrossCaller for PoolLink {
     fn call(
@@ -2375,7 +2398,10 @@ impl crate::ops::modules::CrossCaller for PoolLink {
             >,
         >,
     > {
-        let pool = self.0.get().and_then(Weak::upgrade);
+        let pool = self
+            .may_call_as(&call.caller)
+            .then(|| self.link.get().and_then(Weak::upgrade))
+            .flatten();
         Box::pin(async move {
             match pool {
                 Some(pool) => pool.cross_call(call).await,
@@ -2677,9 +2703,11 @@ async fn create_worker(
                 })
                 .collect(),
         ));
-        state.put(crate::ops::modules::CrossEnv(Rc::new(PoolLink(
-            ctx.link.clone(),
-        ))));
+        state.put(crate::ops::modules::CrossEnv(Rc::new(PoolLink {
+            link: ctx.link.clone(),
+            only: ctx.only.clone(),
+            modules: ctx.modules.clone(),
+        })));
         // ops.md 1.7.0 section 21: the file store and each owner's allowed types.
         let allowed = storage_allowed_types(&ctx.artifact.manifest, &ctx.modules);
         let (mode, key_name) = crate::ops::ai::mode_of(

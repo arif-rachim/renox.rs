@@ -159,10 +159,26 @@ const stateVar = new core.AsyncVariable();
 const txVar = new core.AsyncVariable();
 const depthVar = new core.AsyncVariable();
 const spVar = new core.AsyncVariable();
+// ops.md 1.19.0 section 15.2 (#763): the caller of the service call the code
+// runs in ("app" or the calling module's name), entered by the broker only;
+// for a module's own page, action, job, event handler, hook filler or tool,
+// that module's name; undefined for the app's own code. Read through the
+// `caller` getter of every ctx: tenant code has no way to enter it.
+const callerVar = new core.AsyncVariable();
 
 /** The module whose code runs now: "app" unless the broker entered one. */
 function currentModule() {
   return moduleVar.get() ?? "app";
+}
+
+/** `ctx.caller` for code entered at `owner`'s own entry point: its name, undefined for the app (#763). */
+function ownCaller(owner) {
+  return owner === "app" ? undefined : owner;
+}
+
+/** The getter of `ctx.caller` (ops.md 1.19.0 section 15.2, #763). */
+function callerGetter() {
+  return callerVar.get();
 }
 
 /** The op's module argument: null for the app (ops.md section 0, "Module"). */
@@ -1225,6 +1241,7 @@ async function callService(target, service, args) {
     result = await within(
       callVars(call, [
         [moduleVar, target],
+        [callerVar, caller],
         [depthVar, depth],
       ]),
       () => fn(calleeCtx, ...args),
@@ -1250,7 +1267,13 @@ function makeHooks(module) {
         const fillerCtx = f.remote === true ? null : st.ctxOf(f.module);
         let r;
         try {
-          r = await within([[moduleVar, f.module]], () => f.handle(fillerCtx, args));
+          r = await within(
+            [
+              [moduleVar, f.module],
+              [callerVar, ownCaller(f.module)],
+            ],
+            () => f.handle(fillerCtx, args),
+          );
           if (r !== undefined && !(r !== null && typeof r === "object" && r.halt === true && isResponse(r.response))) {
             throw new TypeError("a hook filler returns undefined or { halt: true, response }");
           }
@@ -1395,7 +1418,13 @@ async function runInMemory(st, id, name, payload) {
     const e = ObjectFreeze({ id, name, payload, attempt: 1 });
     const hctx = eventCtx(st.ctxOf(m), m, actionDb("current", m), e);
     try {
-      await within([[moduleVar, m]], () => h(hctx, e));
+      await within(
+        [
+          [moduleVar, m],
+          [callerVar, ownCaller(m)],
+        ],
+        () => h(hctx, e),
+      );
     } catch (err) {
       throw await calleeFailed(err, { module: m, event: name }, `${m} handler of ${name}`);
     }
@@ -1404,7 +1433,7 @@ async function runInMemory(st, id, name, payload) {
 
 /** A JobContext (ops.md section 20): the module's ctx without the request, `db` the attempt's transaction, `job` the run. */
 function jobCtx(base, statementsOf, info) {
-  const c = { ...base, db: statementsOf, job: info };
+  const c = { ...base, db: statementsOf, job: info, caller: ownCaller(base.module) };
   delete c.req;
   delete c.url;
   delete c.params;
@@ -1417,7 +1446,7 @@ function jobCtx(base, statementsOf, info) {
 
 /** An EventContext: the module's ctx without the request, `db` given. */
 function eventCtx(base, module, statementsOf, e) {
-  const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }) };
+  const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }), caller: ownCaller(module) };
   delete c.req;
   delete c.url;
   delete c.params;
@@ -1940,6 +1969,7 @@ async function resolvePrincipal(token, url, headers) {
       answer = await within(
         [
           [moduleVar, "auth"],
+          [callerVar, "app"],
           [stateVar, st0],
         ],
         async () => {
@@ -2021,6 +2051,9 @@ function newRequestState(base) {
         c = ObjectDefineProperties({}, ObjectGetOwnPropertyDescriptors(st.base));
         const fields = moduleFields(m);
         for (const k of new SafeArrayIterator(ObjectKeys(fields))) c[k] = fields[k];
+        // #763: an accessor without a setter, frozen with the ctx: a callee
+        // cannot assign or redefine it, and its value is the async context's.
+        ObjectDefineProperty(c, "caller", { get: callerGetter, enumerable: true });
         c = ObjectFreeze(c);
         cache.set(m, c);
       }
@@ -2402,6 +2435,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     return PromisePrototypeThen(
       prelude(token, url, headers),
       (pre) => {
@@ -2423,6 +2457,7 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     let p;
     try {
       const init = { method, headers };
@@ -2488,6 +2523,7 @@ function dispatchRealtime(handler, token, url, headers, body, params, owner, rt)
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     const go = async () => {
       if (rt.phase === "connect") {
         const pre = await prelude(token, url, headers);
@@ -2562,6 +2598,10 @@ function invoke(token, env, handler, owner) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(env.kind === "tool" || env.kind === "cross" ? owner : "app");
+    // #763: a tool is its module's own entry; a platform service call is the
+    // app's (callService enters "app" for the callee); crossServe enters the
+    // caller the host carried for a cross-isolate call.
+    callerVar.enter(env.kind === "tool" ? ownCaller(owner) : undefined);
     const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
     const st = newRequestState({ deadline: requestDeadline, principal });
     stateVar.enter(st);
@@ -2631,9 +2671,13 @@ function invoke(token, env, handler, owner) {
 async function crossServe(st, env) {
   const tx = env.tx ?? 0;
   if (tx !== 0) st.borrowedTx = tx;
+  // #763: the caller is the envelope's top-level `caller`, which Rust
+  // builds from the CrossCall the caller isolate's broker made (checked
+  // there against the modules that isolate runs), never from `args`.
   const vars = [
     [stateVar, st],
     [moduleVar, env.module],
+    [callerVar, env.what === "hook" ? ownCaller(env.module) : env.caller],
   ];
   if (tx !== 0) ArrayPrototypePush(vars, [txVar, tx]);
   const args = JSONParse(env.args);
@@ -2683,6 +2727,7 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
+    callerVar.enter(ownCaller(owner));
     let p = lazyModules.get(desc.lazy);
     if (p === undefined) {
       p = import(desc.lazy);
@@ -2722,6 +2767,7 @@ function deliver(token, id, name, payloadJson, attempt, module, job) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
+    callerVar.enter(ownCaller(module));
     const on = eventHandlers.get(module);
     const recorded = on instanceof LazyOn ? ArrayPrototypeIncludes(on.names, name) : typeof on?.[name] === "function";
     if (!recorded) return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
@@ -2779,6 +2825,7 @@ function deliverJob(token, id, payloadJson, attempt, module, job) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
+    callerVar.enter(ownCaller(module));
     const st = newRequestState({
       deadline: requestDeadline,
       // docs/11: jobs run as Renox::System::"<module>", never as a superuser.

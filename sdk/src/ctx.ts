@@ -44,6 +44,12 @@ export interface Ctx {
   readonly deadline: Deadline;
   /** The module this ctx is bound to (ops.md section 15.1); "app" for the app. */
   readonly module: string;
+  /**
+   * Who called the service this code runs in (ops.md section 15.2, "Caller"; #763): "app" or the calling
+   * module's name, set by the broker only (a callee cannot change it). A module's own page,
+   * action, job, event handler, hook filler or tool sees its own name; the app's own code `undefined`.
+   */
+  readonly caller?: string;
   /** The module's resolved `[config]` (section 15.5); `{}` for the app. */
   readonly config: ModuleConfig;
   /** Service proxies of the installed modules, as `renox:modules` (section 15.2). */
