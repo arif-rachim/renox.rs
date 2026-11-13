@@ -154,13 +154,24 @@ export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unkno
   const sdb = scopedDb(ctx.db, branch);
   const job = await findJob(sdb, id);
   if (job === null) return fail(404, "Job not found");
+  return transitionJob(ctx, branch, sdb, job, to, note);
+}
+
+/**
+ * `transition` for a job already found on `sdb`, the database fenced to
+ * `branch`: the staff pages find it through the active branch, the customer
+ * portal (#778, a cancel on /my) through `customerDb`, which hands over its
+ * fenced database for the customer's branch. The update also names the job's
+ * customer, so it cannot touch another customer's row.
+ */
+export async function transitionJob(ctx: JobCtx & { readonly url?: URL }, branch: Branch, sdb: DbStatements, job: JobRow, to: JobStatus, note: string): Promise<Outcome> {
   if (!TRANSITIONS[job.status].includes(to)) return fail(409, `A ${job.status.replace("_", " ")} job cannot become ${to.replace("_", " ")}.`);
   // Back to `new` clears the schedule; a cancelled job keeps it, for the history.
   const won = await sdb.execute(
     to === "new"
-      ? "update app__jobs set status = 'new', updated_at = ?, booking_id = null, scheduled_start = null, scheduled_end = null where id = ? and status = ?"
-      : "update app__jobs set status = ?, updated_at = ? where id = ? and status = ?",
-    to === "new" ? [now(), job.id, job.status] : [to, now(), job.id, job.status],
+      ? "update app__jobs set status = 'new', updated_at = ?, booking_id = null, scheduled_start = null, scheduled_end = null where id = ? and status = ? and customer_id = ?"
+      : "update app__jobs set status = ?, updated_at = ? where id = ? and status = ? and customer_id = ?",
+    to === "new" ? [now(), job.id, job.status, job.customer_id] : [to, now(), job.id, job.status, job.customer_id],
   );
   if (won.changes !== 1) return fail(409, "The job changed meanwhile; reload it.");
   if ((to === "cancelled" || to === "new") && job.booking_id !== null) await cancelVisit(job.booking_id);
@@ -293,13 +304,36 @@ export async function schedule(ctx: JobCtx, id: unknown, technicianId: string, s
   const sdb = scopedDb(ctx.db, branch);
   const job = await findJob(sdb, id);
   if (job === null) return fail(404, "Job not found");
+  return scheduleJob(ctx, branch, sdb, job, technicianId, startMs, { note });
+}
+
+/** How `scheduleJob` was asked: by staff (the default) or by the customer on /my (#778). */
+export interface ScheduleOptions {
+  /** Added to the timeline's note ("moved to … with …: <note>"). */
+  readonly note?: string;
+  /** The whole timeline note instead (a customer's move, lib/portal-change.ts RESCHEDULED). */
+  readonly event?: string;
+  /** Hand the catalogue and the technician to `booking` first (default true). That needs `booking.manage`, which a customer does not hold: the portal searches what `booking` already holds, as /book does. */
+  readonly sync?: boolean;
+  /** The customer's message: `visit_scheduled` (default) or `visit_moved` (their own move). */
+  readonly message?: "visit_scheduled" | "visit_moved";
+}
+
+/**
+ * `schedule` for a job already found on `sdb`, the database fenced to
+ * `branch` (see `transitionJob`): the dispatcher's slot picker and the
+ * customer's move on /my (#778) run the same steps. The update also names the
+ * job's customer.
+ */
+export async function scheduleJob(ctx: JobCtx, branch: Branch, sdb: DbStatements, job: JobRow, technicianId: string, startMs: number, opts: ScheduleOptions = {}): Promise<Outcome> {
+  const note = opts.note ?? "";
   if (job.status !== "new" && job.status !== "scheduled") return fail(409, `A ${job.status.replace("_", " ")} job cannot be scheduled.`);
   const technicians = await techniciansOf(ctx, branch);
   const tech = technicians.find((t) => t.id === technicianId);
   if (tech === undefined) return fail(422, "Choose a technician of this branch.");
   const service = await ctx.db.queryOne<{ code: string }>("select code from app__services where id = ?", [job.service_id]);
   if (service === null) return fail(422, "Unknown service.");
-  await ensureSynced(ctx.db, branch, [tech], service.code);
+  if (opts.sync !== false) await ensureSynced(ctx.db, branch, [tech], service.code);
   const code = bookingService(service.code);
   if (!Number.isSafeInteger(startMs)) return fail(422, "Choose a start.");
   const free = (await slotsOn(code, dayOf(Math.floor(startMs / 1000)), [tech.id])).find((s) => s.start === startMs);
@@ -317,19 +351,43 @@ export async function schedule(ctx: JobCtx, id: unknown, technicianId: string, s
   }
   if (job.booking_id !== null) await cancelVisit(job.booking_id);
   const moved = job.status === "scheduled";
-  await sdb.execute("update app__jobs set status = 'scheduled', technician_user_id = ?, booking_id = ?, scheduled_start = ?, scheduled_end = ?, updated_at = ? where id = ?", [
+  await sdb.execute("update app__jobs set status = 'scheduled', technician_user_id = ?, booking_id = ?, scheduled_start = ?, scheduled_end = ?, updated_at = ? where id = ? and customer_id = ?", [
     tech.id,
     bookingId,
     Math.floor(free.start / 1000),
     Math.floor(free.end / 1000),
     now(),
     job.id,
+    job.customer_id,
   ]);
   const after = (await findJob(sdb, job.id)) as JobRow;
-  await record(ctx, sdb, branch, after, job.status, "scheduled", `${moved ? "moved to" : "scheduled for"} ${dayLabel(startMs)} with ${tech.name}${note === "" ? "" : `: ${note}`}`);
+  await record(ctx, sdb, branch, after, job.status, "scheduled", opts.event ?? `${moved ? "moved to" : "scheduled for"} ${dayLabel(startMs)} with ${tech.name}${note === "" ? "" : `: ${note}`}`);
   await publishCard(ctx, branch, sdb, after);
   // The customer hears the time (a move too), in the language of their file (F7-124).
-  await notifyCustomer(ctx, { id: after.customer_id }, "visit_scheduled", { branch_id: branch.id, ref_id: after.id, job_id: after.id, vars: { job: after.number, when: dayLabel(startMs), technician: tech.name } });
+  await notifyCustomer(ctx, { id: after.customer_id }, opts.message ?? "visit_scheduled", { branch_id: branch.id, ref_id: after.id, job_id: after.id, vars: { job: after.number, when: dayLabel(startMs), technician: tech.name } });
+  return { ok: true, job: after };
+}
+
+/**
+ * A new requested time for a `new` job (a self-booking the dispatcher has not
+ * confirmed, #778): the time moves, the job stays `new` with no technician
+ * and no booking (the dispatcher confirms it with `schedule`). The caller has
+ * checked that the time is one `booking` offers. Writes the event `event`
+ * (new to new) and publishes the card. The update names the job's customer.
+ */
+export async function requestTime(ctx: Pick<JobCtx, "db" | "principal" | "realtime">, branch: Branch, sdb: DbStatements, job: JobRow, startMs: number, endMs: number, event: string): Promise<Outcome> {
+  if (job.status !== "new") return fail(409, `A ${job.status.replace("_", " ")} job has no requested time.`);
+  const won = await sdb.execute("update app__jobs set scheduled_start = ?, scheduled_end = ?, updated_at = ? where id = ? and status = 'new' and customer_id = ?", [
+    Math.floor(startMs / 1000),
+    Math.floor(endMs / 1000),
+    now(),
+    job.id,
+    job.customer_id,
+  ]);
+  if (won.changes !== 1) return fail(409, "The job changed meanwhile; reload it.");
+  const after = (await findJob(sdb, job.id)) as JobRow;
+  await record(ctx, sdb, branch, after, "new", "new", event);
+  await publishCard(ctx, branch, sdb, after);
   return { ok: true, job: after };
 }
 

@@ -33,5 +33,15 @@
     "template": "booking_received",
     "subject": "We received your booking {job}",
     "body": "Hello {name}, we received your booking {job} for {when}. We will confirm it shortly."
+  },
+  "visit_moved": {
+    "template": "visit_moved",
+    "subject": "Your visit {job} is moved",
+    "body": "Hello {name}, your visit {job} is now on {when}."
+  },
+  "visit_cancelled": {
+    "template": "visit_cancelled",
+    "subject": "Your visit {job} is cancelled",
+    "body": "Hello {name}, your visit {job} is cancelled."
   }
 }

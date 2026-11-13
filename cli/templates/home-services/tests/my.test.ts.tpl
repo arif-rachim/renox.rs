@@ -303,7 +303,11 @@ describe("/my/visits/<id>", () => {
   });
 
   test("Arabic: right to left, the timeline in Arabic", async () => {
+    // J-000006 is tomorrow at 09:00: whether it is inside the change cut-off (#778, 12 hours) depends on the
+    // hour the test runs, so the snapshot is taken with a cut-off of 0 (both links shown, at any hour).
+    write("insert or replace into app__settings (key, value) values ('portal_cutoff_hours', '0')");
     const res = await peter.page("/my/visits/jb_seed_06?lang=ar");
+    write("delete from app__settings where key = 'portal_cutoff_hours'");
     expect(res.html).toMatch(/<html lang="ar" dir="rtl"/u);
     expect(res.html).toContain("تم الطلب");
     snapshot(steady(res.html), { role: "my visit, portal customer, ar" });

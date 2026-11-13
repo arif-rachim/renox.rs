@@ -289,6 +289,8 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/my/visits/jb_seed_06", as: () => customer, note: "a visit in progress" },
   { path: "/my/visits/jb_seed_02", as: () => customer, note: "a visit waiting for confirmation" },
   { path: "/my/visits/jb_seed_11", as: () => customer, note: "a visit done" },
+  { path: "/my/visits/jb_seed_02?change=1", as: () => customer, note: "change the time (#778)" },
+  { path: "/my/visits/jb_seed_02?cancel=1", as: () => customer, note: "cancel the visit (#778)" },
   { path: "/my/invoices", as: () => customer, note: "the customer's invoices" },
   { path: "/my/invoices/INV-000950", as: () => customer, note: "an open invoice" },
   { path: "/book", as: () => anonymous, note: "step 1, signed out" },

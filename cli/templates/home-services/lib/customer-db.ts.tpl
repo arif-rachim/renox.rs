@@ -10,8 +10,11 @@
 import type { DbStatements, Row } from "@renoxium/sdk";
 
 import type { InvoiceRow } from "./invoices";
+import type { JobRow } from "./jobs";
+import { CANCELLED, RESCHEDULED, type ChangeRules } from "./portal-change";
 
-import { branchDb, type Scopable } from "./scope";
+import { branchDb, type Branch, type Scopable } from "./scope";
+import { getSettings, portalCutoffHours, portalMaxReschedules } from "./settings";
 
 /** One customer row the portal user is linked to: its id and its branch. */
 export interface PortalCustomer {
@@ -106,6 +109,31 @@ export interface CustomerDb {
   visitPhotos(jobId: string): Promise<Row[]>;
   /** The company's payment instructions (app__settings, company-wide): the English and the Arabic text, "" when unset. */
   paymentInstructions(): Promise<{ en: string; ar: string }>;
+  /** The company's rules for a customer's change on /my (#778): the cut-off in hours and the most moves per visit (app__settings, company-wide). */
+  changeRules(): Promise<ChangeRules>;
+  /**
+   * What a change of one of their jobs needs to know (#778): the job, its branch, the booking code of its
+   * service and how often this user moved it already (its events of kind customer_rescheduled). Null for
+   * another customer's job. Reads only.
+   */
+  changeTarget(jobId: string): Promise<ChangeTarget | null>;
+  /**
+   * The reschedule step of one of their jobs (#778): the job is read again with `customer_id = ? and id = ?`
+   * on its branch's fenced database, and `step` runs with that database, the job and its branch (the
+   * caller's transaction, the action's, holds them together). Null, and `step` never runs, for another
+   * customer's job. `step` is lib/jobs.ts scheduleJob or requestTime.
+   */
+  reschedule<T>(jobId: string, step: (sdb: DbStatements, target: ChangeTarget) => Promise<T>): Promise<T | null>;
+  /** The cancel step of one of their jobs (#778), as `reschedule`; `step` is lib/jobs.ts transitionJob. */
+  cancel<T>(jobId: string, step: (sdb: DbStatements, target: ChangeTarget) => Promise<T>): Promise<T | null>;
+}
+
+/** One of the customer's jobs as a change on /my sees it (customerDb changeTarget). */
+export interface ChangeTarget {
+  readonly job: JobRow & { readonly source: string };
+  readonly branch: Branch & { readonly phone: string };
+  readonly service_code: string;
+  readonly reschedules: number;
 }
 
 /** The first word of a display name ("Ali Hassan" → "Ali"). */
@@ -136,6 +164,14 @@ export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
   };
   const first = async (sql: string, params: (string | number)[]): Promise<Row | null> => (await all(sql, params))[0] ?? null;
   const newest = (key: string) => (rows: Row[]): Row[] => rows.sort((a, b) => Number(b[key] ?? 0) - Number(a[key] ?? 0));
+  /** Re-reads the customer's job (`customer_id = ? and id = ?`, on its branch's fenced database) and runs `step` there; null for anyone else's. */
+  const ownStep = async <T>(jobId: string, step: (sdb: DbStatements, target: ChangeTarget) => Promise<T>): Promise<T | null> => {
+    for (const f of fenced) {
+      const target = await targetOf(db, f.sdb, f.id, portal.user_id, jobId);
+      if (target !== null) return step(f.sdb, target);
+    }
+    return null;
+  };
   return {
     customer_ids: portal.customers.map((c) => c.id),
     customers: () => all("select id, branch_id, kind, name, phone, email, language, created_at from app__customers where id = ?1"),
@@ -166,7 +202,11 @@ export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
       each(async (sdb, id) =>
         (await sdb.queryOne("select id from app__jobs where customer_id = ? and id = ?", [id, jobId])) === null
           ? []
-          : sdb.query("select id, at, from_status, to_status from app__job_events where job_id = ? order by at, id", [jobId]),
+          : // `kind` names the customer's own changes (#778) without reading the note itself.
+            sdb.query(
+              `select id, at, from_status, to_status, case when by_user_id = ? and note like '${RESCHEDULED}%' then '${RESCHEDULED}' when by_user_id = ? and note like '${CANCELLED}%' then '${CANCELLED}' else '' end as kind from app__job_events where job_id = ? order by at, id`,
+              [portal.user_id, portal.user_id, jobId],
+            ),
       ),
     contractItems: (contractId) =>
       each(async (sdb, id) =>
@@ -235,7 +275,33 @@ export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
       const of = (key: string) => rows.find((r) => r.key === key)?.value ?? "";
       return { en: of("payment_instructions_en"), ar: of("payment_instructions_ar") };
     },
+    changeRules: async () => {
+      const settings = await getSettings(db);
+      return { cutoff_hours: portalCutoffHours(settings), max_reschedules: portalMaxReschedules(settings) };
+    },
+    changeTarget: async (jobId) => {
+      for (const f of fenced) {
+        const target = await targetOf(db, f.sdb, f.id, portal.user_id, jobId);
+        if (target !== null) return target;
+      }
+      return null;
+    },
+    reschedule: (jobId, step) => ownStep(jobId, step),
+    cancel: (jobId, step) => ownStep(jobId, step),
   };
+}
+
+const JOB_COLUMNS = "id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source";
+
+/** The customer `customerId`'s job `jobId` on the fenced `sdb`, with its branch, its service's booking code and the user's moves of it; null when it is not theirs. */
+async function targetOf(db: Scopable, sdb: DbStatements, customerId: string, userId: string, jobId: string): Promise<ChangeTarget | null> {
+  const job = await sdb.queryOne<JobRow & { source: string }>(`select ${JOB_COLUMNS} from app__jobs where customer_id = ? and id = ?`, [customerId, jobId]);
+  if (job === null) return null;
+  const branch = await db.queryOne<Branch & { phone: string }>("select id, org_id, name_en, name_ar, slug, emirate, area, phone from app__branches where id = ?", [job.branch_id]);
+  const service = await db.queryOne<{ code: string }>("select code from app__services where id = ?", [job.service_id]);
+  if (branch === null || service === null) return null;
+  const moves = await sdb.queryOne<{ n: number }>(`select count(*) as n from app__job_events where job_id = ? and by_user_id = ? and note like '${RESCHEDULED}%'`, [job.id, userId]);
+  return { job, branch, service_code: service.code.toLowerCase(), reschedules: moves?.n ?? 0 };
 }
 
 const INVOICE_STATE = "invoice_id, job_id, branch_id, customer_id, total_fils, due_at, credit_note_id, created_at, paid_fils, status";

@@ -889,7 +889,8 @@
     "hours": "Working hours",
     "display_name": "Your name",
     "payment_instructions_en": "Payment instructions (English)",
-    "payment_instructions_ar": "Payment instructions (Arabic)"
+    "payment_instructions_ar": "Payment instructions (Arabic)",
+    "reason_other": "More about the reason"
   },
   "problem": {
     "title": "The form could not be saved",
@@ -1029,7 +1030,9 @@
       "en_route": "Technician on the way",
       "started": "Work started",
       "finished": "Finished",
-      "cancelled": "Cancelled"
+      "cancelled": "Cancelled",
+      "rescheduled": "You moved the visit",
+      "cancelled_by_you": "You cancelled the visit"
     },
     "upcoming": {
       "title": "Upcoming visits",
@@ -1098,6 +1101,49 @@
       "signed_by": "Signed by",
       "pdf": "Download report (PDF)",
       "open_photo": "Open the photo"
+    },
+    "change": {
+      "title": "Change or cancel",
+      "change_link": "Change the time",
+      "cancel_link": "Cancel this visit",
+      "why": {
+        "too_late": "Less than {hours} hours to go.",
+        "in_progress": "Your visit has started, so it can no longer be changed here.",
+        "limit": "You have already moved this visit {n} times.",
+        "contract_visit": "This visit is part of your maintenance contract: you can move it, but not cancel it here.",
+        "not_scheduled": "This visit can no longer be changed."
+      },
+      "call": "Please call",
+      "call_us": "Please call us.",
+      "change_title": "Choose a new time",
+      "pending_hint": "The new time is a request: we will confirm it.",
+      "days": "Days",
+      "submit_move": "Move my visit",
+      "keep": "Keep the visit as it is",
+      "cancel_title": "Cancel this visit?",
+      "f": {
+        "reason": "Why are you cancelling? (optional)",
+        "other": "More about the reason (optional, 200 characters)"
+      },
+      "reason": {
+        "none": "I prefer not to say",
+        "no_longer_needed": "No longer needed",
+        "found_other_time": "Found another time by phone",
+        "other": "Other"
+      },
+      "submit_cancel": "Yes, cancel the visit",
+      "err": {
+        "reason": "Choose one of the reasons.",
+        "other": "Write at most 200 characters."
+      },
+      "conflict": {
+        "taken": "That time was just taken. Please pick another.",
+        "changed": "Your visit changed meanwhile. Please look at it again."
+      },
+      "done": {
+        "moved": "Your visit is moved. We sent you a WhatsApp message.",
+        "cancelled": "Your visit is cancelled. We sent you a WhatsApp message."
+      }
     }
   }
 }

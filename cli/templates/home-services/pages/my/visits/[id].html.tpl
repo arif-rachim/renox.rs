@@ -17,7 +17,53 @@
     <dd>{{ visit.branch_name }}<r-group r-if="visit.branch_phone"> · <a :href="'tel:' ~ visit.branch_phone" dir="ltr" id="branch-phone">{{ visit.branch_phone }}</a></r-group></dd>
   </dl>
 
-  <section aria-labelledby="timeline-title">
+<r-group r-if="notice or conflict or step or change.can_reschedule or change.can_cancel or change.why">
+  <p r-if="notice" class="notice" role="status" id="change-done">{{ notice | t }}</p>
+  <p r-if="conflict" class="notice" role="alert" id="change-conflict">{{ conflict | t({"hours": change.hours, "n": change.moves}) }}</p>
+
+  <section r-if="step == 'change'" aria-labelledby="change-title" id="visit-change-time">
+    <h2 id="change-title"><r-t key="my.change.change_title" /></h2>
+    <p r-if="pending" class="muted"><r-t key="my.change.pending_hint" /></p>
+    <nav class="book-days" :aria-label="'my.change.days' | t">
+      <ul class="row">
+        <li r-for="d in days"><strong r-if="d.current" aria-current="date">{{ d.label }} <span dir="ltr">{{ d.key }}</span></strong><a r-else :href="d.href">{{ d.label }} <span dir="ltr">{{ d.key }}</span></a></li>
+      </ul>
+    </nav>
+    <x-form action="reschedule" class="stack narrow" id="change-form">
+      <input type="hidden" name="day" :value="day">
+      <fieldset r-if="slots" id="f-slot" :aria-describedby="'err-slot' if errors.slot else none">
+        <legend><r-t key="book.f.slot" /> · {{ day_label }} <span dir="ltr">{{ day }}</span></legend>
+        <p r-for="s in slots"><label><input type="radio" name="slot" :value="s.value" :checked="s.checked" required> <span dir="ltr">{{ s.from }}–{{ s.to }}</span></label></p>
+      </fieldset>
+      <p r-else id="f-slot" tabindex="-1"><r-t key="book.no_slots" /></p>
+      <p><button r-if="slots" type="submit" class="btn-brand"><r-t key="my.change.submit_move" /></button> <a :href="change.href_back"><r-t key="my.change.keep" /></a></p>
+    </x-form>
+  </section>
+
+  <section r-if="step == 'cancel'" aria-labelledby="cancel-title" id="visit-cancel">
+    <h2 id="cancel-title"><r-t key="my.change.cancel_title" /></h2>
+    <x-form action="cancel" class="stack narrow" id="cancel-form">
+      <p><label><r-t key="my.change.f.reason" /> <select name="reason" id="f-reason" :aria-invalid="true if errors.reason else false" :aria-describedby="'err-reason' if errors.reason else none">
+        <option value=""><r-t key="my.change.reason.none" /></option>
+        <option value="no_longer_needed" :selected="values.reason == 'no_longer_needed'"><r-t key="my.change.reason.no_longer_needed" /></option>
+        <option value="found_other_time" :selected="values.reason == 'found_other_time'"><r-t key="my.change.reason.found_other_time" /></option>
+        <option value="other" :selected="values.reason == 'other'"><r-t key="my.change.reason.other" /></option>
+      </select></label></p>
+      <p><label><r-t key="my.change.f.other" /> <textarea name="reason_other" maxlength="200" dir="auto" id="f-reason_other" :aria-invalid="true if errors.reason_other else false" :aria-describedby="'err-reason_other' if errors.reason_other else none">{{ values.reason_other }}</textarea></label></p>
+      <p><button type="submit" class="btn-brand" id="cancel-submit"><r-t key="my.change.submit_cancel" /></button> <a :href="change.href_back"><r-t key="my.change.keep" /></a></p>
+    </x-form>
+  </section>
+
+  <section r-if="step == '' and (change.can_reschedule or change.can_cancel or change.why)" aria-labelledby="change-links-title" id="visit-change">
+    <h2 id="change-links-title"><r-t key="my.change.title" /></h2>
+    <p r-if="change.can_reschedule or change.can_cancel" class="row">
+      <a r-if="change.can_reschedule" :href="change.href_change" id="change-link"><r-t key="my.change.change_link" /></a>
+      <a r-if="change.can_cancel" :href="change.href_cancel" id="cancel-link"><r-t key="my.change.cancel_link" /></a>
+    </p>
+    <p r-if="change.why" id="change-why">{{ change.why | t({"hours": change.hours, "n": change.moves}) }} <r-group r-if="change.phone"><r-t key="my.change.call" /> <a :href="'tel:' ~ change.phone" dir="ltr">{{ change.phone }}</a>.</r-group><r-group r-else><r-t key="my.change.call_us" /></r-group></p>
+  </section>
+
+</r-group>  <section aria-labelledby="timeline-title">
     <h2 id="timeline-title"><r-t key="my.visit.timeline" /></h2>
     <ol class="my-timeline" r-if="visit.timeline" id="timeline">
       <li r-for="e in visit.timeline">{{ e.key | t }} · <span dir="ltr">{{ e.day }} {{ e.time }}</span></li>

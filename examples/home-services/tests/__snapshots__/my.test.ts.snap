@@ -185,6 +185,23 @@ exports[`/my/visits/<id> Arabic: right to left, the timeline in Arabic: role: my
     <dd dir="auto">دبي · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
   </dl>
 
+
+  
+  
+
+  
+
+  
+
+  <section aria-labelledby="change-links-title" id="visit-change">
+    <h2 id="change-links-title">تغيير الموعد أو الإلغاء</h2>
+    <p class="row">
+      <a href="/my/visits/jb_seed_06?change=1" id="change-link">تغيير الموعد</a>
+      <a href="/my/visits/jb_seed_06?cancel=1" id="cancel-link">إلغاء هذه الزيارة</a>
+    </p>
+    
+  </section>
+
   <section aria-labelledby="timeline-title">
     <h2 id="timeline-title">ما تم حتى الآن</h2>
     <ol class="my-timeline" id="timeline">

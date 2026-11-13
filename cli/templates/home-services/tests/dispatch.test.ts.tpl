@@ -7,6 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { snapshot, app } from "@renoxium/sdk/test";
 import type { WsStream } from "@renoxium/sdk/test";
 
+import { phoneSignIn } from "./outbox";
+
 const t = await app();
 const PASSWORD = "correct horse battery";
 
@@ -146,6 +148,38 @@ describe("the live board", () => {
     expect((await dina.action(`/jobs/${id}`, "cancel", { note: "Fixed by the owner" })).status).toBe(303);
     const cancelled = await nextCard(ws);
     expect(cancelled).toContain('<div id="col-cancelled" hx-swap-oob="afterbegin">');
+    ws.close();
+  });
+
+  test("a customer's cancel on /my (#778) removes the card from the board over the WebSocket", async () => {
+    // A self-booking of Peter Nowak's (cu_dxb_02) waiting for the dispatcher; Peter signs in by phone.
+    const { Database } = await import("bun:sqlite");
+    const write = (sql: string, params: (string | number | null)[]) => {
+      const db = new Database(t.dbFile);
+      db.exec("pragma busy_timeout = 5000");
+      try {
+        db.run(sql, params);
+      } finally {
+        db.close();
+      }
+    };
+    const at = Math.floor(Date.now() / 1000);
+    write(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values ('jb_ws_customer', 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', null, 'J-000981', 'new', 'normal', ?, '', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [Number(rows("select id from app__services where code = 'HANDYMAN'")[0]?.id), at + 3 * 86_400, at + 3 * 86_400 + 3600, at, at],
+    );
+    const peter = t.as("peter");
+    expect((await phoneSignIn(peter, rows, write, "+971521110002", "/my")).status).toBe(303);
+    expect((await dina.page("/dispatch")).html).toContain('id="job-jb_ws_customer"');
+    const ws = await dina.ws("/ws/dispatch/dubai");
+    await Bun.sleep(300);
+    expect((await peter.action("/my/visits/jb_ws_customer", "cancel", { reason: "no_longer_needed" })).status).toBe(303);
+    const card = await nextCard(ws);
+    // The card leaves its column; the board has no cancelled column, so it is gone without a reload.
+    expect(card).toContain('<div id="job-jb_ws_customer" hx-swap-oob="delete"></div>');
+    expect(card).toContain('<div id="col-cancelled" hx-swap-oob="afterbegin">');
+    expect((await dina.page("/dispatch")).html).not.toContain('id="col-cancelled"');
+    expect((await dina.page("/dispatch")).html).not.toContain('id="job-jb_ws_customer"');
     ws.close();
   });
 

@@ -229,7 +229,9 @@ export async function visitOf(cdb: CustomerDb, jobId: string, lang: Lang) {
   const branch = l.branches.get(str(job.branch_id));
   const timeline = [];
   for (const e of await cdb.jobEvents(jobId)) {
-    const key = eventKey(e.to_status === null || e.to_status === undefined ? null : str(e.to_status));
+    // The customer's own move or cancel (#778) is told as theirs.
+    const own = str(e.kind);
+    const key = own === "customer_rescheduled" ? "my.event.rescheduled" : own === "customer_cancelled" ? "my.event.cancelled_by_you" : eventKey(e.to_status === null || e.to_status === undefined ? null : str(e.to_status));
     const at = num(e.at);
     if (key !== null && at !== null) timeline.push({ key, day: dayOf(at), time: clockOf(at) });
   }

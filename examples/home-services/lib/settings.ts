@@ -46,6 +46,27 @@ export function pdfBrand(settings: Settings, lang: Lang) {
 export const portalAutoConfirm = (settings: Settings): boolean => settings.portal_auto_confirm === "1";
 
 /**
+ * The customer portal's change rules (#778): until how many hours before the
+ * slot a customer may still cancel or move a visit on /my
+ * (`portal_cutoff_hours`, a whole number 0 to 168, default 12), and how often
+ * one visit may be moved (`portal_max_reschedules`, 0 to 5, default 2). A
+ * missing or out-of-range value reads as the default. The fields on
+ * /admin/settings come with the dispatcher issue (#779).
+ */
+export const PORTAL_CUTOFF_HOURS = { key: "portal_cutoff_hours", min: 0, max: 168, default: 12 } as const;
+export const PORTAL_MAX_RESCHEDULES = { key: "portal_max_reschedules", min: 0, max: 5, default: 2 } as const;
+
+const wholeIn = (raw: string | undefined, rule: { readonly min: number; readonly max: number; readonly default: number }): number => {
+  const v = (raw ?? "").trim();
+  if (!/^\d{1,3}$/u.test(v)) return rule.default;
+  const n = Number(v);
+  return n >= rule.min && n <= rule.max ? n : rule.default;
+};
+
+export const portalCutoffHours = (settings: Settings): number => wholeIn(settings[PORTAL_CUTOFF_HOURS.key], PORTAL_CUTOFF_HOURS);
+export const portalMaxReschedules = (settings: Settings): number => wholeIn(settings[PORTAL_MAX_RESCHEDULES.key], PORTAL_MAX_RESCHEDULES);
+
+/**
  * How a customer pays an open invoice (#777: no online payment, D31): plain
  * text in English and in Arabic, at most PAYMENT_INSTRUCTIONS_MAX characters
  * each, shown on /my/invoices/<number> while the invoice is open; empty hides

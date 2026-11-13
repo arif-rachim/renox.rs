@@ -198,6 +198,33 @@ describe("the booking page in Arabic isolates its prices, days, times and phone 
   });
 });
 
+describe("changing a visit on /my in Arabic isolates its number, days, times and the branch's phone left to right (#778)", () => {
+  // A full working day from the day after tomorrow on: Fatima's visit J-000008 (the seed's, tomorrow afternoon) is past the cut-off.
+  const day = (() => {
+    for (let i = 2; i < 8; i++) {
+      const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+      if ([1, 2, 3, 4, 6].includes(local.getUTCDay())) return local.toISOString().slice(0, 10);
+    }
+    return "";
+  })();
+
+  test("?change=1: the number, the day and a time", async () => {
+    const res = await customer.page(`/my/visits/jb_seed_08?change=1&day=${day}&lang=ar`);
+    expect(res.status).toBe(200);
+    const slot = /name="slot" value="([^"]+)"/u.exec(res.html)?.[1] ?? "";
+    expect(slot).not.toBe("");
+    const clock = new Date(Number(slot.split("@")[1]) + 4 * 3_600_000).toISOString().slice(11, 16);
+    for (const v of ["J-000008", day, clock, "+97140000001"]) expect([v, isolated(res.html, v)]).toEqual([v, true]);
+  });
+
+  test("?cancel=1: the number and the branch's phone", async () => {
+    const res = await customer.page("/my/visits/jb_seed_08?cancel=1&lang=ar");
+    expect(res.status).toBe(200);
+    expect(res.html).toContain('action="?/cancel"');
+    for (const v of ["J-000008", "+97140000001"]) expect([v, isolated(res.html, v)]).toEqual([v, true]);
+  });
+});
+
 // -- the Arabic catalogue ---------------------------------------------------------------------------------------------------
 
 function flat(o: unknown, prefix = ""): Record<string, string> {
