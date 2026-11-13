@@ -1,0 +1,196 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`/my Arabic: right to left, the words in Arabic, numbers and times left to right: role: my, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>حسابي · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <h1>أهلًا بك</h1>
+  
+  
+  <p>تم تسجيل الدخول بالرقم <span dir="ltr">+971521110002</span></p>
+  <p>سجلاتك لدينا كعميل: ⁨2⁩.</p>
+  <p><a href="/book" class="btn-brand" id="book-link">احجز خدمة</a></p>
+
+  <section aria-labelledby="upcoming-title" id="upcoming">
+    <h2 id="upcoming-title">الزيارات القادمة</h2>
+    <ul class="my-list">
+      <li id="upcoming-jb_seed_06">
+        <p dir="auto"><strong dir="auto">مكافحة الحشرات</strong> · Villa, Al Barsha · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        
+        
+        <p class="my-when" dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></p>
+        <p><span class="status status-scheduled" dir="auto">مؤكدة</span> · الفني: Ali</p>
+        <p><a href="/my/visits/jb_seed_06">تفاصيل الزيارة <span dir="ltr">J-000006</span></a></p>
+      </li><li id="upcoming-jb_my_shj">
+        <p dir="auto"><strong dir="auto">مكافحة الحشرات</strong> · Holiday flat, Al Majaz · <span class="my-branch" dir="auto">الفرع: الشارقة</span></p>
+        
+        
+        <p class="my-when" dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></p>
+        <p><span class="status status-scheduled" dir="auto">مؤكدة</span> · الفني: Hamad</p>
+        <p><a href="/my/visits/jb_my_shj">تفاصيل الزيارة <span dir="ltr">J-000920</span></a></p>
+      </li><li id="upcoming-jb_my_self">
+        <p dir="auto"><strong dir="auto">إصلاح المكيف</strong> · Villa, Al Barsha · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p class="my-when" dir="auto">مطلوبة في <weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span>، بانتظار التأكيد</p>
+        
+        
+        <p><span class="status status-new" dir="auto">بانتظار التأكيد</span></p>
+        <p><a href="/my/visits/jb_my_self">تفاصيل الزيارة <span dir="ltr">J-000901</span></a></p>
+      </li><li id="upcoming-jb_seed_02">
+        <p dir="auto"><strong dir="auto">كهرباء</strong> · Office, Business Bay · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        
+        <p class="my-when">سنتصل بك للاتفاق على موعد.</p>
+        
+        <p><span class="status status-new" dir="auto">بانتظار التأكيد</span></p>
+        <p><a href="/my/visits/jb_seed_02">تفاصيل الزيارة <span dir="ltr">J-000002</span></a></p>
+      </li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="past-title" id="past">
+    <h2 id="past-title">الزيارات السابقة</h2>
+    <ul class="my-list">
+      <li id="past-jb_seed_11">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_seed_11">تفاصيل الزيارة <span dir="ltr">J-000011</span></a></p>
+      </li><li id="past-jb_seed_14">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-cancelled" dir="auto">ملغاة</span> · <a href="/my/visits/jb_seed_14">تفاصيل الزيارة <span dir="ltr">J-000014</span></a></p>
+      </li><li id="past-jb_my_past_0">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_0">تفاصيل الزيارة <span dir="ltr">J-000930</span></a></p>
+      </li><li id="past-jb_my_past_1">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_1">تفاصيل الزيارة <span dir="ltr">J-000931</span></a></p>
+      </li><li id="past-jb_my_past_2">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_2">تفاصيل الزيارة <span dir="ltr">J-000932</span></a></p>
+      </li><li id="past-jb_my_past_3">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_3">تفاصيل الزيارة <span dir="ltr">J-000933</span></a></p>
+      </li><li id="past-jb_my_past_4">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_4">تفاصيل الزيارة <span dir="ltr">J-000934</span></a></p>
+      </li><li id="past-jb_my_past_5">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_5">تفاصيل الزيارة <span dir="ltr">J-000935</span></a></p>
+      </li><li id="past-jb_my_past_6">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_6">تفاصيل الزيارة <span dir="ltr">J-000936</span></a></p>
+      </li><li id="past-jb_my_past_7">
+        <p dir="auto"><span dir="ltr"><day></span> · <strong dir="auto">أعمال صيانة عامة</strong> · Villa · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p><span class="status status-done" dir="auto">تمت</span> · <a href="/my/visits/jb_my_past_7">تفاصيل الزيارة <span dir="ltr">J-000937</span></a></p>
+      </li>
+    </ul>
+    <nav class="pager" aria-label="صفحات الزيارات السابقة">
+      
+      <span>الصفحة <span dir="ltr">1 / 2</span></span>
+      <a href="/my?page=2#past" rel="next" id="past-next">زيارات أقدم</a>
+    </nav>
+  </section>
+
+  <section aria-labelledby="contracts-title" id="contracts">
+    <h2 id="contracts-title">عقود الصيانة</h2>
+    <ul class="my-list">
+      <li id="contract-ct_my_01">
+        <p><strong dir="ltr">AMC-000901</strong> · <span class="my-branch" dir="auto">الفرع: دبي</span></p>
+        <p>المدة: <span dir="ltr"><day> – <day></span></p>
+        <ul>
+          <li dir="auto">صيانة المكيف · Villa · <span dir="ltr">4</span> زيارات في السنة</li>
+        </ul>
+        <p>الزيارة المخططة التالية: <span dir="ltr"><day></span></p>
+        <p class="notice">ينتهي في <span dir="ltr"><day></span>. سنتواصل معك بشأن التجديد.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="name-title">
+    <h2 id="name-title">اسمك</h2>
+    <p class="muted">أخبرنا باسمك ليعرف فريقنا من أنت.</p>
+    <form method="post" action="?/name" hx-post="?/name"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>اسمك <input name="display_name" maxlength="80" autocomplete="name" required id="f-display_name" aria-required="true" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand">حفظ</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`/my/visits/<id> Arabic: right to left, the timeline in Arabic: role: my visit, portal customer, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>زيارتك · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin="" href="/fonts/noto-sans-arabic-arabic-400-normal.woff2">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  <meta name="theme-color" content="#1f6f5c">
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/my" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/my/visits/jb_seed_06?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+    <form method="post" action="?/signout" hx-post="?/signout" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+  </header>
+  <main id="main" tabindex="-1">
+    
+  
+  <p><a href="/my">العودة إلى حسابي</a></p>
+  <h1 dir="auto">مكافحة الحشرات <span dir="ltr">J-000006</span></h1>
+  <p><span class="status status-scheduled" id="visit-status" dir="auto">مؤكدة</span></p>
+  <dl class="detail" id="visit-detail">
+    <dt>الموعد</dt>
+    <dd dir="auto"><weekday> <span dir="ltr"><day></span> <span dir="ltr"><time>–<time></span></dd>
+    <dt>المكان</dt>
+    <dd dir="auto">Villa · Street 14, villa 22, Al Barsha</dd>
+    <dt>الفني:</dt>
+    <dd id="visit-technician" dir="auto">Ali</dd>
+    
+    
+    <dt>لديك سؤال؟ اتصل بنا</dt>
+    <dd dir="auto">دبي · <a href="tel:+97140000001" dir="ltr" id="branch-phone">+97140000001</a></dd>
+  </dl>
+
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">ما تم حتى الآن</h2>
+    <ol class="my-timeline" id="timeline">
+      <li dir="auto">تم الطلب · <span dir="ltr"><day> <time></span></li><li dir="auto">تم التأكيد · <span dir="ltr"><day> <time></span></li><li dir="auto">تم التأكيد · <span dir="ltr"><day> <time></span></li>
+    </ol>
+  </section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;

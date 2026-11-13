@@ -1000,5 +1000,62 @@
       "intro": "Check the details, then confirm.",
       "submit": "Confirm booking"
     }
+  },
+  "my": {
+    "branch": "Branch:",
+    "technician": "Technician:",
+    "details": "Details of visit",
+    "status": {
+      "new": "Waiting for confirmation",
+      "scheduled": "Confirmed",
+      "en_route": "On the way",
+      "in_progress": "Work in progress",
+      "done": "Done",
+      "cancelled": "Cancelled",
+      "unknown": "In progress"
+    },
+    "event": {
+      "requested": "Requested",
+      "confirmed": "Confirmed",
+      "en_route": "Technician on the way",
+      "started": "Work started",
+      "finished": "Finished",
+      "cancelled": "Cancelled"
+    },
+    "upcoming": {
+      "title": "Upcoming visits",
+      "requested": "Requested for",
+      "waiting": ", waiting for confirmation",
+      "no_time": "We will call you to agree a time.",
+      "empty": "You have no upcoming visits. Book a service when you need us."
+    },
+    "past": {
+      "title": "Past visits",
+      "empty": "No past visits yet.",
+      "pages": "Pages of past visits",
+      "page": "Page",
+      "prev": "Newer visits",
+      "next": "Older visits"
+    },
+    "contracts": {
+      "title": "Maintenance contracts",
+      "period": "Period:",
+      "per_year": "visits a year",
+      "next": "Next planned visit:",
+      "ends_on": "Ends on",
+      "renewal": ". We will contact you about renewal.",
+      "empty": "You have no active maintenance contract."
+    },
+    "visit": {
+      "title": "Your visit",
+      "back": "Back to my account",
+      "when": "When",
+      "waiting": "waiting for confirmation",
+      "where": "Where",
+      "notes": "Your notes",
+      "contact": "Questions? Call us",
+      "timeline": "What happened so far",
+      "no_timeline": "Nothing has happened yet."
+    }
   }
 }

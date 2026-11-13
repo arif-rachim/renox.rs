@@ -9,7 +9,7 @@
   <link r-if="locale == 'ar'" rel="preload" as="font" type="font/woff2" crossorigin :href="'/fonts/noto-sans-arabic-arabic-400-normal.woff2'">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/theme">
-  <meta name="theme-color" content="{{ brand.color }}">
+  <meta name="theme-color" content="{{ brand.color }}"><meta r-if="refresh" http-equiv="refresh" :content="refresh">
 </head>
 <body>
   <a class="skip" href="#main"><r-t key="app.skip" /></a>

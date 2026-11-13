@@ -68,7 +68,28 @@ export interface CustomerDb {
   contract(id: string): Promise<Row | null>;
   /** One of their jobs by its number (J-000123), or null. */
   jobByNumber(number: string): Promise<Row | null>;
+  /**
+   * The timeline of one of their jobs (#776): when, and from which status to which. The note and its
+   * author are staff-only and not read. Empty for another customer's job.
+   */
+  jobEvents(jobId: string): Promise<Row[]>;
+  /** The items of one of their contracts (site, service, visits per year, next visit); empty for another's. */
+  contractItems(contractId: string): Promise<Row[]>;
+  /** The visits made for one of their contracts (job id and due day); empty for another's. */
+  contractJobs(contractId: string): Promise<Row[]>;
+  /** The branches of their customer rows: id, the name in both languages and the phone. */
+  branches(): Promise<Row[]>;
+  /** The names of the catalogue's services (company-wide rows, no customer's data): id, name_en, name_ar. */
+  services(): Promise<Row[]>;
+  /**
+   * The first name of the technician of one of their jobs: the first word of the member's display name,
+   * never the rest of it or their phone; "" when no technician is set or the job is another customer's.
+   */
+  technicianFirstName(jobId: string): Promise<string>;
 }
+
+/** The first word of a display name ("Ali Hassan" → "Ali"). */
+export const firstName = (displayName: string): string => displayName.trim().split(/\s+/u)[0] ?? "";
 
 /**
  * `db` restricted to the portal user's customers: each statement runs once
@@ -76,7 +97,7 @@ export interface CustomerDb {
  * `customer_id = ?` bound to it. There is no statement without a customer.
  */
 export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
-  const fenced: { sdb: DbStatements; id: string }[] = portal.customers.map((c) => ({ sdb: branchDb(db, c.branch_id), id: c.id }));
+  const fenced: { sdb: DbStatements; id: string; branch_id: string }[] = portal.customers.map((c) => ({ sdb: branchDb(db, c.branch_id), id: c.id, branch_id: c.branch_id }));
   /**
    * `sql` once per customer, `?1` bound to the customer's id and the others after it; the rows of all. Statements of
    * an owned table stay single-table (the fence adds its own predicate), so a table without `customer_id` is read
@@ -120,6 +141,50 @@ export function customerDb(db: Scopable, portal: PortalScope): CustomerDb {
     contracts: async () => newest("created_at")(await all("select * from app__contracts where customer_id = ?1")),
     contract: (id) => first("select * from app__contracts where customer_id = ?1 and id = ?2", [id]),
     jobByNumber: (number) => first("select * from app__jobs where customer_id = ?1 and number = ?2", [number]),
+    // Events, items and contract jobs carry no customer_id: the customer's job or contract is checked first, on the same branch.
+    jobEvents: (jobId) =>
+      each(async (sdb, id) =>
+        (await sdb.queryOne("select id from app__jobs where customer_id = ? and id = ?", [id, jobId])) === null
+          ? []
+          : sdb.query("select id, at, from_status, to_status from app__job_events where job_id = ? order by at, id", [jobId]),
+      ),
+    contractItems: (contractId) =>
+      each(async (sdb, id) =>
+        (await sdb.queryOne("select id from app__contracts where customer_id = ? and id = ?", [id, contractId])) === null
+          ? []
+          : sdb.query("select id, site_id, service_id, visits_per_year, next_visit_on from app__contract_items where contract_id = ? order by id", [contractId]),
+      ),
+    contractJobs: (contractId) =>
+      each(async (sdb, id) =>
+        (await sdb.queryOne("select id from app__contracts where customer_id = ? and id = ?", [id, contractId])) === null
+          ? []
+          : sdb.query("select job_id, due_on from app__contract_jobs where contract_id = ? order by due_on, job_id", [contractId]),
+      ),
+    // app__branches and app__services are not owned (company-wide rows): only the customer's own branches are read.
+    branches: async () => {
+      const out: Row[] = [];
+      for (const branchId of [...new Set(fenced.map((f) => f.branch_id))]) {
+        const b = await db.queryOne("select id, name_en, name_ar, phone from app__branches where id = ?", [branchId]);
+        if (b !== null) out.push(b);
+      }
+      return out;
+    },
+    services: () => db.query("select id, name_en, name_ar from app__services order by id"),
+    technicianFirstName: async (jobId) => {
+      for (const f of fenced) {
+        const job = await f.sdb.queryOne<{ technician_user_id: string | null }>("select technician_user_id from app__jobs where customer_id = ? and id = ?", [f.id, jobId]);
+        if (job === null) continue;
+        if (job.technician_user_id === null) return "";
+        const branch = await db.queryOne<{ org_id: string }>("select org_id from app__branches where id = ?", [f.branch_id]);
+        if (branch === null) return "";
+        // A member of the job's branch only (the public views of org and auth, as lib/technicians.ts reads them).
+        const member = await db.queryOne("select user_id from org__public_members_v1 where org_id = ? and user_id = ?", [branch.org_id, job.technician_user_id]);
+        if (member === null) return "";
+        const user = await db.queryOne<{ display_name: string | null }>("select display_name from auth__public_users_v1 where id = ?", [job.technician_user_id]);
+        return firstName(user?.display_name ?? "");
+      }
+      return "";
+    },
   };
 }
 

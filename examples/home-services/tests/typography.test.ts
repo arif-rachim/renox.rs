@@ -119,7 +119,9 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/customers/cu_dxb_04", who: dispatcher, values: ["+97144110004", "100123456700003", "ops@marinaheights.example"] },
     { page: "/quotes/qt_seed_02", who: dispatcher, values: ["Q-000002", "+971521110002"] },
     { page: "/invoices/INV-000001", who: accountant, values: ["INV-000001", "J-000013"] },
-    { page: "/my", who: customer, values: ["+971551110003"] },
+    { page: "/my", who: customer, values: ["+971551110003", "J-000008", "J-000012"] },
+    { page: "/my/visits/jb_seed_08", who: customer, values: ["J-000008", "+97140000001"] },
+    { page: "/my/visits/jb_seed_12", who: customer, values: ["J-000012", "+97140000001"] },
   ];
   for (const c of cases) {
     test(`${c.page}`, async () => {
