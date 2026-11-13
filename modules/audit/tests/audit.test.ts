@@ -80,6 +80,17 @@ describe("mcp.tool_called (#658)", () => {
     expect(toolCallRow("mcp.tool_called", payload)?.details).not.toHaveProperty("grant_id");
     expect(toolCallRow("mcp.tool_called", { ...payload, grant_id: 5 })?.details).not.toHaveProperty("grant_id");
   });
+
+  test("the refusal count of a coalesced rate-limited call is stored in details (#684)", () => {
+    const row = toolCallRow("mcp.tool_called", { ...payload, outcome: "rate_limited", count: 97 });
+    expect(row?.result).toBe("denied");
+    expect(row?.details).toEqual({ tool: "delete_notes", outcome: "rate_limited", at: 1, count: 97 });
+    expect(() => validate(row)).not.toThrow();
+    // Absent, zero or not an integer: no key at all.
+    for (const count of [undefined, 0, -1, 1.5, "3"]) {
+      expect(toolCallRow("mcp.tool_called", { ...payload, outcome: "rate_limited", count })?.details).not.toHaveProperty("count");
+    }
+  });
 });
 
 describe.skipIf(!worker)("audit", () => {

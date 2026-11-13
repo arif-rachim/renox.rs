@@ -68,7 +68,7 @@ These events become rows with no code in the app (`hooks.ts`, `on`):
 | `org.created`, `org.member_added` | The user |
 | `org.member_removed` | `by`, the user who removed the member |
 | `twofa.reset` (#735) | `by`, the administrator who reset the second factor; `resource_type` `twofa:User`, `resource_id` the user whose factors were deleted |
-| `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome; `details.grant_id` is the owner connector grant the token was minted under, when the event carries it (#748) |
+| `mcp.tool_called` (#658) | The agent: `actor_kind = agent`, `actor_id` the token's user, `client` the agent's client name. Emitted by the cell after every App MCP `tools/call` that passed the token check. `action` is `mcp.tool_called`, `resource_type` `mcp:Tool`, `resource_id` the tool; `result` is `ok` (`ok`, `preview`), `denied` (`forbidden`, `rate_limited`) or `failed` (`input`, `failed`), and `details.outcome` keeps the exact outcome; `details.grant_id` is the owner connector grant the token was minted under, when the event carries it (#748); `details.count` (#684, `rate_limited` only) is how many refused calls the row stands for: the cell audits the first refusal of a token in a one-minute rate window (`count` 1) and writes one more row when the window ends, with the refusals after the first |
 
 ## Append-only
 

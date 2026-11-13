@@ -8,6 +8,11 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - `email` 1.2.0: a `url` that is a path of the app (`/org/accept/<token>`, as `org` writes it in an App MCP request, which has no request origin) is completed with the app's origin: the origin of the request that queues the mail, else the new `app_url` config (an `https://` origin, at most 200 characters); the result must have exactly that origin. `//host`, a backslash, a control character, more than 2,000 characters, any other relative value and any non-`https` scheme are dropped as before. With no origin the link is dropped and one warning `EMAIL_LINK_NO_ORIGIN` is logged. The invitation mail of an agent's `invite_people` or `invite_member` now carries its button (#765).
 - `whatsapp` 1.3.0: the rows of `inbox()`, `outbox()` and `message()` gain `error: string | null`, the provider's failure reason of a failed or retried send (redacted, at most 200 characters, never a token or a secret), and the service `mode()` answers `{ sandbox }`, so an app can show why a message failed and a sandbox banner without reading the module's table or config. (#771)
+- `audit` 1.1.1: the row of a rate-limited App MCP `mcp.tool_called` event keeps the event's optional `count` in `details.count`: the cell writes one row for a token's first refusal in a rate window and one summary row when the window ends. (#684)
+
+**Worker**
+
+- The refused calls of an App MCP token past the rate limit are coalesced per 60 s window: one `mcp.tool_called` event and one `RENOX_TOOL_CALL` line for the first refusal (`count: 1`), then one summary of each (`count`, the refusals after the first) when the window ends, instead of one per call; the 429 is unchanged (`ops.md` sections 15.4 and 19, `errors.md`). (#684)
 
 **Worker**
 

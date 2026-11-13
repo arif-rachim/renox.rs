@@ -95,7 +95,7 @@ const HOOKS: &str = r#"
 export const on = {
   "mcp.tool_called": async (ctx, e) => {
     const p = e.payload;
-    await ctx.db.execute("insert into app__calls (tool, user_id, client, outcome, request_id, at, grant_id) values (?, ?, ?, ?, ?, ?, ?)", [p.tool, p.agent_user_id, p.client, p.outcome, p.request_id, p.at, p.grant_id ?? null]);
+    await ctx.db.execute("insert into app__calls (tool, user_id, client, outcome, request_id, at, grant_id, count) values (?, ?, ?, ?, ?, ?, ?, ?)", [p.tool, p.agent_user_id, p.client, p.outcome, p.request_id, p.at, p.grant_id ?? null, p.count ?? null]);
   },
 };
 "#;
@@ -158,7 +158,7 @@ fn artifact(store: &Path, with_auth: bool, dispatch: bool) -> String {
         std::fs::write(p, src).unwrap();
     }
     let mut app_sql =
-        "create table app__notes (text text);\ncreate table app__calls (tool text, user_id text, client text, outcome text, request_id text, at integer, grant_id text);\ninsert into app__notes values ('a'), ('b');\n"
+        "create table app__notes (text text);\ncreate table app__calls (tool text, user_id text, client text, outcome text, request_id text, at integer, grant_id text, count integer);\ninsert into app__notes values ('a'), ('b');\n"
             .to_string();
     if dispatch {
         app_sql.push_str("create table app__jobs (id text primary key, org text);\ninsert into app__jobs values ('j1', 'o_1'), ('j2', 'o_2');\n");
@@ -835,6 +835,74 @@ async fn the_rate_limit() {
             .status,
         200
     );
+}
+
+/// #684: a token that keeps calling past the limit leaves one event and one
+/// log line for its first refusal and one summary when the window ends (the
+/// timer started with the window), `count` the refusals after the first.
+#[tokio::test]
+async fn a_flood_past_the_limit_is_coalesced_per_window() {
+    use renox_data::{DbOptions, TenantDb, Value};
+    renox_cell::mcp::set_refusal_window_for_tests(Duration::from_millis(2500));
+    let n = node(true);
+    let started = Instant::now();
+    for i in 0..60 {
+        let r = n
+            .call("tok_rate", "list_notes", serde_json::json!({}))
+            .await;
+        assert_eq!(r.status, 200, "call {i}: {}", r.body);
+    }
+    let mut refused = 0i64;
+    for _ in 0..100 {
+        let r = n
+            .call("tok_rate", "list_notes", serde_json::json!({}))
+            .await;
+        if r.status == 429 {
+            refused += 1;
+        }
+    }
+    assert!(
+        started.elapsed() < Duration::from_millis(2000),
+        "one window"
+    );
+    assert!(refused >= 90, "refused {refused}");
+    // 60 ok + the first refusal + the summary, written when the window ends.
+    let rows = tool_calls(&n, 62).await;
+    assert_eq!(rows.len(), 62, "{rows:?}");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let db = TenantDb::open(n.data.join("t_mcp").join("app.db"), DbOptions::default()).unwrap();
+    let counts: Vec<i64> = db
+        .query(
+            "select count from app__calls where outcome = 'rate_limited' order by count",
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|r| match r.get("count") {
+            Some(Value::Integer(c)) => *c,
+            _ => 0,
+        })
+        .collect();
+    drop(db);
+    assert_eq!(counts.len(), 2, "{counts:?}");
+    assert_eq!(counts[0], 1);
+    assert_eq!(counts[1] + 1, refused, "{counts:?}");
+    let lines: Vec<_> = n
+        .logs
+        .lines()
+        .into_iter()
+        .filter(|l| {
+            l.fields.get("code").and_then(|c| c.as_str()) == Some("RENOX_TOOL_CALL")
+                && l.fields.get("outcome").and_then(|c| c.as_str()) == Some("rate_limited")
+        })
+        .collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    let mut line_counts: Vec<i64> = lines
+        .iter()
+        .map(|l| l.fields["count"].as_i64().unwrap())
+        .collect();
+    line_counts.sort();
+    assert_eq!(line_counts, counts);
 }
 
 /// A revoked token is refused after the `auth.agent_token_revoked` event,
