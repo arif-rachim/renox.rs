@@ -97,3 +97,6 @@ main fieldset { min-inline-size: 0; }
 main :is(li, dd, p) { overflow-wrap: anywhere; }
 /* An outside bullet sticks out of the page by 2 px at the reading edge of a phone in Arabic (it made the page scroll): inside keeps it on the line. */
 main :is(ul, ol):not([class]) { list-style-position: inside; padding-inline-start: 0; }
+
+/* A row of links as a list (the days of /book and of a visit's change step): no bullets, which overlap the flex items at phone width. */
+ul.row { list-style: none; padding-inline-start: 0; }

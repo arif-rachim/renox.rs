@@ -13,7 +13,7 @@
       <p><label><r-t key="book.f.emirate" /> <select name="emirate" required id="f-emirate" :aria-invalid="true if errors.emirate else false" :aria-describedby="'err-emirate' if errors.emirate else none" aria-required="true">
         <option value=""><r-t key="book.choose" /></option>
         <option r-for="e in emirates" :value="e.code" :selected="e.code == values.emirate">{{ e.name }}</option>
-      </select></label> <button type="submit" name="step" value="1"><r-t key="book.show_areas" /></button></p>
+      </select></label> <button type="submit" name="step" value="1" formnovalidate><r-t key="book.show_areas" /></button></p>
       <p r-if="areas"><label><r-t key="book.f.area" /> <select name="area" required id="f-area" :aria-invalid="true if errors.area else false" :aria-describedby="'err-area' if errors.area else none" aria-required="true">
         <option value=""><r-t key="book.choose" /></option>
         <option r-for="a in areas" :value="a.value" :selected="a.selected">{{ a.name }}</option>

@@ -93,6 +93,8 @@ describe("the three steps, signed out", () => {
     expect(res.html).toContain('name="service"');
     expect(res.html).toMatch(/<option value="AE-DU"[^>]*>Dubai<\/option>/u);
     expect(res.html).toContain("Choose your emirate, then Show the areas.");
+    // "Show the areas" re-renders step 1 before the address is typed: the browser must not block it on the required fields below (found in the epic's manual run).
+    expect(res.html).toMatch(/<button type="submit" name="step" value="1" formnovalidate/u);
     // The only cookies are the platform's page session and CSRF pair, which every page route gets (#775 "Needs human"): no auth session, nothing of the app.
     const names = res.headers.getSetCookie().map((c) => c.split("=")[0]);
     expect(names.every((n) => n === "__Host-renox_sid" || n === "__Host-renox_csrf")).toBe(true);

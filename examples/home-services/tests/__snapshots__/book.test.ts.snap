@@ -37,7 +37,7 @@ exports[`the three steps, signed out step 1 lists the bookable services with the
       <p><label>Emirate <select name="emirate" required id="f-emirate" aria-required="true">
         <option value="">Choose</option>
         <option value="AE-AZ" dir="auto">Abu Dhabi</option><option value="AE-DU" dir="auto">Dubai</option><option value="AE-SH" dir="auto">Sharjah</option><option value="AE-AJ" dir="auto">Ajman</option><option value="AE-UQ" dir="auto">Umm Al Quwain</option><option value="AE-RK" dir="auto">Ras Al Khaimah</option><option value="AE-FU" dir="auto">Fujairah</option>
-      </select></label> <button type="submit" name="step" value="1">Show the areas</button></p>
+      </select></label> <button type="submit" name="step" value="1" formnovalidate>Show the areas</button></p>
       <p class="muted" id="f-area" tabindex="-1">Choose your emirate, then Show the areas.</p>
       <p><label>Address <input name="address" minlength="5" maxlength="200" autocomplete="street-address" value="" required id="f-address" aria-required="true" dir="auto"></label></p>
       <p><label>Makani number (optional) <input name="makani" dir="ltr" inputmode="numeric" maxlength="20" value="" id="f-makani"></label></p>
@@ -94,7 +94,7 @@ exports[`the three steps, signed out step 1 again with an emirate fills its area
       <p><label>الإمارة <select name="emirate" required id="f-emirate" aria-required="true">
         <option value="">اختر</option>
         <option value="AE-AZ" dir="auto">أبوظبي</option><option value="AE-DU" selected dir="auto">دبي</option><option value="AE-SH" dir="auto">الشارقة</option><option value="AE-AJ" dir="auto">عجمان</option><option value="AE-UQ" dir="auto">أم القيوين</option><option value="AE-RK" dir="auto">رأس الخيمة</option><option value="AE-FU" dir="auto">الفجيرة</option>
-      </select></label> <button type="submit" name="step" value="1">اعرض المناطق</button></p>
+      </select></label> <button type="submit" name="step" value="1" formnovalidate>اعرض المناطق</button></p>
       <p><label>المنطقة <select name="area" required id="f-area" aria-required="true">
         <option value="">اختر</option>
         <option value="Al Barsha" dir="auto">البرشاء</option><option value="Al Karama" dir="auto">الكرامة</option><option value="Al Nahda (Dubai)" dir="auto">النهدة (دبي)</option><option value="Al Quoz" dir="auto">القوز</option><option value="Bur Dubai" dir="auto">بر دبي</option><option value="Business Bay" dir="auto">الخليج التجاري</option><option value="Deira" dir="auto">ديرة</option><option value="Downtown Dubai" dir="auto">وسط مدينة دبي</option><option value="Dubai Hills Estate" dir="auto">دبي هيلز استيت</option><option value="Dubai Investments Park" dir="auto">مجمع دبي للاستثمار</option><option value="Dubai Marina" dir="auto">دبي مارينا</option><option value="Dubai Silicon Oasis" dir="auto">واحة دبي للسيليكون</option><option value="Jebel Ali" dir="auto">جبل علي</option><option value="Jumeirah" dir="auto">جميرا</option><option value="Jumeirah Lake Towers" dir="auto">أبراج بحيرات جميرا</option><option value="Mirdif" dir="auto">مردف</option>
