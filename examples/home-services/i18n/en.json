@@ -878,7 +878,8 @@
     "user_id": "Person",
     "branch": "Branch",
     "file_key": "File",
-    "hours": "Working hours"
+    "hours": "Working hours",
+    "display_name": "Your name"
   },
   "problem": {
     "title": "The form could not be saved",
@@ -921,5 +922,27 @@
   },
   "people": {
     "twofa_reset": "Your second factor was reset by {owner}. If this was not expected, tell your manager."
+  },
+  "portal": {
+    "title": "My account",
+    "nav_label": "My account",
+    "greeting": "Hello, {name}",
+    "greeting_anon": "Welcome",
+    "signed_in_as": "Signed in with",
+    "sign_out": "Sign out",
+    "linked": "Your customer records with us: {count}.",
+    "none_linked": "We do not have a customer record with this phone number yet.",
+    "name": {
+      "title": "Your name",
+      "hint": "Tell us your name so our team knows who you are.",
+      "save": "Save",
+      "saved": "Thank you, your name is saved.",
+      "err": "Enter a name of 1 to 80 characters."
+    },
+    "staff_phone": {
+      "title": "Sign in with your email and password",
+      "body": "Staff accounts cannot sign in with a phone code. Please sign in with your email and password.",
+      "signin": "Sign in with email"
+    }
   }
 }

@@ -16,6 +16,7 @@ import { app, snapshot } from "@renoxium/sdk/test";
 
 import { inkOn, lineOn, PAPER, ratio } from "../lib/contrast";
 import { tokenHash } from "../lib/links";
+import { phoneSignIn } from "./outbox";
 
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -57,6 +58,9 @@ const owner = await ownerWithSecondFactor();
 const accountant = await signIn("accountant", "accountant.dubai@fixit.example");
 const ali = await signIn("ali", "ali.dubai@fixit.example", "/me");
 const manager = await signIn("manager", "manager.dubai@fixit.example", "/customers");
+// A portal customer (#774): Peter Nowak (cu_dxb_02) signs up with his phone, through auth's phone pages.
+const customer = t.as("customer");
+expect((await phoneSignIn(customer, (sql, params) => t.db.query(sql, params), (sql, params) => rw((db) => db.run(sql, params)), "+971521110002", "/my")).status).toBe(303);
 
 // What the seed does not hold: the customer's invoice and report links (only a hash is stored), and two
 // spreadsheet imports (a file with errors and a clean one), written the way the app writes them.
@@ -247,6 +251,7 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/me/visits/jb_seed_10", as: () => ali, note: "before check-in" },
   { path: "/me/visits/jb_seed_06", as: () => ali, note: "visit open" },
   { path: "/me/visits/jb_seed_12", as: () => ali, note: "visit closed" },
+  { path: "/my", as: () => customer, note: "the customer portal" },
 ];
 
 const withLang = (path: string, lang: string) => `${path}${path.includes("?") ? "&" : "?"}lang=${lang}`;

@@ -9,6 +9,14 @@ declare module "renox:modules" {
     currentUser(): Promise<{ id: string; email: string; display_name: string } | null>;
     /** The account and a confirmation (sign-in) link by mail; the same `message` whether or not the email was taken (#711: the setup's owner). */
     register(input: { email: string; password: string; display_name?: string }): Promise<{ message: string } | { error: string }>;
+    /** The signed-in user's verified phone in E.164, or null (#794): the customer portal links customers by it. */
+    verifiedPhone(): Promise<string | null>;
+    /** Whether the signed-in user has a password: false for a phone-only account (#773). */
+    hasPassword(): Promise<boolean>;
+    /** Sets the signed-in user's display name (1 to 80 characters, trimmed). */
+    setDisplayName(name: string): Promise<{ display_name: string } | { error: string }>;
+    /** Ends this request's session; `cookie` clears the browser's. */
+    logout(): Promise<{ cookie: string }>;
   };
   export const i18n: {
     detectLocale(who?: { user_id?: string | null; org_locale?: string | null }): Promise<{ locale: string; dir: "ltr" | "rtl"; alternates: { locale: string; href: string; current: boolean }[] }>;

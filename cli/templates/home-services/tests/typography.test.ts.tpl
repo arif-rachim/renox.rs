@@ -2,11 +2,14 @@
 // from @fontsource/noto-sans-arabic, small), an app.css with logical properties only, numbers, codes and phones isolated
 // left to right on every page that prints them, and an Arabic catalogue with nothing left in English. The layout itself is
 // audited in a browser by bench/lighthouse/rtl-audit.ts.
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "@renoxium/sdk/test";
+
+import { phoneSignIn } from "./outbox";
 
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -22,6 +25,18 @@ async function signIn(jar: string, email: string, next = "/") {
 const dispatcher = await signIn("dispatcher", "dispatcher.dubai@fixit.example");
 const accountant = await signIn("accountant", "accountant.dubai@fixit.example");
 const ali = await signIn("ali", "ali.dubai@fixit.example", "/me");
+// A portal customer (#774): Fatima Al Suwaidi (cu_dxb_03) signs up with her phone, through auth's phone pages.
+const customer = t.as("customer");
+const plant = (sql: string, params: (string | number | null)[]) => {
+  const db = new Database(t.dbFile);
+  db.exec("pragma busy_timeout = 5000");
+  try {
+    db.run(sql, params);
+  } finally {
+    db.close();
+  }
+};
+expect((await phoneSignIn(customer, (sql, params) => t.db.query(sql, params), plant, "+971551110003", "/my")).status).toBe(303);
 
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 
@@ -104,6 +119,7 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/customers/cu_dxb_04", who: dispatcher, values: ["+97144110004", "100123456700003", "ops@marinaheights.example"] },
     { page: "/quotes/qt_seed_02", who: dispatcher, values: ["Q-000002", "+971521110002"] },
     { page: "/invoices/INV-000001", who: accountant, values: ["INV-000001", "J-000013"] },
+    { page: "/my", who: customer, values: ["+971551110003"] },
   ];
   for (const c of cases) {
     test(`${c.page}`, async () => {
