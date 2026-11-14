@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { UserError, ValidationError } from "../errors.ts";
 import { readLock, writeLock } from "../lib/modules/lock.ts";
 import { CSP_DIRECTIVES, type Permissions } from "../lib/modules/manifest.ts";
-import { readModulesTable, resolveModules } from "../lib/modules/resolve.ts";
+import { lockEntryOf, readModulesTable, resolveModules } from "../lib/modules/resolve.ts";
 
 export interface PermissionDiff {
   added: Record<string, string[]>;
@@ -81,9 +81,11 @@ export async function approve(project: string, name: string, confirm: (lines: st
     `  isolation: ${m.spec.isolation ?? m.manifest.isolation}`,
   ];
   if (!(await confirm(lines))) return { diff, from, to: m.manifest.version, migrations, written: false };
+  // #792: the resolved config and dependencies are what `renox add` writes (lockEntryOf), so a key the new version declares is in the lock.
+  const fresh = lockEntryOf(m);
   const next = entries.map((e) =>
     e.name === name
-      ? { ...e, version: m.manifest.version, hash: m.hash, approved: m.manifest.permissions, approved_version: m.manifest.version, ...(m.sig ? { key_id: m.sig.key_id, signature: m.sig.signature } : {}) }
+      ? { ...e, version: m.manifest.version, hash: m.hash, config: fresh.config, dependencies: fresh.dependencies, approved: m.manifest.permissions, approved_version: m.manifest.version, ...(m.sig ? { key_id: m.sig.key_id, signature: m.sig.signature } : {}) }
       : e,
   );
   writeLock(project, next);

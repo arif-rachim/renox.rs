@@ -128,6 +128,16 @@ describe("the owner connector's bridge (#698)", () => {
     expect(all).not.toContain("Q".repeat(40));
   });
 
+  test("#801: update_settings with the portal settings reaches the app's tool with the same arguments, so online auto-confirm turns on", async () => {
+    const s = await setup();
+    const settings = { portal: { auto_confirm: true, cutoff_hours: 24, max_reschedules: 1 } };
+    const result = await requestScope.run({ tenantId: TENANT, scoped: false }, () => s.bridge.callAppTool(s.agent, APP, "update_settings", { settings }));
+    expect(result).toMatchObject({ ok: true, untrusted: true, result: { tool: "update_settings", arguments: { settings } } });
+    expect(s.nodeCalls[0]?.body).toMatchObject({ scopes: ["tools:update_settings"] });
+    expect(s.appCalls).toHaveLength(1);
+    expect((s.appCalls[0] as Stubs["appCalls"][number]).body).toEqual({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_settings", arguments: { settings } } });
+  });
+
   test("the token is kept per (access token, app, scopes) until 30 s before it expires, then minted again", async () => {
     const s = await setup();
     const call = (tool = "list_branches", scopes?: string[], agent = s.agent) => s.bridge.callAppTool(agent, APP, tool, {}, scopes === undefined ? {} : { scopes });

@@ -133,7 +133,11 @@ const SETTINGS_LABELS: Record<string, string> = {
   "footers.invoice": "invoice footer",
   "footers.quote": "quote footer",
   "footers.job_card": "job card footer",
+  "portal.auto_confirm": "confirm online bookings automatically",
+  "portal.cutoff_hours": "customers may change a visit until (hours before)",
+  "portal.max_reschedules": "reschedules allowed per visit",
 };
+const PORTAL_RANGES = { cutoff_hours: 168, max_reschedules: 5 } as const;
 export const NOT_SUPPORTED = "not supported by this app's template";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -154,7 +158,7 @@ const onlyKeys = (o: Record<string, unknown>, keys: string[], where: string): st
 /** The `settings` object of `update_settings`, trimmed; a message when it is not one. */
 function settingsProblem(v: unknown): string | null {
   if (!isObj(v)) return "invalid argument settings";
-  const extra = onlyKeys(v, ["brand_name", "brand_color", "sender_name", "accounts_email", "footers"], "settings");
+  const extra = onlyKeys(v, ["brand_name", "brand_color", "sender_name", "accounts_email", "footers", "portal"], "settings");
   if (extra !== null) return extra;
   if (Object.keys(v).length === 0) return "invalid argument settings: name at least one setting";
   if (v.brand_name !== undefined && !lenOk(v.brand_name, 1, 80)) return "invalid argument settings.brand_name: 1 to 80 characters";
@@ -167,6 +171,17 @@ function settingsProblem(v: unknown): string | null {
     if (fx !== null) return fx;
     if (Object.keys(v.footers).length === 0) return "invalid argument settings.footers: name at least one footer";
     for (const [k, f] of Object.entries(v.footers)) if (!lenOk(f, 0, 500)) return `invalid argument settings.footers.${k}: 0 to 500 characters`;
+  }
+  if (v.portal !== undefined) {
+    if (!isObj(v.portal)) return "invalid argument settings.portal";
+    const px = onlyKeys(v.portal, ["auto_confirm", "cutoff_hours", "max_reschedules"], "settings.portal");
+    if (px !== null) return px;
+    if (Object.keys(v.portal).length === 0) return "invalid argument settings.portal: name at least one key";
+    if (v.portal.auto_confirm !== undefined && typeof v.portal.auto_confirm !== "boolean") return "invalid argument settings.portal.auto_confirm: true or false";
+    for (const [k, max] of Object.entries(PORTAL_RANGES)) {
+      const n = v.portal[k];
+      if (n !== undefined && !(typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= max)) return `invalid argument settings.portal.${k}: a whole number from 0 to ${max}`;
+    }
   }
   return null;
 }
@@ -429,7 +444,7 @@ const OWNER_TOOLS: Tool[] = [
     name: "update_settings",
     title: "Change the company name, colours, sender and footers",
     description:
-      "Change the app's settings: brand_name, brand_color (#RRGGBB), sender_name, accounts_email, and the invoice, quote and job card footers. Name only the settings to change. Needs confirmation and the app:settings scope. The answer is the settings after the change.",
+      "Change the app's settings: brand_name, brand_color (#RRGGBB), sender_name, accounts_email, the invoice, quote and job card footers, and the customer portal (portal: auto_confirm, cutoff_hours 0 to 168, max_reschedules 0 to 5). Name only the settings to change. Needs confirmation and the app:settings scope. The answer is the settings after the change.",
     scope: "app:settings",
     mutating: true,
     bridged: true,
@@ -452,6 +467,16 @@ const OWNER_TOOLS: Tool[] = [
               additionalProperties: false,
               properties: { invoice: { type: "string", maxLength: 500 }, quote: { type: "string", maxLength: 500 }, job_card: { type: "string", maxLength: 500 } },
             },
+            portal: {
+              type: "object",
+              minProperties: 1,
+              additionalProperties: false,
+              properties: {
+                auto_confirm: { type: "boolean" },
+                cutoff_hours: { type: "integer", minimum: 0, maximum: 168 },
+                max_reschedules: { type: "integer", minimum: 0, maximum: 5 },
+              },
+            },
           },
         },
         confirmation_token: CONFIRMATION,
@@ -468,10 +493,11 @@ const OWNER_TOOLS: Tool[] = [
       const flat: [string, unknown, unknown][] = [];
       for (const [k, v] of Object.entries(next)) {
         if (k === "footers" && isObj(v)) for (const [f, x] of Object.entries(v)) flat.push([`footers.${f}`, isObj(before.footers) ? before.footers[f] : undefined, x]);
+        else if (k === "portal" && isObj(v)) for (const [f, x] of Object.entries(v)) flat.push([`portal.${f}`, isObj(before.portal) ? before.portal[f] : undefined, x]);
         else flat.push([k, before[k], v]);
       }
       const line = ([k, old, now]: [string, unknown, unknown]) => {
-        const show = (x: unknown) => (x === undefined || x === null || x === "" ? "(not set)" : k.startsWith("footers.") ? `"${short(x, 60)}"` : short(x));
+        const show = (x: unknown) => (typeof x === "boolean" ? (x ? "on" : "off") : x === undefined || x === null || x === "" ? "(not set)" : k.startsWith("footers.") ? `"${short(x, 60)}"` : short(x));
         return `${SETTINGS_LABELS[k] ?? k}: ${show(old)} → ${show(now)}`;
       };
       return `Change ${brand}'s settings: ${flat.map(line).join("; ")}.`;

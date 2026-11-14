@@ -4,6 +4,9 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.16 (unreleased)
 
+**CLI**
+
+- `renox approve <module>` writes the module's resolved `config` and `dependencies` into its lock entry, the same values `renox add` writes, so a config key a new version declares (`auth` 1.3.0's `phone_signup`) no longer fails `renox check` with MF12 until the lock is edited by hand; the MF12 message for `config` now says `run renox approve <module>`. `renox add <module>` keeps the `approved_version` line of the app's other modules instead of dropping it. (#792)
 **Modules**
 
 - `booking` 1.1.0: the reminder job reads its payload from `ctx.job.payload` (the runtime calls `run(ctx)` with one argument; before, every reminder run was a no-op, so no reminder was ever sent). New hook `booking.remind` (`{ booking_id, kind, customer, service, start_at, handled }`): a filler that delivers the reminder itself (WhatsApp, SMS) sets `handled = true`; when none did, the email goes as before and is skipped without error when `customer` is not an auth user with an email. A run without a payload logs one warning. (#799)

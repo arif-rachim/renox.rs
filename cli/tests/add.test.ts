@@ -198,3 +198,51 @@ test("renox approve works for a module with dependencies (no MF5)", async () => 
   expect(projectProblems(dir)).toEqual([]);
   rmSync(dir, { recursive: true });
 });
+
+// #792: renox approve writes the resolved config into the lock, so a key a new version declares needs no hand edit.
+test("renox approve after a version adds a config key: renox check passes with no hand edit (#792)", async () => {
+  const dir = shop();
+  await capture(() => addModule(dir, "auth", { source: "path:modules/auth", yes: true }));
+  await capture(() => addModule(dir, "org", { source: "path:modules/org", yes: true }));
+  expect(projectProblems(dir)).toEqual([]);
+  const manifest = join(dir, "modules", "auth", "module.toml");
+  writeFileSync(
+    manifest,
+    readFileSync(manifest, "utf8")
+      .replace('version = "1.0.0"', 'version = "1.1.0"')
+      .replace("[permissions]", 'phone_signup = { type = "bool", default = false }\n\n[permissions]'),
+  );
+  const config = projectProblems(dir).find((p) => p.message.startsWith("auth.config "));
+  expect(config?.rule).toBe("MF12");
+  expect(config?.message).toContain("run renox approve auth to update the lock");
+  const r = await approve(dir, "auth", async () => true);
+  expect(r.written).toBe(true);
+  const lock = readLock(dir).entries?.find((e) => e.name === "auth");
+  expect(lock?.config).toEqual({ registration: "open", session_days: 30, phone_signup: false });
+  expect(lock?.approved_version).toBe("1.1.0");
+  expect(projectProblems(dir)).toEqual([]);
+  rmSync(dir, { recursive: true });
+});
+
+// #792: renox add rewrites the whole lock; the other modules' entries must stay byte for byte, approved_version included.
+test("renox add keeps the other modules' lock entries byte for byte, approved_version included (#792)", async () => {
+  const dir = app({}, [
+    { name: "alpha", version: "1.0.0" },
+    { name: "beta", version: "1.0.0" },
+    { name: "gamma", version: "1.0.0" },
+  ]);
+  for (const n of ["alpha", "beta", "gamma"]) await capture(() => addModule(dir, n, { source: `path:modules/${n}`, yes: true }));
+  // alpha and gamma carry an approval from an older version, as after a renox install upgrade.
+  const lockPath = join(dir, "renox.lock");
+  const withOld = readFileSync(lockPath, "utf8").replace(/^(name = "(alpha|gamma)"\nversion = "1.0.0"\nsource = .*\nhash = .*\n)/gmu, '$1approved_version = "0.9.0"\n');
+  writeFileSync(lockPath, withOld);
+  const entries = (text: string) => Object.fromEntries(text.split("[[module]]\n").slice(1).map((b) => [/name = "(\w+)"/u.exec(b)?.[1] as string, b]));
+  const before = entries(readFileSync(lockPath, "utf8"));
+  expect(before.alpha).toContain('approved_version = "0.9.0"');
+  expect(before.gamma).toContain('approved_version = "0.9.0"');
+  await capture(() => addModule(dir, "beta", { yes: true }));
+  const after = entries(readFileSync(lockPath, "utf8"));
+  expect(after.alpha).toBe(before.alpha);
+  expect(after.gamma).toBe(before.gamma);
+  rmSync(dir, { recursive: true });
+});
