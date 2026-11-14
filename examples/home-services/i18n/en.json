@@ -386,6 +386,21 @@
       "phase": "Choose before or after.",
       "action_id": "The action id is not valid."
     },
+    "queue": {
+      "waiting": "{n} actions waiting to be sent",
+      "waiting_one": "1 action waiting to be sent",
+      "sending": "Sending…",
+      "all_sent": "All sent",
+      "sign_in": "Sign in again to send {n} saved actions",
+      "other": "{n} actions of another account are waiting; sign in as that user to send them",
+      "refused": "{n} saved actions were not accepted by the server: {reason}",
+      "not_sent": "not sent yet",
+      "old": "saved more than 72 hours ago",
+      "too_many": "Too many saved actions, please get a connection",
+      "no_storage": "This phone could not save the action, please get a connection",
+      "checked_in": "Checked in",
+      "checked_out": "Checked out"
+    },
     "conflict": {
       "job_cancelled": "The office cancelled this job. Nothing was saved.",
       "job_reassigned": "This job was given to another technician. Nothing was saved.",

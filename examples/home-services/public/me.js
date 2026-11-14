@@ -11,34 +11,54 @@
 // - On /me, the links carrying `data-prefetch` are today's visits: at most 15 are sent
 //   to the worker, which fetches and keeps them one at a time.
 (() => {
+  // The one IndexedDB database of the technician pages (#807, #808): `kv` keeps the signed-in user id for the
+  // service worker, `actions` is the offline action queue (public/offline-queue.js). Version 2 added `actions`.
+  // public/sw.js opens the same database and must name the same version and stores: keep both in step
+  // (tests/offline-queue.test.ts compares them).
   const DB = "hs-offline";
+  const DB_VERSION = 2;
   const KV = "kv";
   const DAY = "hs-day-";
   const MAX_PREFETCH = 15;
 
-  /** One IndexedDB operation on the key-value store; resolves null when IndexedDB is not usable. */
-  const kv = (mode, op) =>
+  /** Opens `hs-offline`, creating the stores a version lacks; resolves null when IndexedDB is not usable. */
+  const openDb = () =>
     new Promise((resolve) => {
       try {
-        const open = indexedDB.open(DB, 1);
-        open.onupgradeneeded = () => open.result.createObjectStore(KV);
-        open.onerror = () => resolve(null);
-        open.onsuccess = () => {
+        const open = indexedDB.open(DB, DB_VERSION);
+        open.onupgradeneeded = () => {
           const db = open.result;
-          const req = op(db.transaction(KV, mode).objectStore(KV));
-          req.onsuccess = () => {
-            db.close();
-            resolve(req.result === undefined ? null : req.result);
-          };
-          req.onerror = () => {
-            db.close();
-            resolve(null);
-          };
+          if (!db.objectStoreNames.contains(KV)) db.createObjectStore(KV);
+          if (!db.objectStoreNames.contains("actions")) db.createObjectStore("actions", { keyPath: "seq", autoIncrement: true });
         };
+        open.onerror = () => resolve(null);
+        open.onsuccess = () => resolve(open.result);
       } catch {
         resolve(null);
       }
     });
+
+  /** One IndexedDB operation on the key-value store; resolves null when IndexedDB is not usable. */
+  const kv = async (mode, op) => {
+    const db = await openDb();
+    if (db === null) return null;
+    return new Promise((resolve) => {
+      try {
+        const req = op(db.transaction(KV, mode).objectStore(KV));
+        req.onsuccess = () => {
+          db.close();
+          resolve(req.result === undefined ? null : req.result);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      } catch {
+        db.close();
+        resolve(null);
+      }
+    });
+  };
 
   const dayCaches = async (keep) => {
     if (!("caches" in window)) return;
@@ -69,6 +89,15 @@
     }
   };
 
+  /**
+   * Whether this document came through the service worker. Not `navigator.serviceWorker.controller`: the worker's
+   * `clients.claim()` may set it after a page that the worker never saw was loaded, and that page must be kept too.
+   */
+  const servedByWorker = () => {
+    const nav = typeof performance !== "undefined" && performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : undefined;
+    return nav !== undefined && nav.workerStart > 0;
+  };
+
   const prefetch = async (firstLoad) => {
     if (!("serviceWorker" in navigator)) return;
     const urls = [...document.querySelectorAll("a[data-prefetch]")]
@@ -82,19 +111,26 @@
     if (reg.active) reg.active.postMessage({ type: "prefetch", urls: urls.slice(0, MAX_PREFETCH + 1) });
   };
 
-  /** Asks the server; "online", "out" (signed out or not a technician) or "offline". */
+  /** Asks the server; "online", "out" (signed out or not a technician) or "offline". No answer in 8 s is "offline". */
   const ping = async () => {
     if (!navigator.onLine) return { state: "offline" };
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 8000);
     try {
-      const res = await fetch("/me/ping", { cache: "no-store", credentials: "same-origin", redirect: "manual" });
+      const res = await fetch("/me/ping", { cache: "no-store", credentials: "same-origin", redirect: "manual", signal: stop.signal });
       if (res.status === 204) return { state: "online", user: res.headers.get("x-hs-user") || "" };
       if (res.type === "opaqueredirect" || res.status === 401 || res.status === 403) return { state: "out" };
       // Any other answer (a 5xx from the edge or the app): the server is not usable, nothing says the user signed out.
       return { state: "offline" };
     } catch {
       return { state: "offline" };
+    } finally {
+      clearTimeout(timer);
     }
   };
+
+  // The offline queue (public/offline-queue.js, #808) asks the same question and opens the same database.
+  window.hsMe = { ping, openDb };
 
   let started = false;
   const check = async () => {
@@ -115,7 +151,7 @@
     }
     if (!started) {
       started = true;
-      prefetch(!navigator.serviceWorker || !navigator.serviceWorker.controller).catch(() => {});
+      prefetch(!servedByWorker()).catch(() => {});
     }
   };
 

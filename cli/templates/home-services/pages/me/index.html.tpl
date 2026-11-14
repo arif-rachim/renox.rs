@@ -3,6 +3,7 @@
   <div class="touch">
   <meta name="hs-user" content="{{ user_id }}">
   <p id="offline-banner" class="warning" hidden role="status" :data-saved-at="saved_at"><r-t key="visits.offline" /> <bdi dir="ltr" id="offline-time"></bdi>.</p>
+  <x-queue-status />
   <h1><r-t key="visits.title" /></h1>
   <p class="muted"><r-t key="visits.today" /></p>
   <ul class="visit-list" r-if="visits">
@@ -16,5 +17,7 @@
     </li>
   </ul>
   <p r-else id="no-visits"><r-t key="visits.none" /></p>
+  <script src="/offline-queue-core.js" defer></script>
+  <script src="/offline-queue.js" defer></script>
   </div>
 </r-layout>

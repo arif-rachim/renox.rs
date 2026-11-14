@@ -13,20 +13,43 @@
 //
 // STAND-IN, to be removed with #832 (platform gap): a page loader cannot set a response
 // header (docs/contracts/ops.md section 14: a loader returns an object or a whole
-// Response), so the app cannot send `x-hs-offline-ok: 1` yet. `withLoaderHeader` below
-// is a small reverse proxy that adds exactly that header to the two day pages, and the
-// browser talks to the proxy. Nothing else about the worker, me.js or the pages is faked.
+// Response), so the app cannot send `x-hs-offline-ok: 1` yet. `withLoaderHeader` (in
+// ./stand-in.ts, shared with offline-queue.test.ts) is a small reverse proxy that adds
+// exactly that header to the two day pages, and the browser talks to the proxy. Nothing
+// else about the worker, me.js or the pages is faked.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, copyFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
+import { withLoaderHeader } from "./stand-in";
+
 const repo = join(import.meta.dir, "../../../..");
 const cli = join(repo, "cli/src/commands");
 const inRepo = existsSync(join(cli, "dev.ts")) && existsSync(join(repo, "control/dashboard/tests/playwright.ts"));
 const worker = process.env.RENOX_WORKER_PATH || undefined;
 const insideRenoxTest = process.env.RENOX_TEST_SPEC !== undefined && process.env.RENOX_JOURNEY !== "1";
+
+
+/**
+ * Polls `check` until it is true. Not `page.waitForFunction`: a string predicate is compiled with `new Function` in
+ * the page, which the page CSP refuses (no `unsafe-eval`), and a predicate that returns a Promise counts as true at
+ * once. `page.evaluate` of an expression runs outside the page CSP and awaits the Promise. A page that is navigating
+ * meanwhile makes it throw: that is a "not yet".
+ */
+async function until(what: string, check: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if ((await check()) === true) return;
+    } catch {
+      // the page is navigating
+    }
+    if (Date.now() > end) throw new Error(`timed out waiting for: ${what}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 
 interface Locator {
   count(): Promise<number>;
@@ -87,38 +110,6 @@ if (process.env.RENOX_JOURNEY === "1" && (!process.env.PLAYWRIGHT_PATH || playwr
 const PASSWORD = "correct horse battery";
 const ALI = { email: "ali.dubai@fixit.example", id: "u_dxb_ali", visit: "jb_seed_10" };
 const BILAL = { email: "bilal.dubai@fixit.example" };
-
-const OFFLINE_OK_PAGE = /^\/me(\/visits\/[^/]+)?$/u;
-
-/**
- * STAND-IN (see the header): a reverse proxy to `upstream` that adds `x-hs-offline-ok: 1` to a 200
- * HTML answer for `/me` and `/me/visits/<id>` only, as the two loaders will when the platform lets a
- * page set a header. Redirects stay redirects; Origin and Referer are rewritten to the upstream's.
- */
-function withLoaderHeader(upstream: string): { port: number; stop: () => void } {
-  const up = new URL(upstream);
-  const server = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    async fetch(req) {
-      const url = new URL(req.url);
-      const headers = new Headers(req.headers);
-      headers.delete("host");
-      if (headers.has("origin")) headers.set("origin", up.origin);
-      if (headers.has("referer")) headers.set("referer", up.origin + new URL(headers.get("referer") as string).pathname + new URL(headers.get("referer") as string).search);
-      headers.delete("accept-encoding");
-      const res = await fetch(up.origin + url.pathname + url.search, { method: req.method, headers, body: req.body, redirect: "manual" });
-      const out = new Headers(res.headers);
-      out.delete("content-encoding");
-      out.delete("content-length");
-      const location = out.get("location");
-      if (location) out.set("location", location.replace(up.origin, `http://localhost:${server.port}`));
-      if (req.method === "GET" && res.status === 200 && OFFLINE_OK_PAGE.test(url.pathname) && (out.get("content-type") ?? "").startsWith("text/html")) out.set("x-hs-offline-ok", "1");
-      return new Response(res.body, { status: res.status, headers: out });
-    },
-  });
-  return { port: server.port as number, stop: () => void server.stop(true) };
-}
 
 describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline reading of the technician pages in Chromium", () => {
   let dev: Dev;
@@ -182,16 +173,17 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
     })()`);
 
   /** Waits until the worker has kept `paths` for `user` (the first /me and the prefetched visits). */
-  const kept = (page: Page, user: string, paths: string[]): Promise<unknown> =>
-    page.waitForFunction(
-      `(async () => {
+  const kept = (page: Page, user: string, paths: string[]): Promise<void> =>
+    until(
+      `the worker keeps ${paths.join(", ")} for ${user}`,
+      () =>
+        page.evaluate<boolean>(`(async () => {
         const name = "hs-day-v1-${user}";
         if (!(await caches.keys()).includes(name)) return false;
         const have = (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname);
         return ${JSON.stringify(paths)}.every((p) => have.includes(p));
-      })()`,
-      undefined,
-      { timeout: 20_000 },
+      })()`),
+      20_000,
     );
 
   test("today's /me and a visit open offline as a saved copy with the banner; /jobs never enters the cache", async () => {
@@ -201,11 +193,11 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
       // Online: no banner; the worker keeps /me and the visit pages listed on it, and me.js keeps the user id.
       await kept(page, ALI.id, ["/me", `/me/visits/${ALI.visit}`]);
       expect(await page.locator("#offline-banner").isHidden()).toBe(true);
-      await page.waitForFunction(`new Promise((ok) => { const r = indexedDB.open("hs-offline", 1); r.onsuccess = () => { const g = r.result.transaction("kv").objectStore("kv").get("user"); g.onsuccess = () => ok(g.result === "${ALI.id}"); }; })`, undefined, { timeout: 10_000 });
+      await until("new Promise((ok) => { const r = indexedDB.open(\"hs-offline\"); r.onsucc", () => page.evaluate<boolean>(`new Promise((ok) => { const r = indexedDB.open("hs-offline"); r.onsuccess = () => { const g = r.result.transaction("kv").objectStore("kv").get("user"); g.onsuccess = () => ok(g.result === "${ALI.id}"); }; })`), 10_000);
 
       // The worker must control the page for the requests below to go through it.
       await page.reload();
-      await page.waitForFunction("navigator.serviceWorker.controller !== null", undefined, { timeout: 10_000 });
+      await until("navigator.serviceWorker.controller !== null", () => page.evaluate<boolean>("navigator.serviceWorker.controller !== null"), 10_000);
 
       // /jobs through the worker: a fetch from the controlled page, and a prefetch request naming it, other routes
       // of /me and the visit's sub-paths. None enters hs-day-*.
@@ -226,7 +218,7 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
       const visit = await page.goto(`${base}/me/visits/${ALI.visit}`);
       expect(visit?.status()).toBe(200);
       expect(visit?.headers()["x-hs-from-cache"]).toBe("1");
-      await page.waitForFunction(`document.getElementById("offline-banner") && !document.getElementById("offline-banner").hidden`, undefined, { timeout: 10_000 });
+      await until("document.getElementById(\"offline-banner\") && !document.getElementById(", () => page.evaluate<boolean>(`document.getElementById("offline-banner") && !document.getElementById("offline-banner").hidden`), 10_000);
       const text = await page.locator("#offline-banner").innerText();
       expect(text).toMatch(/^You are offline\. Showing the copy saved at \d{4}-\d{2}-\d{2} \d{2}:\d{2}\.$/u);
       expect(await page.locator("h1").first().innerText()).toBe("J-000010");
@@ -235,7 +227,7 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
       for (const path of ["/me", "/me/"]) {
         const list = await page.goto(`${base}${path}`);
         expect(list?.headers()["x-hs-from-cache"], path).toBe("1");
-        await page.waitForFunction(`!document.getElementById("offline-banner").hidden`, undefined, { timeout: 10_000 });
+        await until("!document.getElementById(\"offline-banner\").hidden", () => page.evaluate<boolean>(`!document.getElementById("offline-banner").hidden`), 10_000);
         expect(await page.locator("#visit-jb_seed_05").count(), path).toBe(1);
       }
 
@@ -245,7 +237,7 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
       // Back online: the banner goes (the ping answers 204).
       await ctx.setOffline(false);
       await page.goto(`${base}/me`);
-      await page.waitForFunction(`document.getElementById("offline-banner").hidden`, undefined, { timeout: 10_000 });
+      await until("document.getElementById(\"offline-banner\").hidden", () => page.evaluate<boolean>(`document.getElementById("offline-banner").hidden`), 10_000);
     } finally {
       await ctx.close();
     }
@@ -264,21 +256,23 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
 
       // Signed out (the session is gone) and signed in as Bilal, online.
       await ctx.clearCookies();
+      // The next app page loads me.js (the auth module's login page has its own layout and no app script): /me/ping
+      // refuses the signed-out session, and me.js clears every saved copy.
+      await page.goto(`${base}/`);
+      await until("the saved copies are cleared after the session ended", () => page.evaluate<boolean>(`(async () => !(await caches.keys()).some((n) => n.startsWith("hs-day-")))()`), 15_000);
       await page.goto(`${base}/auth/login?next=/me`);
-      // The login page is not a technician page, but the saved copies are there: me.js asks /me/ping, which refuses, and clears them.
-      await page.waitForFunction(`(async () => !(await caches.keys()).some((n) => n.startsWith("hs-day-")))()`, undefined, { timeout: 15_000 });
       await page.locator('input[name="email"]').fill(BILAL.email);
       await page.locator('input[name="password"]').fill(PASSWORD);
       await page.locator('button[type="submit"]').click();
       await page.waitForURL(/\/me$/u, { timeout: 20_000 });
-      await page.waitForFunction(`(async () => (await caches.keys()).some((n) => n.startsWith("hs-day-v1-")))()`, undefined, { timeout: 15_000 });
+      await until("Bilal's own day cache exists", () => page.evaluate<boolean>(`(async () => (await caches.keys()).some((n) => n.startsWith("hs-day-v1-")))()`), 15_000);
       const names = Object.keys(await dayCaches(page));
       expect(names.length).toBe(1);
       expect(names[0]).not.toBe(`hs-day-v1-${ALI.id}`);
 
       // Offline, Bilal gets his own copy of /me and nothing of Ali's visit.
       await page.reload();
-      await page.waitForFunction("navigator.serviceWorker.controller !== null", undefined, { timeout: 10_000 });
+      await until("navigator.serviceWorker.controller !== null", () => page.evaluate<boolean>("navigator.serviceWorker.controller !== null"), 10_000);
       await ctx.setOffline(true);
       const mine = await page.goto(`${base}/me`);
       expect(mine?.headers()["x-hs-from-cache"]).toBe("1");

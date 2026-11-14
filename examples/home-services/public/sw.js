@@ -35,12 +35,17 @@ const isShell = (path) => !NEVER.test(path) && (SHELL.includes(path) || HASHED.t
 const plainQuery = (url) => [...url.searchParams.keys()].every((k) => k === "lang");
 const isDayPage = (url) => url.origin === self.location.origin && DAY_PAGE.test(url.pathname) && plainQuery(url);
 
-// ---- who the copy belongs to: IndexedDB `hs-offline` / `kv` / `user`, written by me.js ----
+// ---- who the copy belongs to: IndexedDB `hs-offline` / `kv` / `user`, written by me.js (the store `actions` is the offline queue's) ----
 function storedUser() {
   return new Promise((resolve) => {
     try {
-      const open = indexedDB.open("hs-offline", 1);
-      open.onupgradeneeded = () => open.result.createObjectStore("kv");
+      // The same database, version and stores as public/me.js (which documents them): keep both in step.
+      const open = indexedDB.open("hs-offline", 2);
+      open.onupgradeneeded = () => {
+        const db = open.result;
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+        if (!db.objectStoreNames.contains("actions")) db.createObjectStore("actions", { keyPath: "seq", autoIncrement: true });
+      };
       open.onerror = () => resolve(null);
       open.onsuccess = () => {
         const db = open.result;
@@ -79,6 +84,18 @@ async function purgeOld() {
   }
 }
 
+/**
+ * Every write to a day cache runs one after the other: a store that purges (purgeOld) while another has opened its
+ * cache but not stamped it yet would delete that cache as "without a stamp" (a navigation and the prefetch store at
+ * the same time).
+ */
+let writes = Promise.resolve();
+const serial = (fn) => {
+  const run = writes.then(fn, fn);
+  writes = run.catch(() => {}); // renox-allow-global: the browser service worker's write chain, not request isolate state
+  return run;
+};
+
 /** The cache of one user, with its creation time stamped on first use. */
 async function openDay(user) {
   const cache = await caches.open(DAY + user);
@@ -100,18 +117,22 @@ async function storeDayPage(url, res) {
   const copy = res.clone();
   const user = userOfPage(await res.text());
   if (user === null) return;
-  await purgeOld();
-  const cache = await openDay(user);
-  await cache.put(new Request(url), copy);
+  await serial(async () => {
+    await purgeOld();
+    const cache = await openDay(user);
+    await cache.put(new Request(url), copy);
+  });
 }
 
 /** A thumbnail, kept at most MAX_THUMBS (the oldest go first). */
 async function storeThumb(req, res, user) {
-  await purgeOld();
-  const cache = await openDay(user);
-  await cache.put(req, res);
-  const keys = (await cache.keys()).filter((k) => THUMB.test(new URL(k.url).pathname));
-  for (const old of keys.slice(0, Math.max(0, keys.length - MAX_THUMBS))) await cache.delete(old);
+  await serial(async () => {
+    await purgeOld();
+    const cache = await openDay(user);
+    await cache.put(req, res);
+    const keys = (await cache.keys()).filter((k) => THUMB.test(new URL(k.url).pathname));
+    for (const old of keys.slice(0, Math.max(0, keys.length - MAX_THUMBS))) await cache.delete(old);
+  });
 }
 
 const fromCache = async (hit) => {
@@ -186,7 +207,7 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(keys.filter((k) => k !== CACHE && !k.startsWith("hs-day-")).map((k) => caches.delete(k)));
-      await purgeOld();
+      await serial(purgeOld);
       await self.clients.claim();
     })(),
   );

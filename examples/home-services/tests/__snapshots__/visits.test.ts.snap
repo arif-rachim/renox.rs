@@ -42,6 +42,8 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
   <div class="touch">
   <meta name="hs-user" content="u_dxb_ali">
   <p id="offline-banner" class="warning" hidden role="status" data-saved-at="<when>">You are offline. Showing the copy saved at <bdi dir="ltr" id="offline-time"></bdi>.</p>
+  <div id="queue-status" role="status" data-waiting="{n} actions waiting to be sent" data-waiting-one="1 action waiting to be sent" data-sending="Sending…" data-all-sent="All sent" data-sign-in="Sign in again to send {n} saved actions" data-other="{n} actions of another account are waiting; sign in as that user to send them" data-refused="{n} saved actions were not accepted by the server: {reason}" data-not-sent="not sent yet" data-old="saved more than 72 hours ago" data-too-many="Too many saved actions, please get a connection" data-no-storage="This phone could not save the action, please get a connection" data-checked-in="Checked in" data-checked-out="Checked out" data-in-progress="In progress" data-done="Done"></div>
+
   <p><a href="/me">My visits</a></p>
   <h1 dir="ltr">J-000010</h1>
   <p><span class="status status-in_progress" id="job-status" dir="auto">In progress</span></p>
@@ -60,17 +62,77 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
   <section id="checkin">
     <h2>Check in</h2>
     <p class="muted">Check in when you arrive. Your position is saved if the browser shares it.</p>
-    <form method="post" action="?/checkin" hx-post="?/checkin" class="stack narrow" id="checkin-form"><input type="hidden" name="_csrf" value="<csrf>">
+    <form method="post" action="?/checkin" hx-post="?/checkin" class="stack narrow" id="checkin-form" data-offline-action="" data-offline-effect="checkin"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="lat" id="checkin-lat">
       <input type="hidden" name="lng" id="checkin-lng">
       <p><button type="submit" class="btn-brand btn-big">Check in</button></p>
     </form>
   </section>
 
-  
+  <section id="visit" hidden>
+    <p id="visit-times" dir="ltr"></p>
+    
+
+    
+
+    <section id="parts">
+      <h2>Parts used</h2>
+      <p class="muted">No parts yet.</p>
+      <form method="post" action="?/part" hx-post="?/part" class="stack narrow" id="part-form" data-offline-action="" data-offline-effect="part"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><label>Part <input name="description" maxlength="200" required id="f-description" aria-required="true" dir="auto"></label></p>
+        <p><label>Quantity <input name="qty" value="1" inputmode="decimal" dir="ltr" required id="f-qty" aria-required="true"></label></p>
+        <p><label>Unit price (AED) <input name="price" value="0" inputmode="decimal" dir="ltr" required id="f-price" aria-required="true"></label></p>
+        <p><button type="submit">Add part</button></p>
+      </form>
+    </section>
+
+    <section id="notes">
+      <h2>Notes</h2>
+      <form method="post" action="?/notes" hx-post="?/notes" class="stack narrow" data-offline-action="" data-offline-effect="notes"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><label class="visually-hidden" for="f-notes">Notes</label><textarea name="notes" rows="4" maxlength="2000" dir="auto" id="f-notes"></textarea></p>
+        <p><button type="submit">Save notes</button></p>
+      </form>
+    </section>
+
+    <section id="signature">
+      <h2>Customer&#39;s signature</h2>
+      
+      <p class="muted">Not signed yet.</p>
+      <form method="post" action="?/signature" hx-post="?/signature" class="stack narrow" id="signature-form" data-offline-action="" data-offline-effect="signature"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><label>Name of the person signing <input name="signed_by" maxlength="120" dir="auto" required id="f-signed_by" aria-required="true"></label></p>
+        <p class="muted">Sign in the box</p>
+        <canvas id="sig-canvas" class="sig-canvas" role="img" aria-label="Sign in the box" width="320" height="160"></canvas>
+        <p><label><input type="checkbox" id="sig-typed"> Type the customer&#39;s name instead</label> <small class="muted">Signs with the name typed above, written as the signature.</small></p>
+        <input type="hidden" name="signature" id="sig-data">
+        <p><button type="button" id="sig-clear">Clear</button> <button type="submit">Save signature</button></p>
+      </form>
+    </section>
+
+    <section id="summary">
+      <h2>Summary for the report</h2>
+      <p class="muted">Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.</p>
+      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow" data-offline-action="" data-offline-effect="summary"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en"></textarea></label></p>
+        <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar"></textarea></label></p>
+        <p><button type="submit">Save summary</button></p>
+      </form>
+    </section>
+
+    <section id="checkout">
+      <h2>Check out</h2>
+      <p class="muted">Check out when the work is finished. Photos and a signature are not required.</p>
+      <form method="post" action="?/checkout" hx-post="?/checkout" class="stack narrow" id="checkout-form" data-offline-action="" data-offline-effect="checkout"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><button type="submit" class="btn-brand btn-big">Check out</button></p>
+      </form>
+    </section>
+
+    
+  </section>
 
   
   <script src="/visit.<hash>.js" defer nonce="<nonce>"></script>
+  <script src="/offline-queue-core.<hash>.js" defer nonce="<nonce>"></script>
+  <script src="/offline-queue.<hash>.js" defer nonce="<nonce>"></script>
   </div>
 
   </main>
@@ -122,6 +184,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <div class="touch">
   <meta name="hs-user" content="u_dxb_ali">
   <p id="offline-banner" class="warning" hidden role="status" data-saved-at="<when>">You are offline. Showing the copy saved at <bdi dir="ltr" id="offline-time"></bdi>.</p>
+  <div id="queue-status" role="status" data-waiting="{n} actions waiting to be sent" data-waiting-one="1 action waiting to be sent" data-sending="Sending…" data-all-sent="All sent" data-sign-in="Sign in again to send {n} saved actions" data-other="{n} actions of another account are waiting; sign in as that user to send them" data-refused="{n} saved actions were not accepted by the server: {reason}" data-not-sent="not sent yet" data-old="saved more than 72 hours ago" data-too-many="Too many saved actions, please get a connection" data-no-storage="This phone could not save the action, please get a connection" data-checked-in="Checked in" data-checked-out="Checked out" data-in-progress="In progress" data-done="Done"></div>
+
   <p><a href="/me">My visits</a></p>
   <h1 dir="ltr">J-000012</h1>
   <p><span class="status status-done" id="job-status" dir="auto">Done</span></p>
@@ -195,7 +259,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     <section id="summary">
       <h2>Summary for the report</h2>
       <p class="muted">Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.</p>
-      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow" data-offline-action="" data-offline-effect="summary"><input type="hidden" name="_csrf" value="<csrf>">
         <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en">Both units serviced.</textarea></label></p>
         <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar">تمت صيانة الوحدتين.</textarea></label></p>
         <p><button type="submit">Save summary</button></p>
@@ -212,6 +276,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
 
   
   
+  <script src="/offline-queue-core.<hash>.js" defer nonce="<nonce>"></script>
+  <script src="/offline-queue.<hash>.js" defer nonce="<nonce>"></script>
   </div>
 
   </main>
@@ -263,6 +329,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
   <div class="touch">
   <meta name="hs-user" content="u_dxb_ali">
   <p id="offline-banner" class="warning" hidden role="status" data-saved-at="<when>">أنت غير متصل بالإنترنت. تعرض هذه الصفحة النسخة المحفوظة في <bdi dir="ltr" id="offline-time"></bdi>.</p>
+  <div id="queue-status" role="status" data-waiting="عدد الإجراءات بانتظار الإرسال: ⁨{n}⁩" data-waiting-one="إجراء واحد بانتظار الإرسال" data-sending="جارٍ الإرسال…" data-all-sent="تم إرسال كل شيء" data-sign-in="سجّل الدخول مرة أخرى لإرسال الإجراءات المحفوظة (عددها ⁨{n}⁩)" data-other="عدد الإجراءات بانتظار الإرسال من حساب آخر: ⁨{n}⁩؛ سجّل الدخول بحساب ذلك المستخدم لإرسالها" data-refused="لم يقبل الخادم الإجراءات المحفوظة (عددها ⁨{n}⁩): ⁨{reason}⁩" data-not-sent="لم يُرسل بعد" data-old="محفوظ منذ أكثر من 72 ساعة" data-too-many="عدد الإجراءات المحفوظة كبير جدًا، يرجى الاتصال بالإنترنت" data-no-storage="تعذّر على هذا الهاتف حفظ الإجراء، يرجى الاتصال بالإنترنت" data-checked-in="تم تسجيل الدخول" data-checked-out="تم تسجيل الخروج" data-in-progress="قيد التنفيذ" data-done="منجزة"></div>
+
   <p><a href="/me">زياراتي</a></p>
   <h1 dir="ltr">J-000012</h1>
   <p><span class="status status-done" id="job-status" dir="auto">منجزة</span></p>
@@ -336,7 +404,7 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     <section id="summary">
       <h2>ملخص التقرير</h2>
       <p class="muted">جملتان يصيغهما الذكاء الاصطناعي من ملاحظاتك وقطعك عند تشغيله. عدّلهما قبل إرسال التقرير.</p>
-      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow" data-offline-action="" data-offline-effect="summary"><input type="hidden" name="_csrf" value="<csrf>">
         <p><label>الملخص (الإنجليزية) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr" id="f-summary_en">Both units serviced.</textarea></label></p>
         <p><label>الملخص (العربية) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl" id="f-summary_ar">تمت صيانة الوحدتين.</textarea></label></p>
         <p><button type="submit">حفظ الملخص</button></p>
@@ -353,6 +421,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
 
   
   
+  <script src="/offline-queue-core.<hash>.js" defer nonce="<nonce>"></script>
+  <script src="/offline-queue.<hash>.js" defer nonce="<nonce>"></script>
   </div>
 
   </main>
