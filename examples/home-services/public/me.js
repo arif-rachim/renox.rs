@@ -11,12 +11,13 @@
 // - On /me, the links carrying `data-prefetch` are today's visits: at most 15 are sent
 //   to the worker, which fetches and keeps them one at a time.
 (() => {
-  // The one IndexedDB database of the technician pages (#807, #808): `kv` keeps the signed-in user id for the
-  // service worker, `actions` is the offline action queue (public/offline-queue.js). Version 2 added `actions`.
+  // The one IndexedDB database of the technician pages (#807, #808, #809): `kv` keeps the signed-in user id for the
+  // service worker, `actions` is the offline action queue and `photos` the photos taken offline
+  // (public/offline-queue.js). Version 2 added `actions`, version 3 `photos`.
   // public/sw.js opens the same database and must name the same version and stores: keep both in step
   // (tests/offline-queue.test.ts compares them).
   const DB = "hs-offline";
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   const KV = "kv";
   const DAY = "hs-day-";
   const MAX_PREFETCH = 15;
@@ -30,6 +31,7 @@
           const db = open.result;
           if (!db.objectStoreNames.contains(KV)) db.createObjectStore(KV);
           if (!db.objectStoreNames.contains("actions")) db.createObjectStore("actions", { keyPath: "seq", autoIncrement: true });
+          if (!db.objectStoreNames.contains("photos")) db.createObjectStore("photos", { keyPath: "id", autoIncrement: true });
         };
         open.onerror = () => resolve(null);
         open.onsuccess = () => resolve(open.result);

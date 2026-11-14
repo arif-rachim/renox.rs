@@ -5,28 +5,51 @@
 import { describe, expect, test } from "bun:test";
 import { app } from "@renoxium/sdk/test";
 
+import { photoLimitMessage } from "../lib/visit-data";
+
 import {
   ACTIONS,
   BACKOFF_MS,
+  JPEG_QUALITY,
   LIMIT,
+  MAX_PHOTO_BYTES,
+  MAX_SIDE,
+  MIN_FREE_BYTES,
+  PHOTO_LIMIT,
   POLL_MS,
   actionIdOf,
   backoffMs,
   behindRefused,
   blockedJobs,
   canQueue,
+  canTakePhoto,
   dubai,
   fill,
+  fitSize,
+  hasRoom,
   isOld,
+  merge,
   nextAction,
+  nextItem,
   outcomeOf,
+  pendingPhotos,
+  photoOutcomeOf,
   replay,
+  replayAll,
   retryAt,
+  sendPhoto,
   settle,
+  settlePhoto,
   split,
+  splitPhotos,
   targetOf,
+  tooLarge,
   type Answer,
+  type PhotoAnswer,
+  type PhotoIo,
+  type PhotoOutcome,
   type QueuedAction,
+  type QueuedPhoto,
 } from "../public/offline-queue-core.js";
 
 const ME = "u_dxb_ali";
@@ -263,19 +286,296 @@ describe("the rules: reading an answer, a record, a time", () => {
   });
 });
 
+// ---- photos taken offline (#809) ----
+
+let shot = 0;
+/** A waiting photo of `job` for `user`, taken at `takenAt` (unix ms); `id` is its key on the device. */
+const photo = (id: number, job: string, takenAt: number, extra: Partial<QueuedPhoto> = {}): QueuedPhoto => ({
+  id,
+  user_id: ME,
+  job_id: job,
+  phase: "before",
+  caption: `photo ${++shot}`,
+  blob: null,
+  type: "image/jpeg",
+  size: 1000 + id,
+  taken_at: takenAt,
+  action_id: `p${String(id).padStart(15, "0")}`,
+  state: "pending",
+  attempts: 0,
+  ...extra,
+});
+/** What an item of the run is, for a comparison: `a<seq>` for an action, `p<id>` for a photo. */
+const label = (i: { kind: "action" | "photo"; record: QueuedAction | QueuedPhoto }): string => (i.kind === "action" ? `a${(i.record as QueuedAction).seq}` : `p${(i.record as QueuedPhoto).id}`);
+/** An action of `job` that happened at `at` (unix ms), seq in the order given. */
+const at = (seq: number, job: string, action: string, performedAt: number, extra: Partial<QueuedAction> = {}): QueuedAction => act(seq, job, action, { performed_at: performedAt, ...extra });
+
+const T0 = 1_800_000_000_000;
+const stored = (key: string): PhotoAnswer => ({ status: 201, body: { key } });
+const signedOk: PhotoAnswer = { status: 200, body: { url: "/_files/put/abc", max_bytes: MAX_PHOTO_BYTES } };
+const photoOk: PhotoAnswer = { status: 200, body: { ok: true, status: 200, redirect: "/me/visits/x" } };
+/** The three requests of a photo, all fine, and what was asked of them. */
+const fineIo = (asked: string[] = []): PhotoIo => ({
+  signed: (p) => (asked.push(`url ${p.id}`), signedOk),
+  put: (p, url) => (asked.push(`put ${p.id} ${url}`), stored(`storage/vs_1/${p.id}.jpg`)),
+  post: (p, key) => (asked.push(`post ${p.id} ${key}`), photoOk),
+});
+
+describe("photos: where a photo goes among the actions of its job", () => {
+  test("normal case: each photo goes right before the first action made after it, the others keep their seq order", () => {
+    const records = [at(1, "jb_a", "checkin", T0 + 100), at(2, "jb_a", "part", T0 + 400), at(3, "jb_a", "notes", T0 + 600), at(4, "jb_a", "checkout", T0 + 900)];
+    const photos = [photo(2, "jb_a", T0 + 700, { phase: "after" }), photo(1, "jb_a", T0 + 200), photo(3, "jb_a", T0 + 1000)];
+    expect(merge(records, photos, ME).map((i) => `${i.kind}:${i.kind === "action" ? i.record.action : i.record.id}`)).toEqual([
+      "action:checkin",
+      "photo:1",
+      "action:part",
+      "action:notes",
+      "photo:2",
+      "action:checkout",
+      "photo:3",
+    ]);
+  });
+
+  test("edge case: at the same millisecond the action goes first; photos with the same time go by id; a photo before every action goes first", () => {
+    const records = [at(1, "jb_a", "checkin", T0 + 100), at(2, "jb_a", "part", T0 + 200)];
+    const photos = [photo(5, "jb_a", T0 + 200), photo(4, "jb_a", T0 + 200), photo(6, "jb_a", T0 + 50)];
+    expect(merge(records, photos, ME).map(label)).toEqual(["p6", "a1", "a2", "p4", "p5"]);
+    // With no action at all the photos go by the time they were taken.
+    expect(merge([], [photo(2, "jb_a", T0 + 9), photo(1, "jb_a", T0 + 9), photo(3, "jb_b", T0 + 1)], ME).map(label)).toEqual(["p3", "p1", "p2"]);
+  });
+
+  test("a photo another account took, one that is sent already or refused, and a held one are not in the run", () => {
+    const records = [at(1, "jb_a", "checkin", T0)];
+    const photos = [
+      photo(1, "jb_a", T0 + 1, { user_id: "u_dxb_bilal" }),
+      photo(2, "jb_a", T0 + 2, { state: "uploaded" }),
+      photo(3, "jb_a", T0 + 3, { state: "refused", refused_reason: "invalid" }),
+      photo(4, "jb_a", T0 + 4),
+      photo(5, "jb_a", T0 + 5),
+    ];
+    expect(merge(records, photos, ME).map(label)).toEqual(["a1", "p4", "p5"]);
+    expect(merge(records, photos, ME, [4]).map(label)).toEqual(["a1", "p5"]);
+    expect(splitPhotos(photos, ME)).toMatchObject({ other: 1 });
+    expect(splitPhotos(photos, ME).mine.map((p) => p.id)).toEqual([4, 5]);
+    expect(splitPhotos(photos, ME).refused.map((p) => p.id)).toEqual([3]);
+  });
+
+  test("the replay sends the photos and the actions in that order, one at a time, each once, and what was sent is not sent again", async () => {
+    const records = [at(1, "jb_a", "checkin", T0 + 100), at(2, "jb_a", "checkout", T0 + 900)];
+    const photos = [photo(1, "jb_a", T0 + 300), photo(2, "jb_a", T0 + 500, { phase: "after" })];
+    const order: string[] = [];
+    const result = await replayAll(
+      records,
+      photos,
+      ME,
+      (r) => (order.push(`action ${r.action}`), ok),
+      async (p) => (order.push(`photo ${p.id}`), sendPhoto(p, fineIo())),
+    );
+    expect(order).toEqual(["action checkin", "photo 1", "photo 2", "action checkout"]);
+    expect(result.stopped).toBe("done");
+    expect(result.photos.map((p) => p.state)).toEqual(["uploaded", "uploaded"]);
+    const again: string[] = [];
+    await replayAll(result.records, result.photos, ME, (r) => (again.push(`${r.seq}`), ok), (p) => (again.push(`${p.id}`), { kind: "ok", adjusted: false }));
+    expect(again).toEqual([]);
+  });
+
+  test("one photo is three requests in a row: the signed URL, the PUT of the blob to it, the photo action with the key it stored", async () => {
+    const asked: string[] = [];
+    const p = photo(7, "jb_a", T0);
+    expect(await sendPhoto(p, fineIo(asked))).toEqual({ kind: "ok", adjusted: false });
+    expect(asked).toEqual(["url 7", "put 7 /_files/put/abc", "post 7 storage/vs_1/7.jpg"]);
+    // The first request that fails ends it: nothing after it is asked.
+    const failed: string[] = [];
+    const io = { ...fineIo(failed), signed: () => ({ status: 413, body: { message: "A photo is at most 10 MiB." } }) } satisfies PhotoIo;
+    expect(await sendPhoto(p, io)).toEqual({ kind: "refused", reason: "too_large", message: "A photo is at most 10 MiB.", stop: "none" });
+    expect(failed).toEqual([]);
+  });
+});
+
+describe("photos: what each answer does", () => {
+  const out = (step: "url" | "put" | "post", status: number, body: unknown = null, extra: Partial<NonNullable<PhotoAnswer>> = {}): PhotoOutcome => photoOutcomeOf(step, { status, body, ...extra });
+
+  test("413, 415 and a 422 refuse the photo for what it is: it does not stop its job", () => {
+    expect(out("url", 413, { message: "too big" })).toEqual({ kind: "refused", reason: "too_large", message: "too big", stop: "none" });
+    expect(out("url", 415, { message: "not an image" })).toMatchObject({ reason: "unsupported_type", stop: "none" });
+    expect(out("url", 422, { message: "This file has no type." })).toMatchObject({ reason: "invalid", message: "This file has no type.", stop: "none" });
+    expect(out("put", 413, { message: "too big" })).toMatchObject({ reason: "too_large", stop: "none" });
+    expect(out("post", 422, { ok: false, status: 422, errors: { form: "That photo is not stored: upload it again." } })).toMatchObject({ kind: "refused", reason: "invalid", message: "That photo is not stored: upload it again.", stop: "none" });
+    expect(out("post", 413, { errors: { form: "too big" } })).toMatchObject({ reason: "too_large", stop: "none" });
+    expect(out("post", 415, { errors: { form: "not an image" } })).toMatchObject({ reason: "unsupported_type", stop: "none" });
+  });
+
+  test("a conflict on the job stops the job's other actions, photos included", () => {
+    expect(out("post", 409, { ok: false, status: 409, conflict: "job_cancelled", errors: { form: "The office cancelled this job." } })).toEqual({
+      kind: "refused",
+      reason: "job_cancelled",
+      message: "The office cancelled this job.",
+      stop: "job",
+    });
+    // The signed URL of a visit that is not open (not checked in, closed) is a 409 too; a 403 of a signed-in user is the job's.
+    expect(out("url", 409, { message: "This visit is closed." })).toMatchObject({ reason: "conflict", message: "This visit is closed.", stop: "job" });
+    expect(out("url", 403, { message: "Forbidden" }, { signedIn: true })).toMatchObject({ reason: "forbidden", stop: "job" });
+    expect(out("url", 404, { message: "Job not found" })).toMatchObject({ reason: "http_404", stop: "job" });
+  });
+
+  test("a network error, a 5xx, a refused PUT signature or a lost session is not a refusal: the photo stays pending", () => {
+    expect(photoOutcomeOf("url", null)).toEqual({ kind: "retry" });
+    expect(out("url", 502)).toEqual({ kind: "retry" });
+    expect(out("put", 503)).toEqual({ kind: "retry" });
+    expect(out("put", 403)).toEqual({ kind: "retry" });
+    expect(out("put", 401)).toEqual({ kind: "retry" });
+    expect(out("post", 429)).toEqual({ kind: "retry" });
+    // A 200 that is not the answer asked for (a proxy's page) is tried again too, never taken as sent.
+    expect(out("url", 200, { nothing: true })).toEqual({ kind: "retry" });
+    expect(out("post", 200, { ok: false })).toEqual({ kind: "retry" });
+    expect(out("url", 401)).toEqual({ kind: "auth" });
+    expect(out("url", 403)).toEqual({ kind: "auth" });
+    expect(out("post", 403)).toEqual({ kind: "auth" });
+    expect(settlePhoto(photo(1, "jb_a", T0, { attempts: 2 }), { kind: "retry" })).toEqual({ patch: { attempts: 3 }, stop: "all" });
+    expect(settlePhoto(photo(1, "jb_a", T0), { kind: "auth" })).toEqual({ patch: {}, stop: "all" });
+  });
+
+  test("settling: sent is uploaded, a refusal keeps its reason and message and stays", () => {
+    const p = photo(1, "jb_a", T0);
+    expect(settlePhoto(p, { kind: "ok", adjusted: false })).toEqual({ patch: { state: "uploaded" }, stop: "none" });
+    expect(settlePhoto(p, { kind: "refused", reason: "too_large", message: "big", stop: "none" })).toEqual({ patch: { state: "refused", refused_reason: "too_large", refused_message: "big" }, stop: "none" });
+    expect(settlePhoto(p, { kind: "refused", reason: "job_cancelled", message: "", stop: "job" })).toEqual({ patch: { state: "refused", refused_reason: "job_cancelled" }, stop: "job" });
+  });
+});
+
+describe("photos: failures in a run", () => {
+  test("a photo the server refuses for its content stays refused and the rest of the job still goes", async () => {
+    const records = [at(1, "jb_a", "checkin", T0 + 100), at(2, "jb_a", "checkout", T0 + 900)];
+    const photos = [photo(1, "jb_a", T0 + 300), photo(2, "jb_a", T0 + 500)];
+    const result = await replayAll(
+      records,
+      photos,
+      ME,
+      () => ok,
+      (p) => (p.id === 1 ? { kind: "refused", reason: "unsupported_type", message: "not an image", stop: "none" } : { kind: "ok", adjusted: false }),
+    );
+    expect(result.photos.map((p) => [p.state, p.refused_reason ?? null])).toEqual([
+      ["refused", "unsupported_type"],
+      ["uploaded", null],
+    ]);
+    expect(result.records.map((r) => r.state)).toEqual(["sent", "sent"]);
+    // A photo refused for what it is blocks nothing, now or in a later run.
+    expect([...blockedJobs(result.records, ME, result.photos)]).toEqual([]);
+  });
+
+  test("a conflict on a photo stops the job: its later photos and actions stay, other jobs go on; the block outlives the run", async () => {
+    const records = [at(1, "jb_a", "checkin", T0 + 100), at(2, "jb_b", "checkin", T0 + 150), at(3, "jb_a", "checkout", T0 + 900), at(4, "jb_b", "checkout", T0 + 950)];
+    const photos = [photo(1, "jb_a", T0 + 300), photo(2, "jb_a", T0 + 400), photo(3, "jb_b", T0 + 500)];
+    const sent: string[] = [];
+    const result = await replayAll(
+      records,
+      photos,
+      ME,
+      (r) => (sent.push(`a${r.seq}`), ok),
+      (p) => (sent.push(`p${p.id}`), p.id === 1 ? { kind: "refused", reason: "job_cancelled", message: "The office cancelled this job.", stop: "job" } : { kind: "ok", adjusted: false }),
+    );
+    expect(sent).toEqual(["a1", "a2", "p1", "p3", "a4"]);
+    expect(result.photos.map((p) => p.state)).toEqual(["refused", "pending", "uploaded"]);
+    expect(result.records.map((r) => r.state)).toEqual(["sent", "sent", "pending", "sent"]);
+    expect([...blockedJobs(result.records, ME, result.photos)]).toEqual(["jb_a"]);
+    expect(behindRefused(result.records, ME, result.photos).map((r) => r.seq)).toEqual([3]);
+    // A later run sends nothing of jb_a, photo or action.
+    expect(nextItem(result.records, result.photos, ME)).toBeNull();
+    // Removing the refused photo (the technician's Remove) lifts the block.
+    const rest = result.photos.filter((p) => p.state !== "refused");
+    expect(nextItem(result.records, rest, ME)).toMatchObject({ kind: "photo", record: { id: 2 } });
+  });
+
+  test("a network error leaves the photo pending, counts the attempt and stops the run", async () => {
+    const records = [at(1, "jb_a", "checkin", T0 + 100), at(2, "jb_b", "checkin", T0 + 900)];
+    const photos = [photo(1, "jb_a", T0 + 300)];
+    const sent: string[] = [];
+    const result = await replayAll(
+      records,
+      photos,
+      ME,
+      (r) => (sent.push(`a${r.seq}`), ok),
+      (p) => (sent.push(`p${p.id}`), sendPhoto(p, { ...fineIo(), put: () => null })),
+    );
+    expect(sent).toEqual(["a1", "p1"]);
+    expect(result.stopped).toBe("retry");
+    expect(result.photos[0]).toMatchObject({ state: "pending", attempts: 1 });
+    expect(result.records[1]?.state).toBe("pending");
+  });
+
+  test("a photo of another account is never sent under this session", async () => {
+    const photos = [photo(1, "jb_a", T0, { user_id: "u_dxb_bilal" }), photo(2, "jb_a", T0 + 1)];
+    const sent: number[] = [];
+    await replayAll([], photos, ME, () => ok, (p) => (sent.push(p.id), { kind: "ok", adjusted: false }));
+    expect(sent).toEqual([2]);
+  });
+});
+
+describe("photos: the cap, the size and the room", () => {
+  test("at most 20 photos wait on a device: the 21st is refused", () => {
+    expect(PHOTO_LIMIT).toBe(20);
+    expect(canTakePhoto(0)).toBe(true);
+    expect(canTakePhoto(19)).toBe(true);
+    expect(canTakePhoto(20)).toBe(false);
+    expect(canTakePhoto(21)).toBe(false);
+    const states: QueuedPhoto["state"][] = ["pending", "pending", "uploaded", "refused", "pending"];
+    // Only the waiting ones count, whoever took them.
+    expect(pendingPhotos(states.map((state, i) => photo(i + 1, "jb_a", T0 + i, { state, user_id: i === 1 ? "u_dxb_bilal" : ME })))).toBe(3);
+    const full = Array.from({ length: 20 }, (_, i) => photo(i + 1, "jb_a", T0 + i));
+    expect(canTakePhoto(pendingPhotos(full))).toBe(false);
+    // Remove one and there is room again; a refused photo that stays does not take a place.
+    expect(canTakePhoto(pendingPhotos(full.slice(1)))).toBe(true);
+    expect(canTakePhoto(pendingPhotos([...full.slice(1), photo(99, "jb_a", T0, { state: "refused" })]))).toBe(true);
+  });
+
+  test("an image is sent at most 1600 px on its long side, in proportion; a smaller one is kept as it is", () => {
+    expect(MAX_SIDE).toBe(1600);
+    expect(JPEG_QUALITY).toBe(0.8);
+    expect(fitSize(4032, 3024)).toEqual({ width: 1600, height: 1200, resize: true });
+    expect(fitSize(3024, 4032)).toEqual({ width: 1200, height: 1600, resize: true });
+    expect(fitSize(1601, 100)).toEqual({ width: 1600, height: 100, resize: true });
+    expect(fitSize(1600, 1600)).toEqual({ width: 1600, height: 1600, resize: false });
+    expect(fitSize(800, 600)).toEqual({ width: 800, height: 600, resize: false });
+    // A very thin image keeps at least one pixel.
+    expect(fitSize(20000, 3)).toEqual({ width: 1600, height: 1, resize: true });
+  });
+
+  test("a photo over 10 MiB after downsizing is refused, one of exactly 10 MiB is not", () => {
+    expect(MAX_PHOTO_BYTES).toBe(10 * 1024 * 1024);
+    expect(tooLarge(MAX_PHOTO_BYTES)).toBe(false);
+    expect(tooLarge(MAX_PHOTO_BYTES + 1)).toBe(true);
+    // The text the page shows is the server's (lib/visit-data.ts photoLimitMessage), with its two numbers filled in.
+    expect(fill("A photo is at most 10 MiB ({max} bytes); this one is {size} bytes.", { max: MAX_PHOTO_BYTES, size: MAX_PHOTO_BYTES + 1 })).toBe(photoLimitMessage(MAX_PHOTO_BYTES + 1) as string);
+  });
+
+  test("under 20 MB free the phone keeps no photo; a browser that does not say is taken to have room", () => {
+    expect(MIN_FREE_BYTES).toBe(20 * 1024 * 1024);
+    expect(hasRoom({ quota: 100 * 1024 * 1024, usage: 80 * 1024 * 1024 })).toBe(true);
+    expect(hasRoom({ quota: 100 * 1024 * 1024, usage: 80 * 1024 * 1024 + 1 })).toBe(false);
+    expect(hasRoom({ quota: 10, usage: 0 })).toBe(false);
+    expect(hasRoom({})).toBe(true);
+    expect(hasRoom(undefined)).toBe(true);
+    expect(hasRoom(null)).toBe(true);
+    expect(hasRoom({ quota: Number.NaN, usage: 1 })).toBe(true);
+  });
+});
+
 describe("the scripts that open the device database agree", () => {
   const read = (file: string) => Bun.file(new URL(`../public/${file}`, import.meta.url)).text();
 
   test("me.js and sw.js open hs-offline at one version and create the same stores; the queue opens it through me.js", async () => {
     const [meJs, swJs, queueJs] = await Promise.all([read("me.js"), read("sw.js"), read("offline-queue.js")]);
     const version = /const DB_VERSION = (\d+);/u.exec(meJs)?.[1];
-    expect(version).toBe("2");
+    expect(version).toBe("3");
     expect(swJs).toContain(`indexedDB.open("hs-offline", ${version})`);
     expect(meJs).toContain('const KV = "kv";');
     expect(meJs).toContain("db.createObjectStore(KV)");
     expect(swJs).toContain('db.createObjectStore("kv")');
     for (const source of [meJs, swJs]) {
       expect(source).toContain('db.createObjectStore("actions", { keyPath: "seq", autoIncrement: true })');
+      // #809: version 3 added the photos taken offline.
+      expect(source).toContain('db.createObjectStore("photos", { keyPath: "id", autoIncrement: true })');
+      expect(source).toContain('objectStoreNames.contains("photos")');
       expect(source).toContain("objectStoreNames.contains");
     }
     expect(queueJs).toContain("me.openDb()");
@@ -358,6 +658,37 @@ describe("the pages that carry the queue", () => {
     expect(res.html).toContain('data-sending="جارٍ الإرسال…"');
     expect(res.html).toContain('data-all-sent="تم إرسال كل شيء"');
     expect(res.html).toContain('data-too-many="عدد الإجراءات المحفوظة كبير جدًا، يرجى الاتصال بالإنترنت"');
+  });
+
+  test("the photo forms: the check-in page holds none (they are made after a queued check-in), an open visit's are queued by the offline script, the texts of the limits and of the forms are on the page", async () => {
+    const res = await ali.page("/me/visits/jb_seed_10");
+    expect(res.html).not.toContain('type="file"');
+    expect(res.html).not.toContain("photo-form-");
+    expect(res.html).toContain('data-photo-limit="20 photos are waiting to be sent. Get a connection before taking more."');
+    expect(res.html).toContain('data-photo-too-large="A photo is at most 10 MiB ({max} bytes); this one is {size} bytes."');
+    expect(res.html).toContain('data-photo-remove="Remove"');
+    expect(res.html).toContain('data-photo-no-room="');
+    // The words of the forms the script makes are the page's own texts.
+    for (const [attr, text] of [["title", "Photos"], ["before", "Before"], ["after", "After"], ["file", "Photo"], ["caption", "Caption"], ["add", "Add a photo"], ["hint", "A photo is at most 10 MB (JPEG, PNG or WebP)."]]) {
+      expect(res.html, attr).toContain(`data-photo-${attr}="${text}"`);
+    }
+    // No script of its own for this: upload.js stays off the check-in page.
+    expect(scripts(res.html)).toEqual(["me", "visit", "offline-queue-core", "offline-queue"]);
+    const open = await ali.page("/me/visits/jb_seed_06");
+    for (const phase of ["before", "after"]) expect(open.html).toMatch(new RegExp(`<form [^>]*id="photo-form-${phase}"[^>]*data-photo-queue`, "u"));
+    expect(open.html).toMatch(/<section id="photos">/u);
+    expect(scripts(open.html)).toEqual(["me", "upload", "visit", "offline-queue-core", "offline-queue"]);
+  });
+
+  test("the photo texts are in Arabic too", async () => {
+    const res = await ali.page("/me/visits/jb_seed_10?lang=ar");
+    await ali.page("/me?lang=en");
+    expect(res.html).toContain('data-photo-limit="هناك 20 صورة بانتظار الإرسال. احصل على اتصال قبل التقاط المزيد."');
+    expect(res.html).toContain('data-photo-remove="إزالة"');
+    expect(res.html).toContain('data-photo-too-large="الصورة 10 ميغابايت كحد أقصى');
+    expect(res.html).toContain('data-photo-no-room="');
+    expect(res.html).toContain('data-photo-choose="اختر صورة لإضافتها."');
+    expect(res.html).toContain('data-photo-add="إضافة صورة"');
   });
 
   test("the script files are served, and /me/ping gives a technician what the queue asks for: 204 and the user id", async () => {

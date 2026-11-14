@@ -246,31 +246,32 @@ import f240 from "./tests/a11y.test.ts.tpl" with { type: "text" };
 import f241 from "./tests/admin.test.ts.tpl" with { type: "text" };
 import f242 from "./tests/app.test.ts.tpl" with { type: "text" };
 import f243 from "./tests/book.test.ts.tpl" with { type: "text" };
-import f244 from "./tests/browser/offline-queue.test.ts.tpl" with { type: "text" };
-import f245 from "./tests/browser/offline-read.test.ts.tpl" with { type: "text" };
-import f246 from "./tests/browser/stand-in.ts.tpl" with { type: "text" };
-import f247 from "./tests/contracts.test.ts.tpl" with { type: "text" };
-import f248 from "./tests/customers.test.ts.tpl" with { type: "text" };
-import f249 from "./tests/dispatch.test.ts.tpl" with { type: "text" };
-import f250 from "./tests/import.test.ts.tpl" with { type: "text" };
-import f251 from "./tests/invoices.test.ts.tpl" with { type: "text" };
-import f252 from "./tests/jobs.test.ts.tpl" with { type: "text" };
-import f253 from "./tests/my-change.test.ts.tpl" with { type: "text" };
-import f254 from "./tests/my-documents.test.ts.tpl" with { type: "text" };
-import f255 from "./tests/my.test.ts.tpl" with { type: "text" };
-import f256 from "./tests/notifications.test.ts.tpl" with { type: "text" };
-import f257 from "./tests/offline-queue.test.ts.tpl" with { type: "text" };
-import f258 from "./tests/outbox.ts.tpl" with { type: "text" };
-import f259 from "./tests/portal.test.ts.tpl" with { type: "text" };
-import f260 from "./tests/pwa.test.ts.tpl" with { type: "text" };
-import f261 from "./tests/quotes.test.ts.tpl" with { type: "text" };
-import f262 from "./tests/reports.test.ts.tpl" with { type: "text" };
-import f263 from "./tests/setup.test.ts.tpl" with { type: "text" };
-import f264 from "./tests/step-up.test.ts.tpl" with { type: "text" };
-import f265 from "./tests/tools.test.ts.tpl" with { type: "text" };
-import f266 from "./tests/typography.test.ts.tpl" with { type: "text" };
-import f267 from "./tests/visits-replay.test.ts.tpl" with { type: "text" };
-import f268 from "./tests/visits.test.ts.tpl" with { type: "text" };
+import f244 from "./tests/browser/offline-photos.test.ts.tpl" with { type: "text" };
+import f245 from "./tests/browser/offline-queue.test.ts.tpl" with { type: "text" };
+import f246 from "./tests/browser/offline-read.test.ts.tpl" with { type: "text" };
+import f247 from "./tests/browser/stand-in.ts.tpl" with { type: "text" };
+import f248 from "./tests/contracts.test.ts.tpl" with { type: "text" };
+import f249 from "./tests/customers.test.ts.tpl" with { type: "text" };
+import f250 from "./tests/dispatch.test.ts.tpl" with { type: "text" };
+import f251 from "./tests/import.test.ts.tpl" with { type: "text" };
+import f252 from "./tests/invoices.test.ts.tpl" with { type: "text" };
+import f253 from "./tests/jobs.test.ts.tpl" with { type: "text" };
+import f254 from "./tests/my-change.test.ts.tpl" with { type: "text" };
+import f255 from "./tests/my-documents.test.ts.tpl" with { type: "text" };
+import f256 from "./tests/my.test.ts.tpl" with { type: "text" };
+import f257 from "./tests/notifications.test.ts.tpl" with { type: "text" };
+import f258 from "./tests/offline-queue.test.ts.tpl" with { type: "text" };
+import f259 from "./tests/outbox.ts.tpl" with { type: "text" };
+import f260 from "./tests/portal.test.ts.tpl" with { type: "text" };
+import f261 from "./tests/pwa.test.ts.tpl" with { type: "text" };
+import f262 from "./tests/quotes.test.ts.tpl" with { type: "text" };
+import f263 from "./tests/reports.test.ts.tpl" with { type: "text" };
+import f264 from "./tests/setup.test.ts.tpl" with { type: "text" };
+import f265 from "./tests/step-up.test.ts.tpl" with { type: "text" };
+import f266 from "./tests/tools.test.ts.tpl" with { type: "text" };
+import f267 from "./tests/typography.test.ts.tpl" with { type: "text" };
+import f268 from "./tests/visits-replay.test.ts.tpl" with { type: "text" };
+import f269 from "./tests/visits.test.ts.tpl" with { type: "text" };
 
 export const HOME_SERVICES: Readonly<Record<string, string>> = {
   ".env.test": f0,
@@ -517,31 +518,32 @@ export const HOME_SERVICES: Readonly<Record<string, string>> = {
   "tests/admin.test.ts": f241,
   "tests/app.test.ts": f242,
   "tests/book.test.ts": f243,
-  "tests/browser/offline-queue.test.ts": f244,
-  "tests/browser/offline-read.test.ts": f245,
-  "tests/browser/stand-in.ts": f246,
-  "tests/contracts.test.ts": f247,
-  "tests/customers.test.ts": f248,
-  "tests/dispatch.test.ts": f249,
-  "tests/import.test.ts": f250,
-  "tests/invoices.test.ts": f251,
-  "tests/jobs.test.ts": f252,
-  "tests/my-change.test.ts": f253,
-  "tests/my-documents.test.ts": f254,
-  "tests/my.test.ts": f255,
-  "tests/notifications.test.ts": f256,
-  "tests/offline-queue.test.ts": f257,
-  "tests/outbox.ts": f258,
-  "tests/portal.test.ts": f259,
-  "tests/pwa.test.ts": f260,
-  "tests/quotes.test.ts": f261,
-  "tests/reports.test.ts": f262,
-  "tests/setup.test.ts": f263,
-  "tests/step-up.test.ts": f264,
-  "tests/tools.test.ts": f265,
-  "tests/typography.test.ts": f266,
-  "tests/visits-replay.test.ts": f267,
-  "tests/visits.test.ts": f268,
+  "tests/browser/offline-photos.test.ts": f244,
+  "tests/browser/offline-queue.test.ts": f245,
+  "tests/browser/offline-read.test.ts": f246,
+  "tests/browser/stand-in.ts": f247,
+  "tests/contracts.test.ts": f248,
+  "tests/customers.test.ts": f249,
+  "tests/dispatch.test.ts": f250,
+  "tests/import.test.ts": f251,
+  "tests/invoices.test.ts": f252,
+  "tests/jobs.test.ts": f253,
+  "tests/my-change.test.ts": f254,
+  "tests/my-documents.test.ts": f255,
+  "tests/my.test.ts": f256,
+  "tests/notifications.test.ts": f257,
+  "tests/offline-queue.test.ts": f258,
+  "tests/outbox.ts": f259,
+  "tests/portal.test.ts": f260,
+  "tests/pwa.test.ts": f261,
+  "tests/quotes.test.ts": f262,
+  "tests/reports.test.ts": f263,
+  "tests/setup.test.ts": f264,
+  "tests/step-up.test.ts": f265,
+  "tests/tools.test.ts": f266,
+  "tests/typography.test.ts": f267,
+  "tests/visits-replay.test.ts": f268,
+  "tests/visits.test.ts": f269,
 };
 
 export const HOME_SERVICES_BINARY: readonly string[] = [

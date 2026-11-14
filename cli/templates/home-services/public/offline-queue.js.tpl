@@ -14,8 +14,18 @@
 // (the rules, and the backoff, are in offline-queue-core.js). Actions are stored with the id of the user who
 // made them; the queue of another account is never sent under this session.
 //
+// Photos (#809): the photo forms of the visit page carry `data-photo-queue`. Choosing a file there is handled
+// here, not by public/upload.js: the image is made at most 1600 px on its long side (a JPEG of quality 0.8; kept
+// as it is when the browser cannot decode it), then, with no signal, or while an action of the same job still
+// waits on the device (the photo goes after it), the blob is kept in IndexedDB (`hs-offline` / `photos`) and the
+// page lists it under its phase as "not sent yet" with a Remove button; otherwise public/upload.js sends it at
+// once, as it always did. The queue sends a waiting photo as one step of its job's ordered run, placed by
+// `taken_at` (offline-queue-core.js: `photo_url`, a PUT of the blob, then the `photo` action).
+//
 // What stays on the device: the records of `actions` (never a CSRF token, never a file) until the server has
-// answered; a refused record stays until the office page of #810 deals with it. Nothing else but the flag
+// answered; a refused record stays until the office page of #810 deals with it. The records of `photos` (the
+// downsized image itself, its phase, caption, time and `action_id`, never a token) until the server has the
+// photo, or the technician removes it; a refused photo stays until removed. Nothing else but the flag
 // `hs-queue-sent` in sessionStorage (a count, so "All sent" survives the reload that shows the server's page).
 (() => {
   const core = window.hsQueueCore;
@@ -37,16 +47,23 @@
   let retryAfter = 0;
   let sentNow = Number(sessionStorage.getItem("hs-queue-sent") || 0);
   let hasPending = false;
+  /** The photos of the device as the last `view` read them. */
+  let photosNow = [];
+  /** The photo the technician just chose on this page and may still give a caption: `{ id, form, until }`; it waits there. */
+  let held = null;
+  let persistAsked = false;
+  /** How long a chosen photo waits for its caption before it may be sent. */
+  const HOLD_MS = 120000;
 
-  // ---- the device: IndexedDB `hs-offline` / `actions` ----
+  // ---- the device: IndexedDB `hs-offline` / `actions` and `photos` ----
 
-  /** One transaction on `actions`; `work(store)` returns what to resolve with (a request's result is read when it completes). */
-  const device = async (mode, work) => {
+  /** One transaction on a store; `work(store)` returns what to resolve with (a request's result is read when it completes). */
+  const deviceOn = async (name, mode, work) => {
     const db = await me.openDb();
     if (db === null) throw new Error("no storage");
     return new Promise((resolve, reject) => {
       let result;
-      const tx = db.transaction("actions", mode);
+      const tx = db.transaction(name, mode);
       tx.oncomplete = () => {
         db.close();
         resolve(result instanceof IDBRequest ? result.result : result);
@@ -55,9 +72,11 @@
         db.close();
         reject(tx.error || new Error("storage failed"));
       };
-      result = work(tx.objectStore("actions"));
+      result = work(tx.objectStore(name));
     });
   };
+  const device = (mode, work) => deviceOn("actions", mode, work);
+  const photoDevice = (mode, work) => deviceOn("photos", mode, work);
   const all = () => device("readonly", (s) => s.getAll());
   /** Adds the record when fewer than 200 actions wait on the device; answers its `seq`, or null when the device is full. */
   const addIfRoom = (record) =>
@@ -77,12 +96,39 @@
         if (e.target.result) store.put({ ...e.target.result, ...patch });
       };
     });
-  const removeSent = () =>
-    device("readwrite", (store) => {
+  const removeSent = async () => {
+    await device("readwrite", (store) => {
       store.getAll().onsuccess = (e) => {
         for (const r of e.target.result) if (r.state === "sent") store.delete(r.seq);
       };
     });
+    await photoDevice("readwrite", (store) => {
+      store.getAll().onsuccess = (e) => {
+        for (const p of e.target.result) if (p.state === "uploaded") store.delete(p.id);
+      };
+    });
+  };
+
+  const allPhotos = () => photoDevice("readonly", (s) => s.getAll());
+  /** Adds the photo when fewer than 20 wait on the device; answers its `id`, or null when the device is full. */
+  const addPhotoIfRoom = (record) =>
+    photoDevice("readwrite", (store) => {
+      const out = { id: null };
+      store.getAll().onsuccess = (e) => {
+        if (!core.canTakePhoto(core.pendingPhotos(e.target.result))) return;
+        store.add(record).onsuccess = (a) => {
+          out.id = a.target.result;
+        };
+      };
+      return out;
+    }).then((out) => out.id);
+  const updatePhoto = (id, patch) =>
+    photoDevice("readwrite", (store) => {
+      store.get(id).onsuccess = (e) => {
+        if (e.target.result) store.put({ ...e.target.result, ...patch });
+      };
+    });
+  const removePhoto = (id) => photoDevice("readwrite", (store) => void store.delete(id));
 
   // ---- the page ----
 
@@ -120,6 +166,39 @@
     const section = document.getElementById("visit");
     if (section) section.hidden = false;
   };
+
+  /**
+   * The photo forms of a page that was made before the check-in: the server renders them only for an open visit
+   * (the check-in page holds no file input), so once a check-in is queued they are made here, the same forms
+   * (`pages/me/visits/[id].html`), their words from the status line's data attributes. Does nothing when they are there.
+   */
+  const ensurePhotoForms = () => {
+    if (pageJob === null || document.getElementById("photo-form-before") || document.getElementById("photo-form-after")) return;
+    const parts = document.getElementById("parts");
+    if (!parts || !parts.parentNode) return;
+    const section = make("section", { id: "photos-queued" });
+    section.append(make("h2", {}, text("photoTitle")));
+    const token = document.querySelector('input[name="_csrf"]');
+    for (const phase of PHASES) {
+      const f = make("form", { method: "post", action: "?/photo", class: "stack narrow", id: `photo-form-${phase}`, "data-photo-queue": "" });
+      if (token) f.append(make("input", { type: "hidden", name: "_csrf", value: token.value }));
+      f.append(make("input", { type: "hidden", name: "phase", value: phase }), make("input", { type: "hidden", name: "key", id: `photo-key-${phase}` }));
+      const file = make("input", { type: "file", accept: "image/jpeg,image/png,image/webp", capture: "environment", "data-upload-action": `${location.pathname}?/photo_url`, "data-key-field": "key" });
+      const label = make("label", {}, `${text("photoFile")} `);
+      label.append(file, " ", make("span", { "data-upload-status": "", class: "muted" }));
+      const caption = make("label", {}, `${text("photoCaption")} `);
+      caption.append(make("input", { name: "caption", maxlength: "200", id: `f-caption-${phase}`, dir: "auto" }));
+      const hint = make("small", { class: "muted" }, text("photoHint"));
+      const add = make("button", { type: "submit" }, text("photoAdd"));
+      for (const node of [label, caption, hint, add]) {
+        const line = make("p");
+        line.append(node);
+        f.append(line);
+      }
+      section.append(make("h3", { dir: "auto" }, text(phase === "before" ? "photoBefore" : "photoAfter")), f);
+    }
+    parts.parentNode.insertBefore(section, parts);
+  };
   const times = (record, end) => {
     const el = document.getElementById("visit-times");
     if (!el) return;
@@ -144,6 +223,7 @@
         after(section.querySelector("h2"), mark(record, "p", `${text("checkedIn")} ${core.dubai(record.performed_at)}`));
       }
       showVisit();
+      ensurePhotoForms();
       times(record, false);
       setStatus("job-status", text("inProgress"), "in_progress");
     },
@@ -195,6 +275,7 @@
         const f = form(action);
         if (f) f.hidden = true;
       }
+      for (const f of document.querySelectorAll("form[data-photo-queue]")) f.hidden = true;
       const f = form("checkout");
       if (f) f.hidden = true;
       const section = document.getElementById("checkout");
@@ -222,29 +303,136 @@
     }
   };
 
+  // ---- the photos on the page ----
+
+  const PHASES = ["before", "after"];
+  const byTaken = (a, b) => a.taken_at - b.taken_at || a.id - b.id;
+
+  /** The list that holds the page's waiting photos of a phase, made before that phase's form the first time. */
+  const phaseList = (phase) => {
+    let list = document.getElementById(`offline-photos-${phase}`);
+    if (list) return list;
+    const f = document.getElementById(`photo-form-${phase}`);
+    if (!f || !f.parentNode) return null;
+    list = make("ul", { id: `offline-photos-${phase}`, class: "photos" });
+    f.parentNode.insertBefore(list, f);
+    return list;
+  };
+
+  /** The thumbnail of a kept photo, drawn from the blob (a canvas: the page's CSP has no `blob:` image source). */
+  const thumb = (li, photo) => {
+    const label = photo.caption || text("photoAlt");
+    const canvas = make("canvas", { class: "thumb", role: "img", "aria-label": label, width: "160", height: "1" });
+    li.prepend(canvas);
+    const fallback = () => {
+      if (canvas.parentNode) canvas.replaceWith(make("small", {}, text("photoSaved")));
+    };
+    if (typeof createImageBitmap !== "function" || !(photo.blob instanceof Blob)) return fallback();
+    createImageBitmap(photo.blob)
+      .then((bitmap) => {
+        const k = Math.min(1, 160 / bitmap.width);
+        canvas.width = Math.max(1, Math.round(bitmap.width * k));
+        canvas.height = Math.max(1, Math.round(bitmap.height * k));
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+      })
+      .catch(fallback);
+  };
+
+  /** One line of the page's photo list: the picture, the caption, "not sent yet" (or why not), and Remove. */
+  const photoItem = (photo) => {
+    const li = make("li", { "data-offline-photo": String(photo.id) });
+    thumb(li, photo);
+    li.append(make("small", { "data-offline-caption": "" }), " ", make("small", { "data-offline-mark": "" }), " ", make("button", { type: "button", "data-offline-remove": String(photo.id) }, text("photoRemove")));
+    return li;
+  };
+
+  /**
+   * Makes the page's photo lists show what the device holds for this visit: the user's waiting and refused photos,
+   * each in its phase, in the order they were taken; the line of a photo that is gone is removed. Safe to run again.
+   */
+  const showPhotos = (photos) => {
+    if (pageJob === null) return;
+    const split = core.splitPhotos(photos, sessionUser);
+    const shown = [...split.mine, ...split.refused].filter((p) => p.job_id === pageJob && PHASES.includes(p.phase)).sort(byTaken);
+    const ids = new Set(shown.map((p) => String(p.id)));
+    for (const li of document.querySelectorAll("[data-offline-photo]")) if (!ids.has(li.dataset.offlinePhoto)) li.remove();
+    for (const photo of shown) {
+      const list = phaseList(photo.phase);
+      if (!list) continue;
+      let li = list.querySelector(`[data-offline-photo="${photo.id}"]`) || document.querySelector(`[data-offline-photo="${photo.id}"]`);
+      if (!li) li = photoItem(photo);
+      const caption = li.querySelector("[data-offline-caption]");
+      if (caption && caption.textContent !== photo.caption) caption.textContent = photo.caption;
+      const mark = photo.state === "refused" ? text("photoRefused", { reason: photo.refused_message || photo.refused_reason || "" }) : text("notSent");
+      const markNode = li.querySelector("[data-offline-mark]");
+      if (markNode && markNode.textContent !== mark) markNode.textContent = mark;
+      li.dataset.offlinePhotoState = photo.state;
+      list.append(li);
+    }
+    for (const phase of PHASES) {
+      const list = document.getElementById(`offline-photos-${phase}`);
+      const none = list && list.previousElementSibling;
+      if (none && none.matches("p.muted")) none.hidden = list.children.length > 0;
+    }
+  };
+
+  /** The photo the page still holds for a caption, while it is not older than HOLD_MS; the replay leaves it alone. */
+  const heldIds = () => (held !== null && Date.now() < held.until ? [held.id] : []);
+
+  /**
+   * Lets go of the held photo: the caption in its form is the photo's (the form is then empty for the next one) and
+   * the replay may send it. The caption field belongs to the held photo until then.
+   */
+  const settleHeld = async () => {
+    const was = held;
+    held = null;
+    if (was === null) return;
+    const field = was.form.querySelector('[name="caption"]');
+    try {
+      await updatePhoto(was.id, { caption: field ? field.value.trim().slice(0, 200) : "" });
+    } catch {
+      // the photo stays as it was stored.
+    }
+    if (field) field.value = "";
+  };
+
   /** The status line: what waits, what is being sent, what was refused, what belongs to another account. */
   const view = async () => {
     let records = [];
+    let photos = [];
     try {
       records = await all();
     } catch {
       records = [];
     }
-    const { mine, other, refused } = core.split(records, sessionUser);
-    const behind = core.behindRefused(records, sessionUser);
-    const sendable = mine.length - behind.length;
-    hasPending = mine.length > 0 || other > 0;
+    try {
+      photos = await allPhotos();
+    } catch {
+      photos = [];
+    }
+    photosNow = photos;
+    const { mine, other: otherActions, refused } = core.split(records, sessionUser);
+    const shots = core.splitPhotos(photos, sessionUser);
+    const behind = core.behindRefused(records, sessionUser, photos);
+    const blocked = core.blockedJobs(records, sessionUser, photos);
+    const behindShots = shots.mine.filter((p) => blocked.has(p.job_id));
+    const other = otherActions + shots.other;
+    const sendable = mine.length + shots.mine.length - behind.length - behindShots.length;
+    hasPending = mine.length > 0 || shots.mine.length > 0 || other > 0;
     const lines = [];
-    if (signedOut && mine.length > 0) lines.push(text("signIn", { n: mine.length }));
+    if (signedOut && mine.length + shots.mine.length > 0) lines.push(text("signIn", { n: mine.length + shots.mine.length }));
     else if (running) lines.push(text("sending"));
     else if (sendable > 0) lines.push(sendable === 1 ? text("waitingOne") : text("waiting", { n: sendable }));
     else if (sentNow > 0) lines.push(text("allSent"));
-    const notSentN = refused.length + behind.length;
-    if (notSentN > 0) lines.push(text("refused", { n: notSentN, reason: (refused[0] && (refused[0].refused_message || refused[0].refused_reason)) || "" }));
+    const notSentN = refused.length + behind.length + shots.refused.length + behindShots.length;
+    const firstRefused = refused[0] || shots.refused[0];
+    if (notSentN > 0) lines.push(text("refused", { n: notSentN, reason: (firstRefused && (firstRefused.refused_message || firstRefused.refused_reason)) || "" }));
     if (other > 0) lines.push(text("other", { n: other }));
     const line = lines.join(" ");
     if (status && status.textContent !== line) status.textContent = line;
     dropMarks(records);
+    showPhotos(photos);
     return records;
   };
 
@@ -312,7 +500,56 @@
     return answer;
   };
 
-  /** The replay: strictly in `seq` order, one action at a time (the rules are core.nextAction, core.outcomeOf, core.settle). */
+  /** One JSON answer of a request that is not the action's own (the page action `photo_url`, the signed PUT): `{ status, body }` or null. */
+  const exchange = async (url, init, ms) => {
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), ms);
+    try {
+      const res = await fetch(url, { ...init, signal: stop.signal });
+      if (res.type === "opaqueredirect") return { status: 401, body: null };
+      let json = null;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      return { status: res.status, body: json };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const EXTENSION = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+
+  /** The three requests of a photo (core.sendPhoto): the signed URL, the PUT of the blob, the `photo` action. */
+  const photoIo = {
+    signed: async (photo) => {
+      const ask = async (token) =>
+        exchange(
+          `/me/visits/${photo.job_id}?/photo_url`,
+          {
+            method: "POST",
+            headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": token },
+            body: new URLSearchParams({ name: `photo-${photo.phase}.${EXTENSION[photo.type] || "jpg"}`, type: photo.type, size: String(photo.size), _csrf: token }).toString(),
+            credentials: "same-origin",
+            cache: "no-store",
+            redirect: "manual",
+          },
+          20000,
+        );
+      let answer = await ask(await csrfToken(false));
+      if (answer !== null && answer.status === 403) answer = await ask(await csrfToken(true));
+      // A 403 that stays says either "sign in again" or that the job is no longer this technician's: the ping tells which.
+      if (answer !== null && answer.status === 403) answer.signedIn = (await me.ping()).state === "online";
+      return answer;
+    },
+    put: (photo, url) => exchange(url, { method: "PUT", headers: { "content-type": photo.type }, body: photo.blob }, 90000),
+    post: (photo, key) => send({ url: `/me/visits/${photo.job_id}`, action: "photo", action_id: photo.action_id, performed_at: photo.taken_at, fields: { phase: photo.phase, key, caption: photo.caption } }),
+  };
+
+  /** The replay: strictly in order, one action or photo at a time (the rules are core.nextItem, core.outcomeOf, core.settle and the photo versions). */
   const replay = async () => {
     const answer = await me.ping();
     if (answer.state === "offline") return;
@@ -329,8 +566,28 @@
     let sent = 0;
     try {
       for (;;) {
-        const record = core.nextAction(await all(), sessionUser, skip);
-        if (record === null) break;
+        const item = core.nextItem(await all(), await allPhotos(), sessionUser, skip, heldIds());
+        if (item === null) break;
+        const record = item.record;
+        if (item.kind === "photo") {
+          if (!(record.blob instanceof Blob) || !PHASES.includes(record.phase)) {
+            await updatePhoto(record.id, { state: "refused", refused_reason: "invalid_record" });
+            skip.push(record.job_id);
+            continue;
+          }
+          const result = await core.sendPhoto(record, photoIo);
+          const settled = core.settlePhoto(record, result);
+          if (Object.keys(settled.patch).length > 0) await updatePhoto(record.id, settled.patch);
+          if (result.kind === "ok") {
+            sent += 1;
+            sentJobs.add(record.job_id);
+          }
+          if (result.kind === "auth") signedOut = true;
+          if (result.kind === "retry") retryAfter = core.retryAt(Date.now(), { attempts: settled.patch.attempts });
+          if (settled.stop === "all") break;
+          if (settled.stop === "job") skip.push(record.job_id);
+          continue;
+        }
         if (core.targetOf(record) === null) {
           await update(record.seq, { state: "refused", refused_reason: "invalid_record" });
           skip.push(record.job_id);
@@ -374,7 +631,8 @@
   const reflect = (records, sentJobs) => {
     const mine = core.split(records, sessionUser).mine;
     const typing = document.activeElement && document.activeElement.matches("input, textarea") && document.activeElement.value !== document.activeElement.defaultValue;
-    if (typing || mine.some((r) => r.job_id === pageJob)) return false;
+    const photos = core.splitPhotos(photosNow, sessionUser).mine;
+    if (typing || mine.some((r) => r.job_id === pageJob) || photos.some((p) => p.job_id === pageJob)) return false;
     return pageJob !== null ? sentJobs.has(pageJob) : true;
   };
 
@@ -429,9 +687,9 @@
     return input && /^[A-Za-z0-9_-]{16,64}$/u.test(input.value) ? input.value : core.actionIdOf(crypto.randomUUID());
   };
 
-  const say = (f, key) => {
+  const say = (f, key, values) => {
     for (const old of f.querySelectorAll("[data-offline-error]")) old.remove();
-    if (key) f.append(make("p", { role: "alert", "data-offline-error": "" }, text(key)));
+    if (key) f.append(make("p", { role: "alert", "data-offline-error": "" }, text(key, values)));
   };
 
   /** Posts the form as the page always did, with its `action_id`: the server's page (errors, a conflict) is what shows. */
@@ -453,6 +711,8 @@
     if (seq === null) return say(f, "tooMany");
     say(f, null);
     record.seq = seq;
+    // A photo the technician has not captioned yet goes first: it was taken before this action.
+    await settleHeld();
     effects[target.action](record);
     // The next tap is another action: a new id, and the part form starts empty again.
     const input = f.querySelector('input[type="hidden"][name="action_id"]');
@@ -465,8 +725,165 @@
     await view();
   };
 
+  // ---- taking a photo ----
+
+  /**
+   * The image as it is sent (also online, to save data): its long side at most core.MAX_SIDE px, a JPEG of
+   * core.JPEG_QUALITY, drawn on a canvas from a bitmap (`createImageBitmap`, not an <img> of a blob: URL, which the
+   * page's CSP does not allow). An image already that small, or one the browser cannot decode, is kept as it is.
+   * Answers `{ blob, name, type, size }`.
+   */
+  const prepare = async (file) => {
+    const original = { blob: file, name: file.name, type: file.type, size: file.size };
+    if (typeof createImageBitmap !== "function") return original;
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      return original;
+    }
+    try {
+      const fit = core.fitSize(bitmap.width, bitmap.height);
+      if (!fit.resize) return original;
+      const canvas = document.createElement("canvas");
+      canvas.width = fit.width;
+      canvas.height = fit.height;
+      const ctx = canvas.getContext("2d");
+      if (ctx === null) return original;
+      // A transparent PNG becomes a JPEG: its background is white, not black.
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, fit.width, fit.height);
+      ctx.drawImage(bitmap, 0, 0, fit.width, fit.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", core.JPEG_QUALITY));
+      if (blob === null) return original;
+      return { blob, name: `${file.name.replace(/\.[^.]*$/u, "") || "photo"}.jpg`, type: "image/jpeg", size: blob.size };
+    } catch {
+      return original;
+    } finally {
+      bitmap.close();
+    }
+  };
+
+  /** Asks the browser once to keep this origin's storage (a photo that is not sent yet must not be cleared); never waits for it. */
+  const keepStorage = () => {
+    if (persistAsked || !navigator.storage || typeof navigator.storage.persist !== "function") return;
+    persistAsked = true;
+    const persisted = typeof navigator.storage.persisted === "function" ? navigator.storage.persisted() : Promise.resolve(false);
+    persisted.then((yes) => (yes ? undefined : navigator.storage.persist())).catch(() => {});
+  };
+
+  /** Keeps the prepared image on the device and lists it on the page; says why when it cannot. */
+  const keepPhoto = async (f, input, image) => {
+    if (pageUser === "" || pageJob === null) return say(f, "noStorage");
+    try {
+      const estimate = navigator.storage && typeof navigator.storage.estimate === "function" ? await navigator.storage.estimate() : null;
+      if (!core.hasRoom(estimate)) return say(f, "photoNoRoom");
+    } catch {
+      // a browser that cannot say is taken to have room.
+    }
+    const phase = f.querySelector('[name="phase"]');
+    const caption = f.querySelector('[name="caption"]');
+    const record = {
+      user_id: pageUser,
+      job_id: pageJob,
+      phase: phase ? phase.value : "",
+      caption: caption ? caption.value.trim().slice(0, 200) : "",
+      blob: image.blob,
+      type: image.type,
+      size: image.size,
+      taken_at: Date.now(),
+      action_id: core.actionIdOf(crypto.randomUUID()),
+      state: "pending",
+      attempts: 0,
+    };
+    let id;
+    try {
+      id = await addPhotoIfRoom(record);
+    } catch {
+      return say(f, "noStorage");
+    }
+    if (id === null) return say(f, "photoLimit");
+    keepStorage();
+    say(f, null);
+    // The photo waits for its caption until "Add a photo", the next photo or the next action.
+    held = { id, form: f, until: Date.now() + HOLD_MS };
+    input.value = "";
+    const status = f.querySelector("[data-upload-status]");
+    if (status) status.textContent = "";
+    await view();
+  };
+
+  /** The choices in the order they were made: one photo is prepared and kept (or sent) before the next one starts. */
+  let choosing = Promise.resolve();
+
+  /** One chosen file of a photo form: prepared; kept on the phone, or sent now by public/upload.js. */
+  const choose = async (input, f, file) => {
+    await settleHeld();
+    say(f, null);
+    const key = f.querySelector('[name="key"]');
+    if (key) key.value = "";
+    const image = await prepare(file);
+    if (core.tooLarge(image.size)) {
+      input.value = "";
+      return say(f, "photoTooLarge", { max: core.MAX_PHOTO_BYTES, size: image.size });
+    }
+    // With a signal and nothing of the job waiting, the photo goes now; an action or photo of the job that still
+    // waits on the device goes first, so the photo is kept to follow it.
+    const answer = await me.ping();
+    const behind = pageUser !== "" && ((await all()).some((r) => r.state === "pending" && r.user_id === pageUser && r.job_id === pageJob) || core.splitPhotos(await allPhotos(), pageUser).mine.some((p) => p.job_id === pageJob));
+    if (answer.state !== "offline" && !behind && window.hsUpload) {
+      if ((await window.hsUpload.send(input, image)) !== "network") return;
+    }
+    await keepPhoto(f, input, image);
+  };
+
+  /**
+   * The photo input's change: with no signal, or while an action of the job still waits on the device, the
+   * image is kept on the phone; else public/upload.js sends it (and a network failure keeps it too).
+   */
+  const onChoose = (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+    const f = input.form;
+    const file = input.files && input.files[0];
+    if (!f || !f.hasAttribute("data-photo-queue") || !file) return;
+    choosing = choosing.then(() => choose(input, f, file)).catch(() => say(f, "noStorage"));
+  };
+
+  /** "Add a photo" with a photo chosen on this page: its caption is saved and it may go; online with no photo chosen, the form posts as it always did. */
+  const onPhotoSubmit = async (event, f) => {
+    if (held !== null && held.form === f) {
+      event.preventDefault();
+      await settleHeld();
+      await view();
+      run(true);
+      return;
+    }
+    // No signal and nothing chosen: a post would only show the browser's error page.
+    const chosen = f.querySelector('[name="key"]');
+    if (!navigator.onLine && chosen && chosen.value === "") {
+      event.preventDefault();
+      say(f, "photoChoose");
+    }
+  };
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-offline-remove]") : null;
+    if (button === null) return;
+    const id = Number(button.dataset.offlineRemove);
+    if (held !== null && held.id === id) held = null;
+    try {
+      await removePhoto(id);
+    } catch {
+      // it stays on the list.
+    }
+    await view();
+  });
+  document.addEventListener("change", onChoose);
+
   const onSubmit = async (event) => {
     const f = event.target;
+    if (f instanceof HTMLFormElement && f.hasAttribute("data-photo-queue") && !event.defaultPrevented) return onPhotoSubmit(event, f);
     if (!(f instanceof HTMLFormElement) || !f.hasAttribute("data-offline-action") || event.defaultPrevented) return;
     const target = formTarget(f);
     if (target === null || !effects[target.action]) return;
@@ -508,6 +925,8 @@
     else if (sentNow > 0) sessionStorage.removeItem("hs-queue-sent");
   };
 
+  // public/upload.js leaves the photo forms to this script, which calls its `hsUpload.send` for an upload now.
+  window.hsQueue = { photos: true };
   document.addEventListener("submit", onSubmit);
   window.addEventListener("online", () => run(true));
   setInterval(() => {

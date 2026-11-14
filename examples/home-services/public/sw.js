@@ -35,16 +35,17 @@ const isShell = (path) => !NEVER.test(path) && (SHELL.includes(path) || HASHED.t
 const plainQuery = (url) => [...url.searchParams.keys()].every((k) => k === "lang");
 const isDayPage = (url) => url.origin === self.location.origin && DAY_PAGE.test(url.pathname) && plainQuery(url);
 
-// ---- who the copy belongs to: IndexedDB `hs-offline` / `kv` / `user`, written by me.js (the store `actions` is the offline queue's) ----
+// ---- who the copy belongs to: IndexedDB `hs-offline` / `kv` / `user`, written by me.js (the stores `actions` and `photos` are the offline queue's) ----
 function storedUser() {
   return new Promise((resolve) => {
     try {
       // The same database, version and stores as public/me.js (which documents them): keep both in step.
-      const open = indexedDB.open("hs-offline", 2);
+      const open = indexedDB.open("hs-offline", 3);
       open.onupgradeneeded = () => {
         const db = open.result;
         if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
         if (!db.objectStoreNames.contains("actions")) db.createObjectStore("actions", { keyPath: "seq", autoIncrement: true });
+        if (!db.objectStoreNames.contains("photos")) db.createObjectStore("photos", { keyPath: "id", autoIncrement: true });
       };
       open.onerror = () => resolve(null);
       open.onsuccess = () => {

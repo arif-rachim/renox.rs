@@ -109,7 +109,7 @@ if (process.env.RENOX_JOURNEY === "1" && (!process.env.PLAYWRIGHT_PATH || playwr
 
 const PASSWORD = "correct horse battery";
 const ALI = { email: "ali.dubai@fixit.example", id: "u_dxb_ali", visit: "jb_seed_10" };
-const BILAL = { email: "bilal.dubai@fixit.example" };
+const BILAL = { email: "bilal.dubai@fixit.example", id: "u_dxb_bilal" };
 
 describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline reading of the technician pages in Chromium", () => {
   let dev: Dev;
@@ -270,7 +270,10 @@ describe.skipIf(!worker || !playwright || !inRepo || insideRenoxTest)("offline r
       expect(names.length).toBe(1);
       expect(names[0]).not.toBe(`hs-day-v1-${ALI.id}`);
 
-      // Offline, Bilal gets his own copy of /me and nothing of Ali's visit.
+      // Offline, Bilal gets his own copy of /me and nothing of Ali's visit: once his /me is kept and me.js has
+      // switched the device's user to him.
+      await kept(page, BILAL.id, ["/me"]);
+      await until("the device's user is Bilal", () => page.evaluate<boolean>(`new Promise((ok) => { const r = indexedDB.open("hs-offline"); r.onsuccess = () => { const g = r.result.transaction("kv").objectStore("kv").get("user"); g.onsuccess = () => ok(g.result === "${BILAL.id}"); }; r.onerror = () => ok(false); })`), 10_000);
       await page.reload();
       await until("navigator.serviceWorker.controller !== null", () => page.evaluate<boolean>("navigator.serviceWorker.controller !== null"), 10_000);
       await ctx.setOffline(true);

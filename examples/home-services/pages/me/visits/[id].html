@@ -49,7 +49,7 @@
           </ul>
           <p r-else class="muted"><r-t key="visits.photos.none" /></p>
         </r-group>
-        <r-group r-if="open"><x-form action="photo" class="stack narrow" :id="'photo-form-' ~ ph.phase">
+        <r-group r-if="open"><x-form action="photo" class="stack narrow" :id="'photo-form-' ~ ph.phase" data-photo-queue>
           <input type="hidden" name="phase" :value="ph.phase">
           <input type="hidden" name="key" :id="'photo-key-' ~ ph.phase">
           <p><label><r-t key="visits.photos.file" /> <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" :data-upload-action="'/me/visits/' ~ job.id ~ '?/photo_url'" data-key-field="key"> <span data-upload-status class="muted"></span></label></p>

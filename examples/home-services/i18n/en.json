@@ -399,7 +399,15 @@
       "too_many": "Too many saved actions, please get a connection",
       "no_storage": "This phone could not save the action, please get a connection",
       "checked_in": "Checked in",
-      "checked_out": "Checked out"
+      "checked_out": "Checked out",
+      "photo_limit": "20 photos are waiting to be sent. Get a connection before taking more.",
+      "photo_no_room": "This phone has too little free space to keep another photo. Free some space or get a connection.",
+      "photo_too_large": "A photo is at most 10 MiB ({max} bytes); this one is {size} bytes.",
+      "photo_remove": "Remove",
+      "photo_refused": "not accepted by the server: {reason}",
+      "photo_saved": "Photo kept on this phone",
+      "photo_choose": "Choose a photo to add.",
+      "photo_alt": "Photo of the work"
     },
     "conflict": {
       "job_cancelled": "The office cancelled this job. Nothing was saved.",
