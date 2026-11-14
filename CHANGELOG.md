@@ -30,6 +30,10 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - `auth` 1.4.0: `principal.attrs.has_password` (true when the account has a password; always false for an agent principal and for a phone-only account), and the app's declared boolean attributes: auth keeps one that the app's own `auth.principal` filler set to a boolean and ignores a module filler's value for it (#791).
 
+**CI**
+
+- The `renox-worker` that the `ts` job tests the examples with is built with the new optimised `ci-worker` Cargo profile instead of `dev`, so CPU budgets (a 2,000 ms job attempt) behave as on the release build. (#821)
+
 ## 0.1.15 (2026-11-13)
 
 **Install**
