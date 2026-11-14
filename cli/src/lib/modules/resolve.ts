@@ -294,7 +294,7 @@ export function projectProblems(project: string): ModuleProblem[] {
     const actual = lockEntryOf(m, e.approved);
     for (const field of ["version", "hash", "dependencies", "config", "mount", "source", "isolation"] as const) {
       if (JSON.stringify(e[field]) !== JSON.stringify(actual[field])) {
-        out.push({ rule: "MF12", file: "renox.lock", message: `${m.name}.${field} in renox.lock is ${JSON.stringify(e[field])}, expected ${JSON.stringify(actual[field])}; run renox add ${m.name} to update the lock` });
+        out.push({ rule: "MF12", file: "renox.lock", message: `${m.name}.${field} in renox.lock is ${JSON.stringify(e[field])}, expected ${JSON.stringify(actual[field])}; run ${field === "config" ? `renox approve ${m.name}` : `renox add ${m.name}`} to update the lock` });
       }
     }
     if (!samePermissions(e.approved, m.manifest.permissions)) {

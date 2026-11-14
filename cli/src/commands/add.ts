@@ -165,10 +165,16 @@ export async function addModule(project: string, name: string, options: AddOptio
   }
   writeFileSync(tomlPath, toml);
   // renox.lock: every module in topological order; the others keep what they had approved.
-  const kept = new Map((entries ?? []).map((e) => [e.name, e.approved]));
+  // #792: they also keep their `approved_version`, which lockEntryOf does not know.
+  const kept = new Map((entries ?? []).map((e) => [e.name, e]));
   writeLock(
     project,
-    resolution.modules.map((m) => lockEntryOf(m, m.name === name || extra.includes(m.name) ? m.manifest.permissions : (kept.get(m.name) ?? m.manifest.permissions))),
+    resolution.modules.map((m) => {
+      if (m.name === name || extra.includes(m.name)) return lockEntryOf(m, m.manifest.permissions);
+      const prev = kept.get(m.name);
+      const e = lockEntryOf(m, prev?.approved ?? m.manifest.permissions);
+      return prev?.approved_version !== undefined ? { ...e, approved_version: prev.approved_version } : e;
+    }),
   );
   for (const d of extra) console.log(`installed ${d} ${(installed.get(d) as ResolvedModule).manifest.version} (needed by ${name})`);
   console.log(`installed ${name} ${target.manifest.version}; run renox migrate to create its tables`);

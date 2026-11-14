@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.16 (unreleased)
+
+**CLI**
+
+- `renox approve <module>` writes the module's resolved `config` and `dependencies` into its lock entry, the same values `renox add` writes, so a config key a new version declares (`auth` 1.3.0's `phone_signup`) no longer fails `renox check` with MF12 until the lock is edited by hand; the MF12 message for `config` now says `run renox approve <module>`. `renox add <module>` keeps the `approved_version` line of the app's other modules instead of dropping it. (#792)
+
 ## 0.1.15 (2026-11-13)
 
 **Install**
