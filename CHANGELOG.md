@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.16 (unreleased)
+
+**Modules**
+
+- `org` 1.3.0: `org.bootstrap` also requires `ctx.caller === "app"` (the app's own code or the platform's setup call); a module caller, in `shared` or `isolate` mode, gets `RENOX_FORBIDDEN` with `details.reason: "caller"`. In `shared` mode `ctx.caller` is only as strong as the shared boundary; `isolate` closes that (#763).
+
 ## 0.1.15 (2026-11-13)
 
 **Install**

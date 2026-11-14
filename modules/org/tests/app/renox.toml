@@ -8,3 +8,4 @@ i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "a
 auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
 org = { version = "^1.0", source = "path:../..", mount = "/org" }
 orgmail = { version = "^1.0", source = "path:../fixtures/orgmail" }
+orgprobe = { version = "^1.0", source = "path:../fixtures/orgprobe" }
