@@ -175,6 +175,36 @@ export async function reminderDue(ctx: BookingCtx, id: string, kind: "24h" | "2h
   return fresh.changes === 1 ? { customer: b.customer, start_at: b.start_at, service: b.service } : null;
 }
 
+/** What the reminder job needs of its ctx (the runtime's `JobContext`, #799). */
+export type RemindCtx = BookingCtx & {
+  job?: { payload?: unknown };
+  hooks: { run(name: string, args?: unknown): Promise<unknown> };
+  log: { warn(message: string, fields?: Record<string, unknown>): void };
+};
+
+/**
+ * One reminder run (#799): the payload is `{ booking_id, kind }`; without it
+ * the run is a no-op with one warning. A due reminder goes to the hook
+ * `booking.remind` first (a filler sets `handled` once it delivered it), then,
+ * unhandled, by email when the customer is an auth user with an address.
+ */
+export async function remind(ctx: RemindCtx, payload: unknown, send: (m: { to: string; subject: string; text: string }) => Promise<unknown>): Promise<void> {
+  const p = (payload ?? null) as { booking_id?: unknown; kind?: unknown } | null;
+  if (typeof p?.booking_id !== "string" || (p.kind !== "24h" && p.kind !== "2h")) {
+    ctx.log.warn("booking reminder run without a payload", { payload_type: typeof payload });
+    return;
+  }
+  const due = await reminderDue(ctx, p.booking_id, p.kind);
+  if (due === null) return;
+  const args = { booking_id: p.booking_id, kind: p.kind, customer: due.customer, service: due.service, start_at: due.start_at, handled: false };
+  await ctx.hooks.run("booking.remind", args);
+  if (args.handled) return;
+  const u = await ctx.db.queryOne<{ email: string | null }>("select email from auth__public_users_v1 where id = ?", [due.customer]);
+  if (u === null || typeof u.email !== "string" || u.email === "") return;
+  const when = new Date(due.start_at).toISOString().replace("T", " ").slice(0, 16);
+  await send({ to: u.email, subject: `Reminder: ${due.service} at ${when} UTC`, text: `Your booking for ${due.service} is at ${when} UTC. To cancel, open your bookings page.` });
+}
+
 // Managing the catalogue (#334): booking.manage when a principal calls.
 type Managed = BookingCtx & { authz?: { require(action: string): Promise<void> } };
 const ID = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
