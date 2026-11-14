@@ -97,6 +97,11 @@ rw((db) => {
   const ok = JSON.stringify({ errors: [], insert: 2, update: 0, exists: 1 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11b0', 'customers', 'k1', 'bad.xlsx', 'checked', 3, 1, 0, 2, ?, 'u_owner', ?)", [bad, now]);
   db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11c0', 'customers', 'k2', 'ok.xlsx', 'checked', 3, 2, 1, 0, ?, 'u_owner', ?)", [ok, now]);
+  // Parts and suppliers (#812): one active and one deactivated of each.
+  db.run("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_00000000000a11a1', 'A11Y-PIPE', 'Copper pipe 15 mm', 'أنبوب نحاسي 15 مم', 'metre', 850, 1400, 5, 20, 1, ?)", [now]);
+  db.run("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_00000000000a11a2', 'A11Y-GAS', 'R32 refrigerant', 'غاز التبريد R32', 'kg', 4500, 0, 0, 3.5, 0, ?)", [now]);
+  db.run("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_00000000000a11a1', 'Al Noor Trading', '100123456700003', '+97144110088', 'orders@alnoor.example', 'Dubai', 'Net 30', 1, ?)", [now]);
+  db.run("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_00000000000a11a2', 'Old Pipes LLC', null, '', '', '', '', 0, ?)", [now]);
   // The background states of #733: a file being checked (its page reloads itself) and one that failed.
   const empty = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_00000000000a11d0', 'customers', 'k3', 'waiting.xlsx', 'checking', ?, 'u_owner', ?)", [empty, now]);
@@ -300,6 +305,13 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/admin/whatsapp?status=failed", as: () => owner, note: "a filter" },
   { path: "/admin/people", as: () => owner },
   { path: "/admin/import", as: () => owner },
+  { path: "/admin/parts", as: () => owner },
+  { path: "/admin/parts?edit=pt_00000000000a11a1", as: () => owner, note: "editing a part (#812)" },
+  { path: "/admin/parts?q=pipe", as: () => owner, note: "a search" },
+  { path: "/admin/parts", as: () => dispatcher, note: "read-only, no form" },
+  { path: "/admin/suppliers", as: () => owner },
+  { path: "/admin/suppliers?edit=su_00000000000a11a1", as: () => owner, note: "editing a supplier (#812)" },
+  { path: "/admin/suppliers", as: () => accountant, note: "read-only, no form" },
   { path: "/admin/import/im_00000000000a11b0", as: () => owner, note: "a file with errors" },
   { path: "/admin/import/im_00000000000a11c0", as: () => owner, note: "a clean file" },
   { path: "/admin/import/im_00000000000a11d0", as: () => owner, note: "being checked" },

@@ -683,7 +683,9 @@
       "audit": "Audit trail",
       "menu": "Back office",
       "label": "Back office",
-      "whatsapp": "WhatsApp"
+      "whatsapp": "WhatsApp",
+      "parts": "Parts",
+      "suppliers": "Suppliers"
     },
     "tiles": {
       "jobs_today": "Jobs today",
@@ -1006,7 +1008,101 @@
     "payment_instructions_ar": "Payment instructions (Arabic)",
     "reason_other": "More about the reason",
     "portal_cutoff_hours": "Customers may change a visit until (hours before)",
-    "portal_max_reschedules": "Reschedules allowed per visit"
+    "portal_max_reschedules": "Reschedules allowed per visit",
+    "sku": "SKU",
+    "unit": "Unit",
+    "cost": "Cost (AED)",
+    "sell": "Selling price (AED)",
+    "min_stock": "Minimum stock",
+    "vat_rate": "VAT"
+  },
+  "parts": {
+    "title": "Parts",
+    "search": "Search by SKU or name",
+    "search_submit": "Search",
+    "none": "No parts found.",
+    "created": "The part was added.",
+    "updated": "The part was saved.",
+    "activated": "The part is active again.",
+    "deactivated": "The part was deactivated. Its history stays.",
+    "add": "Add a part",
+    "add_submit": "Add the part",
+    "edit": "Edit the part",
+    "edit_link": "Edit",
+    "save": "Save the part",
+    "cancel": "Cancel",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "on": "Active",
+    "off": "Off",
+    "pages": "Pages of parts",
+    "prev": "Previous",
+    "next": "Next",
+    "page_of": "Page {n} of {pages}",
+    "f": {
+      "sku": "SKU",
+      "name": "Name",
+      "name_en": "Name (English)",
+      "name_ar": "Name (Arabic)",
+      "unit": "Unit",
+      "cost": "Cost (AED)",
+      "sell": "Selling price (AED)",
+      "vat": "VAT",
+      "min_stock": "Minimum stock",
+      "active": "Status",
+      "actions": "Actions"
+    },
+    "unit": {
+      "piece": "piece",
+      "metre": "metre",
+      "litre": "litre",
+      "kg": "kg",
+      "box": "box"
+    },
+    "err": {
+      "sku": "Use 1 to 32 letters, digits or hyphens, for example AC-FILTER-01.",
+      "sku_taken": "The SKU {sku} is already used by {name}.",
+      "name_en": "Enter the English name (up to 120 characters).",
+      "name_ar": "Enter the Arabic name (up to 120 characters).",
+      "unit": "Choose a unit.",
+      "cost": "Enter the cost in AED, for example 12 or 12.50.",
+      "sell": "Enter the selling price in AED, for example 20 or 19.90.",
+      "vat_rate": "Choose 0% or 5%.",
+      "min_stock": "Enter the minimum stock as a number of at most 3 decimals, for example 5 or 2.5."
+    }
+  },
+  "suppliers": {
+    "title": "Suppliers",
+    "none": "No suppliers yet.",
+    "created": "The supplier was added.",
+    "updated": "The supplier was saved.",
+    "activated": "The supplier is active again.",
+    "deactivated": "The supplier was deactivated. Its history stays.",
+    "add": "Add a supplier",
+    "add_submit": "Add the supplier",
+    "edit": "Edit the supplier",
+    "edit_link": "Edit",
+    "save": "Save the supplier",
+    "cancel": "Cancel",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "on": "Active",
+    "off": "Off",
+    "f": {
+      "name": "Name",
+      "trn": "TRN",
+      "phone": "Phone",
+      "email": "Email",
+      "address": "Address",
+      "notes": "Notes",
+      "active": "Status",
+      "actions": "Actions"
+    },
+    "err": {
+      "name": "Enter the supplier's name (up to 120 characters).",
+      "address": "The address is at most 300 characters.",
+      "notes": "The notes are at most 1000 characters."
+    }
   },
   "problem": {
     "title": "The form could not be saved",

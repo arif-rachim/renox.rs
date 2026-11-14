@@ -54,15 +54,15 @@ admin = { version = "^1.0.0", mount = "/admin", config = { base_path = "/admin",
 gcc = { version = "^1.0.0" }
 
 [authz]
-actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage", "portal.view", "portal.book", "portal.change"]
+actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage", "portal.view", "portal.book", "portal.change", "part.read", "part.write", "stock.read", "stock.move", "purchase.read", "purchase.write"]
 sensitive = ["invoice.issue", "invoice.pay", "settings.write", "user.manage"]
 
 [authz.default_roles]
-owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage", "twofa.reset"]
-branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view"]
-dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write"]
-technician = ["job.read", "visit.perform"]
-accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "reports.view", "reports.export", "customer.read", "job.read", "contract.read"]
+owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "settings.update", "branch.write", "service.write", "user.manage", "twofa.reset", "part.read", "part.write", "stock.read", "stock.move", "purchase.read", "purchase.write"]
+branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view", "part.read", "part.write", "stock.read", "stock.move", "purchase.read", "purchase.write"]
+dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write", "part.read", "stock.read"]
+technician = ["job.read", "visit.perform", "part.read"]
+accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "reports.view", "reports.export", "customer.read", "job.read", "contract.read", "part.read", "stock.read", "purchase.read"]
 # The customer portal (/my): a global role, assigned to a phone-only user the first time they are linked to
 # their customer records (lib/portal.ts). No `org` membership grants it, and policies/app/base.cedar forbids
 # the role every staff action.

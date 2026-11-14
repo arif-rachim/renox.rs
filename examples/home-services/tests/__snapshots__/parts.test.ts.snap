@@ -1,0 +1,467 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the pages, as the owner sees them /admin/parts lists the parts with the add form, in English and in Arabic: role: parts, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Parts · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/parts">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/parts?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>Parts</h1>
+  
+  <form class="search" role="search" action="/admin/parts" method="get">
+    <input type="search" name="q" value="" placeholder="Search by SKU or name" aria-label="Search by SKU or name" autocomplete="off" dir="auto">
+    <button type="submit">Search</button>
+  </form>
+  <div class="table-scroll" tabindex="0"><table id="parts">
+    <caption class="visually-hidden">Parts</caption>
+    <thead>
+      <tr><th scope="col">SKU</th><th scope="col">Name</th><th scope="col">Unit</th><th scope="col">Cost (AED)</th><th scope="col">Selling price (AED)</th><th scope="col">Minimum stock</th><th scope="col">Status</th><th scope="col">Actions</th></tr>
+    </thead>
+    <tbody>
+      <tr id="part-pt_00000000000000a2">
+        <td dir="ltr">GAS-R32</td>
+        <td dir="auto">R32 refrigerant</td>
+        <td dir="auto">kg</td>
+        <td dir="ltr">AED 45.00</td>
+        <td dir="ltr">AED 0.00</td>
+        <td dir="ltr">3.5</td>
+        <td>Off</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000000a2#part-form" id="edit-pt_00000000000000a2">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000000a2">
+            <input type="hidden" name="active" value="1">
+            <button type="submit" id="active-pt_00000000000000a2">Activate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000000a1">
+        <td dir="ltr">PIPE-15</td>
+        <td dir="auto">Copper pipe 15 mm</td>
+        <td dir="auto">metre</td>
+        <td dir="ltr">AED 8.50</td>
+        <td dir="ltr">AED 14.00</td>
+        <td dir="ltr">20</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000000a1#part-form" id="edit-pt_00000000000000a1">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000000a1">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000000a1">Deactivate</button>
+          </form>
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+  <section id="part-form">
+    <h2>Add a part</h2>
+    <form method="post" action="?/save" hx-post="?/save" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="id" value="">
+      <p><label>SKU <input name="sku" dir="ltr" maxlength="32" required autocapitalize="characters" value="" id="f-sku" aria-required="true"></label></p>
+      <p><label>Name (English) <input name="name_en" maxlength="120" required value="" id="f-name_en" aria-required="true" dir="auto"></label></p>
+      <p><label>Name (Arabic) <input name="name_ar" dir="rtl" maxlength="120" required value="" id="f-name_ar" aria-required="true"></label></p>
+      <p><label>Unit <select name="unit" id="f-unit"><option value="piece" selected dir="auto">piece</option><option value="metre" dir="auto">metre</option><option value="litre" dir="auto">litre</option><option value="kg" dir="auto">kg</option><option value="box" dir="auto">box</option></select></label></p>
+      <p><label>Cost (AED) <input name="cost" dir="ltr" inputmode="decimal" size="10" value="0.00" id="f-cost"></label></p>
+      <p><label>Selling price (AED) <input name="sell" dir="ltr" inputmode="decimal" size="10" value="0.00" id="f-sell"></label></p>
+      <p><label>VAT <select name="vat_rate" id="f-vat_rate"><option value="5" selected>5%</option><option value="0">0%</option></select></label></p>
+      <p><label>Minimum stock <input name="min_stock" dir="ltr" inputmode="decimal" size="10" value="0" id="f-min_stock"></label></p>
+      <p>
+        <button type="submit" class="btn-brand" id="save-part">Add the part</button>
+        
+      </p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the pages, as the owner sees them /admin/parts lists the parts with the add form, in English and in Arabic: role: parts, owner, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>قطع الغيار · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/parts">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مالك</option><option value="org_sharjah" dir="auto">Sharjah · مالك</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/parts?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>قطع الغيار</h1>
+  
+  <form class="search" role="search" action="/admin/parts" method="get">
+    <input type="search" name="q" value="" placeholder="ابحث برمز الصنف أو الاسم" aria-label="ابحث برمز الصنف أو الاسم" autocomplete="off" dir="auto">
+    <button type="submit">بحث</button>
+  </form>
+  <div class="table-scroll" tabindex="0"><table id="parts">
+    <caption class="visually-hidden">قطع الغيار</caption>
+    <thead>
+      <tr><th scope="col">رمز الصنف (SKU)</th><th scope="col">الاسم</th><th scope="col">الوحدة</th><th scope="col">التكلفة (درهم)</th><th scope="col">سعر البيع (درهم)</th><th scope="col">الحد الأدنى للمخزون</th><th scope="col">الحالة</th><th scope="col">الإجراءات</th></tr>
+    </thead>
+    <tbody>
+      <tr id="part-pt_00000000000000a2">
+        <td dir="ltr">GAS-R32</td>
+        <td dir="auto">غاز التبريد R32</td>
+        <td dir="auto">كيلوغرام</td>
+        <td dir="ltr">45.00 د.إ.</td>
+        <td dir="ltr">0.00 د.إ.</td>
+        <td dir="ltr">3.5</td>
+        <td>متوقفة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000000a2#part-form" id="edit-pt_00000000000000a2">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000000a2">
+            <input type="hidden" name="active" value="1">
+            <button type="submit" id="active-pt_00000000000000a2">تفعيل</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000000a1">
+        <td dir="ltr">PIPE-15</td>
+        <td dir="auto">أنبوب نحاسي 15 مم</td>
+        <td dir="auto">متر</td>
+        <td dir="ltr">8.50 د.إ.</td>
+        <td dir="ltr">14.00 د.إ.</td>
+        <td dir="ltr">20</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000000a1#part-form" id="edit-pt_00000000000000a1">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000000a1">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000000a1">إيقاف</button>
+          </form>
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+  <section id="part-form">
+    <h2>إضافة قطعة</h2>
+    <form method="post" action="?/save" hx-post="?/save" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="id" value="">
+      <p><label>رمز الصنف (SKU) <input name="sku" dir="ltr" maxlength="32" required autocapitalize="characters" value="" id="f-sku" aria-required="true"></label></p>
+      <p><label>الاسم (بالإنجليزية) <input name="name_en" maxlength="120" required value="" id="f-name_en" aria-required="true" dir="auto"></label></p>
+      <p><label>الاسم (بالعربية) <input name="name_ar" dir="rtl" maxlength="120" required value="" id="f-name_ar" aria-required="true"></label></p>
+      <p><label>الوحدة <select name="unit" id="f-unit"><option value="piece" selected dir="auto">قطعة</option><option value="metre" dir="auto">متر</option><option value="litre" dir="auto">لتر</option><option value="kg" dir="auto">كيلوغرام</option><option value="box" dir="auto">علبة</option></select></label></p>
+      <p><label>التكلفة (درهم) <input name="cost" dir="ltr" inputmode="decimal" size="10" value="0.00" id="f-cost"></label></p>
+      <p><label>سعر البيع (درهم) <input name="sell" dir="ltr" inputmode="decimal" size="10" value="0.00" id="f-sell"></label></p>
+      <p><label>ضريبة القيمة المضافة <select name="vat_rate" id="f-vat_rate"><option value="5" selected>5%</option><option value="0">0%</option></select></label></p>
+      <p><label>الحد الأدنى للمخزون <input name="min_stock" dir="ltr" inputmode="decimal" size="10" value="0" id="f-min_stock"></label></p>
+      <p>
+        <button type="submit" class="btn-brand" id="save-part">أضف القطعة</button>
+        
+      </p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the pages, as the owner sees them /admin/suppliers lists the suppliers with the add form, in English and in Arabic: role: suppliers, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Suppliers · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/suppliers">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/suppliers?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>Suppliers</h1>
+  
+  <div class="table-scroll" tabindex="0"><table id="suppliers">
+    <caption class="visually-hidden">Suppliers</caption>
+    <thead>
+      <tr><th scope="col">Name</th><th scope="col">TRN</th><th scope="col">Phone</th><th scope="col">Email</th><th scope="col">Status</th><th scope="col">Actions</th></tr>
+    </thead>
+    <tbody>
+      <tr id="supplier-su_00000000000000a1">
+        <td dir="auto">Al Noor Trading</td>
+        <td dir="ltr">100123456700003</td>
+        <td dir="ltr">+97144110088</td>
+        <td dir="ltr">orders@alnoor.example</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000000a1#supplier-form" id="edit-su_00000000000000a1">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000000a1">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-su_00000000000000a1">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="supplier-su_00000000000000a2">
+        <td dir="auto">Old Pipes LLC</td>
+        <td dir="ltr"></td>
+        <td dir="ltr"></td>
+        <td dir="ltr"></td>
+        <td>Off</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000000a2#supplier-form" id="edit-su_00000000000000a2">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000000a2">
+            <input type="hidden" name="active" value="1">
+            <button type="submit" id="active-su_00000000000000a2">Activate</button>
+          </form>
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  <section id="supplier-form">
+    <h2>Add a supplier</h2>
+    <form method="post" action="?/save" hx-post="?/save" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="id" value="">
+      <p><label>Name <input name="name" maxlength="120" required value="" id="f-name" aria-required="true" dir="auto"></label></p>
+      <p><label>TRN <input name="trn" dir="ltr" maxlength="40" value="" id="f-trn"></label></p>
+      <p><label>Phone <input name="phone" type="tel" dir="ltr" maxlength="40" value="" id="f-phone"></label></p>
+      <p><label>Email <input name="email" type="email" dir="ltr" maxlength="254" value="" id="f-email"></label></p>
+      <p><label>Address <input name="address" maxlength="300" value="" id="f-address" dir="auto"></label></p>
+      <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
+      <p>
+        <button type="submit" class="btn-brand" id="save-supplier">Add the supplier</button>
+        
+      </p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the pages, as the owner sees them /admin/suppliers lists the suppliers with the add form, in English and in Arabic: role: suppliers, owner, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>الموردون · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/suppliers">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مالك</option><option value="org_sharjah" dir="auto">Sharjah · مالك</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/suppliers?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>الموردون</h1>
+  
+  <div class="table-scroll" tabindex="0"><table id="suppliers">
+    <caption class="visually-hidden">الموردون</caption>
+    <thead>
+      <tr><th scope="col">الاسم</th><th scope="col">الرقم الضريبي</th><th scope="col">الهاتف</th><th scope="col">البريد الإلكتروني</th><th scope="col">الحالة</th><th scope="col">الإجراءات</th></tr>
+    </thead>
+    <tbody>
+      <tr id="supplier-su_00000000000000a1">
+        <td dir="auto">Al Noor Trading</td>
+        <td dir="ltr">100123456700003</td>
+        <td dir="ltr">+97144110088</td>
+        <td dir="ltr">orders@alnoor.example</td>
+        <td>نشط</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000000a1#supplier-form" id="edit-su_00000000000000a1">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000000a1">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-su_00000000000000a1">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="supplier-su_00000000000000a2">
+        <td dir="auto">Old Pipes LLC</td>
+        <td dir="ltr"></td>
+        <td dir="ltr"></td>
+        <td dir="ltr"></td>
+        <td>متوقف</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000000a2#supplier-form" id="edit-su_00000000000000a2">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000000a2">
+            <input type="hidden" name="active" value="1">
+            <button type="submit" id="active-su_00000000000000a2">تفعيل</button>
+          </form>
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  <section id="supplier-form">
+    <h2>إضافة مورد</h2>
+    <form method="post" action="?/save" hx-post="?/save" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="id" value="">
+      <p><label>الاسم <input name="name" maxlength="120" required value="" id="f-name" aria-required="true" dir="auto"></label></p>
+      <p><label>الرقم الضريبي <input name="trn" dir="ltr" maxlength="40" value="" id="f-trn"></label></p>
+      <p><label>الهاتف <input name="phone" type="tel" dir="ltr" maxlength="40" value="" id="f-phone"></label></p>
+      <p><label>البريد الإلكتروني <input name="email" type="email" dir="ltr" maxlength="254" value="" id="f-email"></label></p>
+      <p><label>العنوان <input name="address" maxlength="300" value="" id="f-address" dir="auto"></label></p>
+      <p><label>ملاحظات <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
+      <p>
+        <button type="submit" class="btn-brand" id="save-supplier">أضف المورد</button>
+        
+      </p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
