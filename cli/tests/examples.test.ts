@@ -26,7 +26,7 @@ if (!worker) console.log("examples.test.ts: RENOX_WORKER_PATH is not set; the ex
  */
 const EXAMPLES: { name: string; seed: string; passing: number; fromWorker: { version: number[]; tests: number }[] }[] = [
   // tests/tools.test.ts: the audit page assertion of #683 runs from renox-worker 0.7.1 (WORKER_WITH_TOOL_AUDIT).
-  { name: "home-services", seed: "seeds/001_demo.sql", passing: 830, fromWorker: [{ version: [0, 7, 1], tests: 1 }] },
+  { name: "home-services", seed: "seeds/001_demo.sql", passing: 863, fromWorker: [{ version: [0, 7, 1], tests: 1 }] },
 ];
 
 /** The worker's version (`renox-worker --version`), or null when it cannot be read. */

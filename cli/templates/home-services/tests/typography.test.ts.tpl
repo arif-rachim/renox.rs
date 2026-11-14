@@ -25,6 +25,7 @@ async function signIn(jar: string, email: string, next = "/") {
 const dispatcher = await signIn("dispatcher", "dispatcher.dubai@fixit.example");
 const accountant = await signIn("accountant", "accountant.dubai@fixit.example");
 const ali = await signIn("ali", "ali.dubai@fixit.example", "/me");
+const manager = await signIn("manager", "manager.dubai@fixit.example");
 // A portal customer (#774): Fatima Al Suwaidi (cu_dxb_03) signs up with her phone, through auth's phone pages.
 const customer = t.as("customer");
 const plant = (sql: string, params: (string | number | null)[]) => {
@@ -58,6 +59,8 @@ plant("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id
 
 // A part and a supplier (#812) for the back-office lists below.
 plant("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_0000000000007001', 'PIPE-15', 'Copper pipe 15 mm', 'أنبوب نحاسي 15 مم', 'metre', 850, 1400, 5, 20.5, 1, ?)", [Math.floor(Date.now() / 1000)]);
+// Stock (#813): Dubai receives 8 metres of it at 8.50 through the page, so the stock list and the history have numbers.
+expect((await manager.action("/admin/stock", "receive", { part: "pt_0000000000007001", qty: "8", unit_cost: "8.50", reason: "first delivery" })).status).toBe(303);
 plant("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_0000000000007001', 'Al Noor Trading', '100123456700003', '+97144110088', 'orders@alnoor.example', 'Dubai', '', 1, ?)", [Math.floor(Date.now() / 1000)]);
 
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
@@ -145,6 +148,8 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/my/visits/jb_seed_08", who: customer, values: ["J-000008", "+97140000001"] },
     { page: "/my/visits/jb_seed_12", who: customer, values: ["J-000012", "+97140000001"] },
     { page: "/admin/parts", who: dispatcher, values: ["PIPE-15", "8.50", "14.00", "20.5"] },
+    { page: "/admin/stock", who: dispatcher, values: ["PIPE-15", "20.5", "8.50", "68.00"] },
+    { page: "/admin/stock/pt_0000000000007001", who: dispatcher, values: ["+8", "8.50"] },
     { page: "/admin/suppliers", who: accountant, values: ["100123456700003", "+97144110088", "orders@alnoor.example"] },
     { page: "/my/invoices", who: customer, values: ["INV-000960", "126.00"] },
     { page: "/my/invoices/INV-000960", who: customer, values: ["INV-000960", "120.00", "6.00"] },
