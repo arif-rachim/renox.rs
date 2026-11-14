@@ -58,7 +58,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
     <label>Supplier
       <select name="supplier">
         <option value="">—</option>
-        <option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a03" dir="auto">Closed Supplier</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option>
+        <option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a03" dir="auto">Closed Supplier</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option>
       </select></label>
     <button type="submit">Filter</button>
   </form>
@@ -75,6 +75,13 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <td dir="ltr"><date></td>
         <td dir="ltr"><date></td>
         <td dir="ltr">AED 40.96</td>
+      </tr><tr id="po-po_<id>">
+        <td dir="ltr"><a href="/admin/purchasing/po_<id>" dir="auto">PO-DEMO02</a></td>
+        <td dir="auto">Gulf Cooling Supplies LLC</td>
+        <td><span class="status status-sent" dir="auto">Sent</span></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr">AED 945.00</td>
       </tr>
     </tbody>
   </table></div>
@@ -82,7 +89,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
   <section id="po-form">
     <h2>New purchase order</h2>
     <form method="post" action="?/create" hx-post="?/create" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>Supplier <select name="supplier" id="f-supplier" required aria-required="true"><option value=""></option><option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option></select></label></p>
+      <p><label>Supplier <select name="supplier" id="f-supplier" required aria-required="true"><option value=""></option><option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option></select></label></p>
       <p><label>Language of the document <select name="language" id="f-language"><option value="en" selected>English</option><option value="ar">العربية</option></select></label></p>
       <p><label>Expected on <input name="expected_on" type="date" dir="ltr" id="f-expected_on"></label></p>
       <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
@@ -171,7 +178,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
     <caption class="visually-hidden">Lines of the purchase order</caption>
     <thead><tr><th scope="col">SKU</th><th scope="col">Part</th><th scope="col">Quantity</th><th scope="col">Unit cost (AED)</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th><th scope="col">Received</th></tr></thead>
     <tbody>
-      <tr id="line-11">
+      <tr id="line-19">
         <td dir="ltr">AC-FILTER</td>
         <td dir="auto">AC filter</td>
         <td dir="ltr">3 <small dir="auto">piece</small></td>
@@ -181,7 +188,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <td dir="ltr">AED 17.33</td>
         <td dir="ltr">0</td>
         
-      </tr><tr id="line-12">
+      </tr><tr id="line-20">
         <td dir="ltr">PIPE-15</td>
         <td dir="auto">Copper pipe 15 mm</td>
         <td dir="ltr">2.5 <small dir="auto">metre</small></td>
@@ -211,12 +218,12 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <caption class="visually-hidden">Receive a delivery</caption>
         <thead><tr><th scope="col">SKU</th><th scope="col">Outstanding</th><th scope="col">Received now</th><th scope="col">Unit cost paid (AED)</th></tr></thead>
         <tbody>
-          <tr id="receive-11">
+          <tr id="receive-19">
             <td dir="ltr">AC-FILTER</td>
             <td dir="ltr">3</td>
             <td><input name="qty_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_0" value="3" aria-label="Received now"></td>
             <td><input name="price_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-price_0" value="5.50" aria-label="Unit cost paid (AED)"></td>
-          </tr><tr id="receive-12">
+          </tr><tr id="receive-20">
             <td dir="ltr">PIPE-15</td>
             <td dir="ltr">2.5</td>
             <td><input name="qty_1" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_1" value="2.5" aria-label="Received now"></td>
@@ -316,7 +323,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
     <caption class="visually-hidden">Lines of the purchase order</caption>
     <thead><tr><th scope="col">SKU</th><th scope="col">Part</th><th scope="col">Quantity</th><th scope="col">Unit cost (AED)</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th><th scope="col">Received</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>
-      <tr id="line-13">
+      <tr id="line-21">
         <td dir="ltr">AC-FILTER</td>
         <td dir="auto">AC filter</td>
         <td dir="ltr">1 <small dir="auto">piece</small></td>
@@ -327,8 +334,8 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <td dir="ltr">0</td>
         <td>
           <form method="post" action="?/remove_line" hx-post="?/remove_line" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
-            <input type="hidden" name="line" value="13">
-            <button type="submit" id="remove-13">Remove</button>
+            <input type="hidden" name="line" value="21">
+            <button type="submit" id="remove-21">Remove</button>
           </form>
         </td>
       </tr>
@@ -344,7 +351,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
   <section id="line-form">
     <h2>Add a line</h2>
     <form method="post" action="?/add_line" hx-post="?/add_line" class="stack narrow" id="add-line-form"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>Part <select name="part" id="f-line-part" required aria-required="true"><option value=""></option><option value="pt_0000000000815a01" dir="auto">AC-FILTER: AC filter (6.00)</option><option value="pt_0000000000815a02" dir="auto">PIPE-15: Copper pipe 15 mm (10.00)</option></select></label></p>
+      <p><label>Part <select name="part" id="f-line-part" required aria-required="true"><option value=""></option><option value="pt_0000000000815a01" dir="auto">AC-FILTER: AC filter (6.00)</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: Run capacitor 35 uF (22.00)</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: Run capacitor 45 uF (26.00)</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: Descaling kit (20.00)</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: AC filter, cassette unit (18.00)</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: AC filter, split unit (12.00)</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: Kitchen mixer tap (110.00)</option><option value="pt_0000000000815a02" dir="auto">PIPE-15: Copper pipe 15 mm (10.00)</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: PVC elbow 25 mm (1.50)</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: PVC pipe 25 mm (4.50)</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: PVC tee 25 mm (2.00)</option><option value="pt_00000000000d0006" dir="auto">REF-R22: Refrigerant R22 (45.00)</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: Refrigerant R410A (38.00)</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: Silicone sealant, clear (11.00)</option></select></label></p>
       <p><label>Quantity <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-line-qty" value=""></label></p>
       <p><label>Unit cost (AED) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" id="f-line-unit_cost" value=""></label> <small class="muted">Leave blank for the part&#39;s cost.</small></p>
       <p><button type="submit" class="btn-brand" id="add-line">Add the line</button></p>
@@ -428,7 +435,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
     <label>المورّد
       <select name="supplier">
         <option value="">—</option>
-        <option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a03" dir="auto">Closed Supplier</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option>
+        <option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a03" dir="auto">Closed Supplier</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option>
       </select></label>
     <button type="submit">تصفية</button>
   </form>
@@ -445,6 +452,13 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <td dir="ltr"><date></td>
         <td dir="ltr"><date></td>
         <td dir="ltr">40.96 د.إ.</td>
+      </tr><tr id="po-po_<id>">
+        <td dir="ltr"><a href="/admin/purchasing/po_<id>" dir="auto">PO-DEMO02</a></td>
+        <td dir="auto">Gulf Cooling Supplies LLC</td>
+        <td><span class="status status-sent" dir="auto">مُرسَل</span></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr">945.00 د.إ.</td>
       </tr>
     </tbody>
   </table></div>
@@ -452,7 +466,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
   <section id="po-form">
     <h2>أمر شراء جديد</h2>
     <form method="post" action="?/create" hx-post="?/create" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>المورّد <select name="supplier" id="f-supplier" required aria-required="true"><option value=""></option><option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option></select></label></p>
+      <p><label>المورّد <select name="supplier" id="f-supplier" required aria-required="true"><option value=""></option><option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option></select></label></p>
       <p><label>لغة المستند <select name="language" id="f-language"><option value="en" selected>English</option><option value="ar">العربية</option></select></label></p>
       <p><label>التسليم المتوقع <input name="expected_on" type="date" dir="ltr" id="f-expected_on"></label></p>
       <p><label>ملاحظات <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
@@ -541,7 +555,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
     <caption class="visually-hidden">بنود أمر الشراء</caption>
     <thead><tr><th scope="col">الرمز</th><th scope="col">القطعة</th><th scope="col">الكمية</th><th scope="col">تكلفة الوحدة (درهم)</th><th scope="col">الصافي</th><th scope="col">ضريبة القيمة المضافة</th><th scope="col">الإجمالي</th><th scope="col">المستلم</th></tr></thead>
     <tbody>
-      <tr id="line-11">
+      <tr id="line-19">
         <td dir="ltr">AC-FILTER</td>
         <td dir="auto">فلتر مكيف</td>
         <td dir="ltr">3 <small dir="auto">قطعة</small></td>
@@ -551,7 +565,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <td dir="ltr">17.33 د.إ.</td>
         <td dir="ltr">0</td>
         
-      </tr><tr id="line-12">
+      </tr><tr id="line-20">
         <td dir="ltr">PIPE-15</td>
         <td dir="auto">أنبوب نحاسي 15 مم</td>
         <td dir="ltr">2.5 <small dir="auto">متر</small></td>
@@ -581,12 +595,12 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <caption class="visually-hidden">استلام شحنة</caption>
         <thead><tr><th scope="col">الرمز</th><th scope="col">المتبقي</th><th scope="col">المستلم الآن</th><th scope="col">تكلفة الوحدة المدفوعة (درهم)</th></tr></thead>
         <tbody>
-          <tr id="receive-11">
+          <tr id="receive-19">
             <td dir="ltr">AC-FILTER</td>
             <td dir="ltr">3</td>
             <td><input name="qty_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_0" value="3" aria-label="المستلم الآن"></td>
             <td><input name="price_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-price_0" value="5.50" aria-label="تكلفة الوحدة المدفوعة (درهم)"></td>
-          </tr><tr id="receive-12">
+          </tr><tr id="receive-20">
             <td dir="ltr">PIPE-15</td>
             <td dir="ltr">2.5</td>
             <td><input name="qty_1" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_1" value="2.5" aria-label="المستلم الآن"></td>
@@ -686,7 +700,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
     <caption class="visually-hidden">بنود أمر الشراء</caption>
     <thead><tr><th scope="col">الرمز</th><th scope="col">القطعة</th><th scope="col">الكمية</th><th scope="col">تكلفة الوحدة (درهم)</th><th scope="col">الصافي</th><th scope="col">ضريبة القيمة المضافة</th><th scope="col">الإجمالي</th><th scope="col">المستلم</th><th scope="col"><span class="visually-hidden">الإجراءات</span></th></tr></thead>
     <tbody>
-      <tr id="line-14">
+      <tr id="line-22">
         <td dir="ltr">AC-FILTER</td>
         <td dir="auto">فلتر مكيف</td>
         <td dir="ltr">1 <small dir="auto">قطعة</small></td>
@@ -697,8 +711,8 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
         <td dir="ltr">0</td>
         <td>
           <form method="post" action="?/remove_line" hx-post="?/remove_line" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
-            <input type="hidden" name="line" value="14">
-            <button type="submit" id="remove-14">حذف</button>
+            <input type="hidden" name="line" value="22">
+            <button type="submit" id="remove-22">حذف</button>
           </form>
         </td>
       </tr>
@@ -714,7 +728,7 @@ exports[`snapshots the list and an order, in English and in Arabic: role: purcha
   <section id="line-form">
     <h2>إضافة بند</h2>
     <form method="post" action="?/add_line" hx-post="?/add_line" class="stack narrow" id="add-line-form"><input type="hidden" name="_csrf" value="<csrf>">
-      <p><label>القطعة <select name="part" id="f-line-part" required aria-required="true"><option value=""></option><option value="pt_0000000000815a01" dir="auto">AC-FILTER: فلتر مكيف (6.00)</option><option value="pt_0000000000815a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم (10.00)</option></select></label></p>
+      <p><label>القطعة <select name="part" id="f-line-part" required aria-required="true"><option value=""></option><option value="pt_0000000000815a01" dir="auto">AC-FILTER: فلتر مكيف (6.00)</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: مكثف تشغيل 35 ميكروفاراد (22.00)</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: مكثف تشغيل 45 ميكروفاراد (26.00)</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: عدة إزالة الترسبات (20.00)</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: فلتر مكيف كاسيت (18.00)</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: فلتر مكيف سبليت (12.00)</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: خلاط حوض المطبخ (110.00)</option><option value="pt_0000000000815a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم (10.00)</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: كوع بي في سي 25 مم (1.50)</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: أنبوب بي في سي 25 مم (4.50)</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: تي بي في سي 25 مم (2.00)</option><option value="pt_00000000000d0006" dir="auto">REF-R22: غاز التبريد R22 (45.00)</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: غاز التبريد R410A (38.00)</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: سيليكون شفاف (11.00)</option></select></label></p>
       <p><label>الكمية <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-line-qty" value=""></label></p>
       <p><label>تكلفة الوحدة (درهم) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" id="f-line-unit_cost" value=""></label> <small class="muted">اتركه فارغًا لاستخدام تكلفة القطعة.</small></p>
       <p><button type="submit" class="btn-brand" id="add-line">إضافة البند</button></p>

@@ -28,6 +28,7 @@ exports[`/admin per role the tile's fragment holds the branch's three numbers: r
       <article class="tile" id="tile-invoices"><span>Open invoices</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">Invoices</a></article>
       <article class="tile" id="tile-amc"><span>Contracts ending this month</span><strong dir="ltr"><n></strong><a href="/reports/amc">Contract renewals</a></article>
       <article class="tile" id="tile-online"><span>Online bookings to confirm</span><strong dir="ltr"><n></strong><a href="/jobs?source=self_booking">Booked online</a></article>
+      <article class="tile" id="tile-low"><span>Parts low on stock</span><strong dir="ltr"><n></strong><a href="/admin/stock?low=1">Stock</a></article>
     </section>
   </article>"
 `;
@@ -60,6 +61,7 @@ exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin 
       <article class="tile" id="tile-invoices"><span>فواتير مفتوحة</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">الفواتير</a></article>
       <article class="tile" id="tile-amc"><span>عقود تنتهي هذا الشهر</span><strong dir="ltr"><n></strong><a href="/reports/amc">تجديد العقود</a></article>
       <article class="tile" id="tile-online"><span>حجوزات عبر الإنترنت بانتظار التأكيد</span><strong dir="ltr"><n></strong><a href="/jobs?source=self_booking">حُجز عبر الإنترنت</a></article>
+      <article class="tile" id="tile-low"><span>قطع قاربت على النفاد</span><strong dir="ltr"><n></strong><a href="/admin/stock?low=1">المخزون</a></article>
     </section>
   </article>"
 `;

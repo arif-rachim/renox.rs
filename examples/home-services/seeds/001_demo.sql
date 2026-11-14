@@ -383,3 +383,101 @@ insert or ignore into app__contract_items (id, contract_id, branch_id, site_id, 
   (1, 'ct_seed_01', 'br_dubai', 'st_dxb_04a', (select id from app__services where code = 'AC-SERVICE'), 12, date('now', '+4 hours', '+20 days')),
   (2, 'ct_seed_01', 'br_dubai', 'st_dxb_04b', (select id from app__services where code = 'PEST'), 4, date('now', '+4 hours', '+50 days')),
   (3, 'ct_seed_02', 'br_sharjah', 'st_shj_04a', (select id from app__services where code = 'DEEP-CLEAN'), 2, date('now', '+4 hours', '+40 days'));
+
+-- Inventory (#812 to #816, wave D): twelve parts with Arabic names, two suppliers, opening stock in both branches,
+-- one purchase order received into Sharjah's stock and one sent to a supplier for Dubai, and two of the visits'
+-- part lines linked to stocked parts with their `out` moves, so every inventory page has data. Written as SQL
+-- (a seed is data, not code), but consistent as lib/stock.ts would have left it: each move's balance_after is the
+-- running balance of its branch and part, app__stock.qty is the last balance_after and avg_cost_fils follows the
+-- average-cost rule (tests/stock-report.test.ts checks all of it). Times are relative to the day the seed is loaded:
+-- the opening balances 40 days ago, the received order 10 days ago, the visits' moves at their check-in. The orders
+-- carry numbers outside the PO-000001 sequence (PO-DEMO01, PO-DEMO02: app__po_numbers stays empty), so the
+-- first order made on a demo tenant is PO-000001. Dubai is under its minimum on three parts, Sharjah on two.
+insert or ignore into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values
+  ('pt_00000000000d0001', 'FIL-AC-S', 'AC filter, split unit', 'فلتر مكيف سبليت', 'piece', 1200, 2500, 5, 10, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 1),
+  ('pt_00000000000d0002', 'FIL-AC-C', 'AC filter, cassette unit', 'فلتر مكيف كاسيت', 'piece', 1800, 3500, 5, 6, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 2),
+  ('pt_00000000000d0003', 'CAP-35UF', 'Run capacitor 35 uF', 'مكثف تشغيل 35 ميكروفاراد', 'piece', 2200, 4500, 5, 5, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 3),
+  ('pt_00000000000d0004', 'CAP-45UF', 'Run capacitor 45 uF', 'مكثف تشغيل 45 ميكروفاراد', 'piece', 2600, 5000, 5, 5, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 4),
+  ('pt_00000000000d0005', 'REF-R410A', 'Refrigerant R410A', 'غاز التبريد R410A', 'kg', 3800, 6500, 5, 4, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 5),
+  ('pt_00000000000d0006', 'REF-R22', 'Refrigerant R22', 'غاز التبريد R22', 'kg', 4500, 7500, 5, 3, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 6),
+  ('pt_00000000000d0007', 'PVC-ELB-25', 'PVC elbow 25 mm', 'كوع بي في سي 25 مم', 'piece', 150, 400, 5, 40, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 7),
+  ('pt_00000000000d0008', 'PVC-TEE-25', 'PVC tee 25 mm', 'تي بي في سي 25 مم', 'piece', 200, 500, 5, 30, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 8),
+  ('pt_00000000000d0009', 'PVC-PIPE-25', 'PVC pipe 25 mm', 'أنبوب بي في سي 25 مم', 'metre', 450, 900, 5, 20, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 9),
+  ('pt_00000000000d000a', 'SEAL-SIL-CL', 'Silicone sealant, clear', 'سيليكون شفاف', 'piece', 1100, 2200, 5, 12, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 10),
+  ('pt_00000000000d000b', 'MIXER-TAP', 'Kitchen mixer tap', 'خلاط حوض المطبخ', 'piece', 11000, 18000, 5, 2, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 11),
+  ('pt_00000000000d000c', 'DESCALE-KIT', 'Descaling kit', 'عدة إزالة الترسبات', 'piece', 2000, 3500, 5, 4, 1, cast(strftime('%s', 'now', '-40 days') as integer) + 12);
+
+insert or ignore into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values
+  ('su_00000000000d0001', 'Gulf Cooling Supplies LLC', '100345678900003', '+97143330101', 'orders@gulfcooling.example', 'Al Quoz Industrial 3, Dubai', 'AC filters, capacitors and refrigerant. Net 30.', 1, cast(strftime('%s', 'now', '-40 days') as integer) + 1),
+  ('su_00000000000d0002', 'Emirates Plumbing Trading', '100456789000003', '+97165550202', 'sales@emiratesplumbing.example', 'Industrial Area 12, Sharjah', 'PVC fittings, sealant and descaling kits. Cash on delivery.', 1, cast(strftime('%s', 'now', '-40 days') as integer) + 2);
+
+insert or ignore into app__stock (branch_id, part_id, qty, avg_cost_fils, updated_at) values
+  ('br_dubai', 'pt_00000000000d0001', 14, 1200, cast(strftime('%s', 'now', '-40 days') as integer) + 0),
+  ('br_dubai', 'pt_00000000000d0002', 4, 1800, cast(strftime('%s', 'now', '-40 days') as integer) + 1),
+  ('br_dubai', 'pt_00000000000d0003', 8, 2200, cast(strftime('%s', 'now', '-40 days') as integer) + 2),
+  ('br_dubai', 'pt_00000000000d0004', 6, 2600, cast(strftime('%s', 'now', '-40 days') as integer) + 3),
+  ('br_dubai', 'pt_00000000000d0005', 6, 3800, cast(strftime('%s', 'now', '-40 days') as integer) + 4),
+  ('br_dubai', 'pt_00000000000d0006', 2, 4500, cast(strftime('%s', 'now', '-40 days') as integer) + 5),
+  ('br_dubai', 'pt_00000000000d0007', 60, 150, cast(strftime('%s', 'now', '-40 days') as integer) + 6),
+  ('br_dubai', 'pt_00000000000d0008', 25, 200, cast(strftime('%s', 'now', '-40 days') as integer) + 7),
+  ('br_dubai', 'pt_00000000000d0009', 30, 450, cast(strftime('%s', 'now', '-40 days') as integer) + 8),
+  ('br_dubai', 'pt_00000000000d000a', 16, 1100, cast(strftime('%s', 'now', '-40 days') as integer) + 9),
+  ('br_dubai', 'pt_00000000000d000b', 4, 11000, (select checkin_at from app__visits where id = 'vs_seed_13')),
+  ('br_dubai', 'pt_00000000000d000c', 6, 2000, cast(strftime('%s', 'now', '-40 days') as integer) + 11),
+  ('br_sharjah', 'pt_00000000000d0001', 8, 1250, cast(strftime('%s', 'now', '-40 days') as integer) + 100),
+  ('br_sharjah', 'pt_00000000000d0002', 6, 1800, cast(strftime('%s', 'now', '-40 days') as integer) + 101),
+  ('br_sharjah', 'pt_00000000000d0003', 6, 2200, cast(strftime('%s', 'now', '-40 days') as integer) + 102),
+  ('br_sharjah', 'pt_00000000000d0004', 5, 2600, cast(strftime('%s', 'now', '-40 days') as integer) + 103),
+  ('br_sharjah', 'pt_00000000000d0005', 5, 3800, cast(strftime('%s', 'now', '-40 days') as integer) + 104),
+  ('br_sharjah', 'pt_00000000000d0006', 4, 4500, cast(strftime('%s', 'now', '-40 days') as integer) + 105),
+  ('br_sharjah', 'pt_00000000000d0007', 50, 150, cast(strftime('%s', 'now', '-40 days') as integer) + 106),
+  ('br_sharjah', 'pt_00000000000d0008', 50, 206, cast(strftime('%s', 'now', '-10 days') as integer) + 0),
+  ('br_sharjah', 'pt_00000000000d0009', 24, 450, cast(strftime('%s', 'now', '-40 days') as integer) + 108),
+  ('br_sharjah', 'pt_00000000000d000a', 20, 1130, cast(strftime('%s', 'now', '-10 days') as integer) + 1),
+  ('br_sharjah', 'pt_00000000000d000b', 2, 11000, cast(strftime('%s', 'now', '-40 days') as integer) + 110),
+  ('br_sharjah', 'pt_00000000000d000c', 2, 2000, (select checkin_at from app__visits where id = 'vs_seed_19'));
+
+insert or ignore into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at, closed_at) values
+  ('po_00000000000d0001', 'br_sharjah', 'su_00000000000d0002', 'PO-DEMO01', 'received', 'en', date('now', '+4 hours', '-10 days'), 'Delivered to the Sharjah store.', 'u_owner', cast(strftime('%s', 'now', '-10 days') as integer) - 86400 * 3, cast(strftime('%s', 'now', '-10 days') as integer) - 86400 * 3 + 600, cast(strftime('%s', 'now', '-10 days') as integer) + 3600),
+  ('po_00000000000d0002', 'br_dubai', 'su_00000000000d0001', 'PO-DEMO02', 'sent', 'en', date('now', '+4 hours', '+5 days'), 'Call the Al Quoz store before delivery.', 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 86400 * 36 - 86400 * 2, cast(strftime('%s', 'now', '-40 days') as integer) + 86400 * 36 - 86400 * 2 + 600, null);
+
+insert or ignore into app__purchase_order_lines (po_id, branch_id, part_id, qty, unit_cost_fils, received_qty) values
+  ('po_00000000000d0001', 'br_sharjah', 'pt_00000000000d0008', 15, 220, 15),
+  ('po_00000000000d0001', 'br_sharjah', 'pt_00000000000d000a', 6, 1200, 6),
+  ('po_00000000000d0002', 'br_dubai', 'pt_00000000000d0006', 6, 4500, 0),
+  ('po_00000000000d0002', 'br_dubai', 'pt_00000000000d0002', 10, 1800, 0);
+
+insert or ignore into app__stock_moves (id, branch_id, part_id, kind, qty, unit_cost_fils, reason, ref_kind, ref_id, balance_after, created_by, created_at) values
+  ('sm_00000000000d0001', 'br_dubai', 'pt_00000000000d0001', 'in', 14, 1200, 'opening balance', 'manual', null, 14, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 0),
+  ('sm_00000000000d0002', 'br_dubai', 'pt_00000000000d0002', 'in', 4, 1800, 'opening balance', 'manual', null, 4, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 1),
+  ('sm_00000000000d0003', 'br_dubai', 'pt_00000000000d0003', 'in', 8, 2200, 'opening balance', 'manual', null, 8, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 2),
+  ('sm_00000000000d0004', 'br_dubai', 'pt_00000000000d0004', 'in', 6, 2600, 'opening balance', 'manual', null, 6, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 3),
+  ('sm_00000000000d0005', 'br_dubai', 'pt_00000000000d0005', 'in', 6, 3800, 'opening balance', 'manual', null, 6, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 4),
+  ('sm_00000000000d0006', 'br_dubai', 'pt_00000000000d0006', 'in', 2, 4500, 'opening balance', 'manual', null, 2, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 5),
+  ('sm_00000000000d0007', 'br_dubai', 'pt_00000000000d0007', 'in', 60, 150, 'opening balance', 'manual', null, 60, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 6),
+  ('sm_00000000000d0008', 'br_dubai', 'pt_00000000000d0008', 'in', 25, 200, 'opening balance', 'manual', null, 25, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 7),
+  ('sm_00000000000d0009', 'br_dubai', 'pt_00000000000d0009', 'in', 30, 450, 'opening balance', 'manual', null, 30, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 8),
+  ('sm_00000000000d000a', 'br_dubai', 'pt_00000000000d000a', 'in', 16, 1100, 'opening balance', 'manual', null, 16, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 9),
+  ('sm_00000000000d000b', 'br_dubai', 'pt_00000000000d000b', 'in', 5, 11000, 'opening balance', 'manual', null, 5, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 10),
+  ('sm_00000000000d000c', 'br_dubai', 'pt_00000000000d000c', 'in', 6, 2000, 'opening balance', 'manual', null, 6, 'u_dxb_manager', cast(strftime('%s', 'now', '-40 days') as integer) + 11),
+  ('sm_00000000000d000d', 'br_sharjah', 'pt_00000000000d0001', 'in', 8, 1250, 'opening balance', 'manual', null, 8, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 100),
+  ('sm_00000000000d000e', 'br_sharjah', 'pt_00000000000d0002', 'in', 6, 1800, 'opening balance', 'manual', null, 6, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 101),
+  ('sm_00000000000d000f', 'br_sharjah', 'pt_00000000000d0003', 'in', 6, 2200, 'opening balance', 'manual', null, 6, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 102),
+  ('sm_00000000000d0010', 'br_sharjah', 'pt_00000000000d0004', 'in', 5, 2600, 'opening balance', 'manual', null, 5, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 103),
+  ('sm_00000000000d0011', 'br_sharjah', 'pt_00000000000d0005', 'in', 5, 3800, 'opening balance', 'manual', null, 5, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 104),
+  ('sm_00000000000d0012', 'br_sharjah', 'pt_00000000000d0006', 'in', 4, 4500, 'opening balance', 'manual', null, 4, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 105),
+  ('sm_00000000000d0013', 'br_sharjah', 'pt_00000000000d0007', 'in', 50, 150, 'opening balance', 'manual', null, 50, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 106),
+  ('sm_00000000000d0014', 'br_sharjah', 'pt_00000000000d0008', 'in', 35, 200, 'opening balance', 'manual', null, 35, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 107),
+  ('sm_00000000000d0015', 'br_sharjah', 'pt_00000000000d0009', 'in', 24, 450, 'opening balance', 'manual', null, 24, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 108),
+  ('sm_00000000000d0016', 'br_sharjah', 'pt_00000000000d000a', 'in', 14, 1100, 'opening balance', 'manual', null, 14, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 109),
+  ('sm_00000000000d0017', 'br_sharjah', 'pt_00000000000d000b', 'in', 2, 11000, 'opening balance', 'manual', null, 2, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 110),
+  ('sm_00000000000d0018', 'br_sharjah', 'pt_00000000000d000c', 'in', 3, 2000, 'opening balance', 'manual', null, 3, 'u_owner', cast(strftime('%s', 'now', '-40 days') as integer) + 111),
+  ('sm_00000000000d0019', 'br_sharjah', 'pt_00000000000d0008', 'in', 15, 220, 'PO-DEMO01', 'purchase', 'po_00000000000d0001', 50, 'u_owner', cast(strftime('%s', 'now', '-10 days') as integer) + 0),
+  ('sm_00000000000d001a', 'br_sharjah', 'pt_00000000000d000a', 'in', 6, 1200, 'PO-DEMO01', 'purchase', 'po_00000000000d0001', 20, 'u_owner', cast(strftime('%s', 'now', '-10 days') as integer) + 1),
+  ('sm_00000000000d001b', 'br_dubai', 'pt_00000000000d000b', 'out', 1, 11000, 'J-000013', 'visit', 'vs_seed_13', 4, 'u_dxb_bilal', (select checkin_at from app__visits where id = 'vs_seed_13')),
+  ('sm_00000000000d001c', 'br_sharjah', 'pt_00000000000d000c', 'out', 1, 2000, 'J-000019', 'visit', 'vs_seed_19', 2, 'u_shj_hamad', (select checkin_at from app__visits where id = 'vs_seed_19'));
+
+-- Two of the demo visits' part lines are stocked parts (#814): the line keeps the description and the price it was
+-- taken with, and names the part and the `out` move that took it from the branch's stock.
+update app__visit_parts set part_id = 'pt_00000000000d000b', stock_move_id = 'sm_00000000000d001b' where id = 3 and part_id is null;
+update app__visit_parts set part_id = 'pt_00000000000d000c', stock_move_id = 'sm_00000000000d001c' where id = 4 and part_id is null;

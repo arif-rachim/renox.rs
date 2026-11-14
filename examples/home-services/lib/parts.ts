@@ -135,6 +135,19 @@ export async function updatePart(ctx: Writer, id: string, input: PartInput): Pro
   return { ok: true };
 }
 
+/**
+ * One row of the Excel import (#816): inserts the part, or updates the one that holds the SKU (its `active` flag
+ * stays). The import knows which of the two from its check and audits the whole file once (`import.committed`), so
+ * this writes no audit row of its own and reads nothing first.
+ */
+export async function savePart(db: DbStatements, input: PartInput, op: "insert" | "update"): Promise<void> {
+  if (op === "update") {
+    await db.execute("update app__parts set name_en = ?, name_ar = ?, unit = ?, cost_fils = ?, sell_fils = ?, vat_rate = ?, min_stock = ? where sku = ?", [input.name_en, input.name_ar, input.unit, input.cost_fils, input.sell_fils, input.vat_rate, input.min_stock, input.sku]);
+    return;
+  }
+  await db.execute("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)", [newId(), input.sku, input.name_en, input.name_ar, input.unit, input.cost_fils, input.sell_fils, input.vat_rate, input.min_stock, now()]);
+}
+
 /** Sets a part's cost to the last cost paid (a purchase order's receipt, #815); false when there is no such part. The receipt is what is audited. */
 export async function setPartCost(db: DbStatements, id: string, costFils: number): Promise<boolean> {
   const won = await db.execute("update app__parts set cost_fils = ? where id = ?", [costFils, id]);

@@ -585,3 +585,134 @@ describe("/admin/import in the background (#733)", () => {
   });
 
 });
+
+// Parts and opening stock (#816): two more kinds, after `services`. `parts` updates an existing SKU and inserts a new
+// one (through lib/parts.ts); `stock` writes one `in` move per row, reference `manual`, through lib/stock.ts, and is
+// refused for a branch and part that already have any move, so an opening balance is imported once.
+describe("/admin/import: parts and opening stock (#816)", () => {
+  const PARTS_HEADER = ["sku", "name_en", "name_ar", "unit", "cost_aed", "sell_aed", "vat_rate", "min_stock"];
+  const STOCK_HEADER = ["branch", "sku", "qty", "unit_cost_aed", "reason"];
+  const part = (sku: string) => rows("select id, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active from app__parts where sku = ?", [sku])[0];
+  const movesOf = (sku: string, branch: string) => rows("select kind, qty, unit_cost_fils, reason, ref_kind, ref_id, balance_after, created_by from app__stock_moves where branch_id = ? and part_id = (select id from app__parts where sku = ?) order by rowid", [branch, sku]);
+  const found = async (id: string) => errorRows((await owner.page(`/admin/import/${id}`)).html);
+  const where = (list: string[][]) => list.map((r) => r.slice(0, 2).join(" "));
+
+  test("normal case: parts: an existing SKU is updated (id and active flag stay), a new one is inserted; money is stored in fils", async () => {
+    const before = count("app__parts");
+    const existing = part("FIL-AC-S");
+    const id = await checked("parts", [
+      PARTS_HEADER,
+      ["fil-ac-s", "AC filter, split (renamed)", "فلتر مكيف سبليت جديد", "Piece", 13.5, 26, 5, 12],
+      ["imp-hose", "Drain hose", "خرطوم تصريف", "metre", 2.25, 4, 0, "7.5"],
+      // The optional columns may be empty: a part with a name and a unit only.
+      ["IMP-BARE", "Bare part", "قطعة", "box", null, null, null, null],
+    ]);
+    expect(importRow(id)).toMatchObject({ status: "checked", rows: 3, ok: 3, skipped: 0, errors: 0, kind: "parts" });
+    const report = await owner.page(`/admin/import/${id}`);
+    expect([total(report.html, "insert"), total(report.html, "update")]).toEqual([2, 1]);
+    expect(count("app__parts")).toBe(before);
+    expect((await commit(id)).status).toBe(303);
+    expect(count("app__parts")).toBe(before + 2);
+    expect(part("FIL-AC-S")).toEqual({ ...existing, name_en: "AC filter, split (renamed)", name_ar: "فلتر مكيف سبليت جديد", cost_fils: 1350, sell_fils: 2600, vat_rate: 5, min_stock: 12 });
+    expect(part("IMP-HOSE")).toMatchObject({ unit: "metre", cost_fils: 225, sell_fils: 400, vat_rate: 0, min_stock: 7.5, active: 1 });
+    expect(part("IMP-BARE")).toMatchObject({ unit: "box", cost_fils: 0, sell_fils: 0, vat_rate: 5, min_stock: 0, active: 1 });
+    expect((await commit(id)).status).not.toBe(303);
+    // The result's link goes to the parts page.
+    expect((await owner.page(`/admin/import/${id}`)).html).toContain('href="/admin/parts"');
+    // A new part has no stock row: the import wrote none.
+    expect(rows("select count(*) as n from app__stock where part_id = ?", [part("IMP-HOSE")?.id as string])[0]?.n).toBe(0);
+  });
+
+  test("error case: parts: the rules of the columns name the row and column with the code", async () => {
+    const bad = await checked("parts", [
+      PARTS_HEADER,
+      ["bad sku!", "x", "x", "piece", 1, 1, 5, 0],
+      ["OK-1", "x", "x", "yard", 1, 1, 5, 0],
+      ["OK-2", "x", "x", "piece", 1.234, 1, 5, 0],
+      ["OK-3", "x", "x", "piece", 1, -1, 5, 0],
+      ["OK-4", "x", "x", "piece", 1, 1, 7, 0],
+      ["OK-5", "x", "x", "piece", 1, 1, 5, 1.2345],
+      ["", "x", "x", "piece", 1, 1, 5, 0],
+    ]);
+    expect(where(await found(bad))).toEqual(["2 sku", "3 unit", "4 cost_aed", "5 sell_aed", "6 vat_rate", "7 min_stock", "8 sku"]);
+    expect(importRow(bad)).toMatchObject({ status: "checked", errors: 7 });
+    expect((await owner.page(`/admin/import/${bad}`)).html).not.toContain('id="commit-form"');
+    // A header without a required column is named.
+    const missing = await checked("parts", [["sku", "name_en", "unit"], ["X-1", "x", "piece"]]);
+    expect(where(await found(missing))).toEqual(["1 name_ar"]);
+  });
+
+  test("normal case: stock: opening balances are written once, as `in` moves with reference manual and the reason 'opening balance'", async () => {
+    const file: Cells = [
+      STOCK_HEADER,
+      ["Dubai", "imp-hose", 40, 2.5, null],
+      // No cost: the part's catalogue cost (2.25) is the cost; the branch may be named in Arabic; a given reason is kept.
+      ["الشارقة", "IMP-HOSE", 10, null, "counted on 1 January"],
+    ];
+    const id = await checked("stock", file);
+    expect(importRow(id)).toMatchObject({ status: "checked", rows: 2, ok: 2, skipped: 0, errors: 0, kind: "stock" });
+    const movesBefore = count("app__stock_moves");
+    expect((await commit(id)).status).toBe(303);
+    expect(importRow(id)).toMatchObject({ status: "committed", ok: 2 });
+    expect(count("app__stock_moves")).toBe(movesBefore + 2);
+    expect(movesOf("IMP-HOSE", "br_dubai")).toEqual([{ kind: "in", qty: 40, unit_cost_fils: 250, reason: "opening balance", ref_kind: "manual", ref_id: null, balance_after: 40, created_by: "u_owner" }]);
+    expect(movesOf("IMP-HOSE", "br_sharjah")).toEqual([{ kind: "in", qty: 10, unit_cost_fils: 225, reason: "counted on 1 January", ref_kind: "manual", ref_id: null, balance_after: 10, created_by: "u_owner" }]);
+    expect(rows("select branch_id, qty, avg_cost_fils from app__stock where part_id = ? order by branch_id", [part("IMP-HOSE")?.id as string])).toEqual([
+      { branch_id: "br_dubai", qty: 40, avg_cost_fils: 250 },
+      { branch_id: "br_sharjah", qty: 10, avg_cost_fils: 225 },
+    ]);
+    expect((await owner.page(`/admin/import/${id}`)).html).toContain('href="/admin/stock"');
+    expect((await owner.page("/admin/stock")).html).toContain("IMP-HOSE");
+
+    // The same file again is refused, row by row: the branch and part already have moves. Nothing is written.
+    const again = await checked("stock", file);
+    expect(importRow(again)).toMatchObject({ status: "checked", errors: 2 });
+    const refused = await found(again);
+    expect(where(refused)).toEqual(["2 sku", "3 sku"]);
+    expect(refused[0]?.[2]).toStartWith("This branch already has stock moves for this part");
+    expect((await owner.page(`/admin/import/${again}`)).html).not.toContain('id="commit-form"');
+    expect((await commit(again)).status).not.toBe(303);
+    expect(count("app__stock_moves")).toBe(movesBefore + 2);
+    // A part that has moves from anywhere (the demo's opening stock) is refused too; a branch that has none of the part is not.
+    const other = await checked("stock", [STOCK_HEADER, ["Dubai", "FIL-AC-S", 5, null, null], ["Sharjah", "IMP-BARE", 3, null, null]]);
+    expect(where(await found(other))).toEqual(["2 sku"]);
+  });
+
+  test("error case: stock: an unknown branch, an unknown SKU, a bad SKU, a bad quantity, a bad cost; a SKU twice in one file is refused the second time", async () => {
+    const before = count("app__stock_moves");
+    const bad = await checked("stock", [
+      STOCK_HEADER,
+      ["Nowhere", "IMP-BARE", 1, null, null],
+      ["Dubai", "NO-SUCH-PART", 1, null, null],
+      ["Dubai", "bad sku!", 1, null, null],
+      ["Dubai", "IMP-BARE", 0, null, null],
+      ["Dubai", "IMP-BARE", 1.2345, null, null],
+      ["Dubai", "IMP-BARE", 1, 1.234, null],
+      ["Dubai", "IMP-BARE", 2, null, null],
+      ["Dubai", "IMP-BARE", 3, null, null],
+    ]);
+    expect(where(await found(bad))).toEqual(["2 branch", "3 sku", "4 sku", "5 qty", "6 qty", "7 unit_cost_aed", "9 sku"]);
+    expect(count("app__stock_moves")).toBe(before);
+    // A header without the quantity is named, and the file is not planned at all.
+    const missing = await checked("stock", [["branch", "sku"], ["Dubai", "IMP-BARE"]]);
+    expect(where(await found(missing))).toEqual(["1 qty"]);
+  });
+
+  test("the templates of the two kinds download as an .xlsx; the page lists them after the services, in Arabic too", async () => {
+    for (const kind of ["parts", "stock"]) {
+      const res = await owner.page(`/admin/import/template/${kind}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-disposition")).toContain(`import-${kind}-template.xlsx`);
+      expect(res.html.startsWith("PK")).toBe(true);
+    }
+    const page = await owner.page("/admin/import?lang=en");
+    expect(page.html).toContain('id="kind-parts"');
+    expect(page.html).toContain('id="kind-stock"');
+    expect(page.html.indexOf('id="kind-services"')).toBeLessThan(page.html.indexOf('id="kind-parts"'));
+    expect(page.html.indexOf('id="kind-parts"')).toBeLessThan(page.html.indexOf('id="kind-stock"'));
+    expect((await dispatcher.page("/admin/import/template/parts")).status).toBe(403);
+    const ar = await owner.page("/admin/import?lang=ar");
+    expect(ar.html).toContain("قطع الغيار");
+    expect(ar.html).toContain("المخزون الافتتاحي");
+  });
+});

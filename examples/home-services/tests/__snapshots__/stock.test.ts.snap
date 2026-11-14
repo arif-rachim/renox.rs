@@ -74,6 +74,60 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
         <td dir="ltr">AED 6.00</td>
         <td dir="ltr">AED 102.00</td>
         <td></td>
+      </tr><tr id="stock-pt_00000000000d0003">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0003?branch=br_dubai" dir="auto">CAP-35UF</a></td>
+        <td dir="auto">Run capacitor 35 uF</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">8</td>
+        <td dir="ltr">5</td>
+        <td dir="ltr">AED 22.00</td>
+        <td dir="ltr">AED 176.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0004">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0004?branch=br_dubai" dir="auto">CAP-45UF</a></td>
+        <td dir="auto">Run capacitor 45 uF</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">5</td>
+        <td dir="ltr">AED 26.00</td>
+        <td dir="ltr">AED 156.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d000c">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d000c?branch=br_dubai" dir="auto">DESCALE-KIT</a></td>
+        <td dir="auto">Descaling kit</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">AED 20.00</td>
+        <td dir="ltr">AED 120.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0002">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0002?branch=br_dubai" dir="auto">FIL-AC-C</a></td>
+        <td dir="auto">AC filter, cassette unit</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">AED 18.00</td>
+        <td dir="ltr">AED 72.00</td>
+        <td><strong class="badge" id="low-pt_00000000000d0002">Low</strong></td>
+      </tr><tr id="stock-pt_00000000000d0001">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0001?branch=br_dubai" dir="auto">FIL-AC-S</a></td>
+        <td dir="auto">AC filter, split unit</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">14</td>
+        <td dir="ltr">10</td>
+        <td dir="ltr">AED 12.00</td>
+        <td dir="ltr">AED 168.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d000b">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d000b?branch=br_dubai" dir="auto">MIXER-TAP</a></td>
+        <td dir="auto">Kitchen mixer tap</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">2</td>
+        <td dir="ltr">AED 110.00</td>
+        <td dir="ltr">AED 440.00</td>
+        <td></td>
       </tr><tr id="stock-pt_0000000000813a02">
         <td dir="ltr"><a href="/admin/stock/pt_0000000000813a02?branch=br_dubai" dir="auto">PIPE-15</a></td>
         <td dir="auto">Copper pipe 15 mm</td>
@@ -83,20 +137,75 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
         <td dir="ltr">AED 1.00</td>
         <td dir="ltr">AED 0.00</td>
         <td></td>
+      </tr><tr id="stock-pt_00000000000d0007">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0007?branch=br_dubai" dir="auto">PVC-ELB-25</a></td>
+        <td dir="auto">PVC elbow 25 mm</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">60</td>
+        <td dir="ltr">40</td>
+        <td dir="ltr">AED 1.50</td>
+        <td dir="ltr">AED 90.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0009">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0009?branch=br_dubai" dir="auto">PVC-PIPE-25</a></td>
+        <td dir="auto">PVC pipe 25 mm</td>
+        <td dir="auto">metre</td>
+        <td dir="ltr">30</td>
+        <td dir="ltr">20</td>
+        <td dir="ltr">AED 4.50</td>
+        <td dir="ltr">AED 135.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0008">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0008?branch=br_dubai" dir="auto">PVC-TEE-25</a></td>
+        <td dir="auto">PVC tee 25 mm</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">25</td>
+        <td dir="ltr">30</td>
+        <td dir="ltr">AED 2.00</td>
+        <td dir="ltr">AED 50.00</td>
+        <td><strong class="badge" id="low-pt_00000000000d0008">Low</strong></td>
+      </tr><tr id="stock-pt_00000000000d0006">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0006?branch=br_dubai" dir="auto">REF-R22</a></td>
+        <td dir="auto">Refrigerant R22</td>
+        <td dir="auto">kg</td>
+        <td dir="ltr">2</td>
+        <td dir="ltr">3</td>
+        <td dir="ltr">AED 45.00</td>
+        <td dir="ltr">AED 90.00</td>
+        <td><strong class="badge" id="low-pt_00000000000d0006">Low</strong></td>
+      </tr><tr id="stock-pt_00000000000d0005">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0005?branch=br_dubai" dir="auto">REF-R410A</a></td>
+        <td dir="auto">Refrigerant R410A</td>
+        <td dir="auto">kg</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">AED 38.00</td>
+        <td dir="ltr">AED 228.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d000a">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d000a?branch=br_dubai" dir="auto">SEAL-SIL-CL</a></td>
+        <td dir="auto">Silicone sealant, clear</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">16</td>
+        <td dir="ltr">12</td>
+        <td dir="ltr">AED 11.00</td>
+        <td dir="ltr">AED 176.00</td>
+        <td></td>
       </tr>
     </tbody>
   </table></div>
   <h2>Value of the stock by branch (average cost)</h2>
   <ul id="totals">
-    <li id="total-br_dubai" dir="auto">Dubai: <span dir="ltr">AED 102.00</span></li><li id="total-br_sharjah" dir="auto">Sharjah: <span dir="ltr">AED 18.00</span></li>
+    <li id="total-br_dubai" dir="auto">Dubai: <span dir="ltr">AED 2,003.00</span></li><li id="total-br_sharjah" dir="auto">Sharjah: <span dir="ltr">AED 1,630.00</span></li>
   </ul>
   <p><small class="muted">The quantity on hand changes only through moves: receive, count, transfer, a visit or a purchase order. Open a SKU to see its moves.</small></p>
+  <p><a href="/reports/stock" id="stock-report-link">Stock report (CSV and Excel)</a></p>
 
   <section id="stock-forms">
     <h2>Receive stock</h2>
     <form method="post" action="?/receive" hx-post="?/receive" class="stack narrow" id="receive-form"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="branch" value="br_dubai">
-      <p><label>Part <select name="part" id="f-receive-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option></select></label></p>
+      <p><label>Part <select name="part" id="f-receive-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: Run capacitor 35 uF</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: Run capacitor 45 uF</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: Descaling kit</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: AC filter, cassette unit</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: AC filter, split unit</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: Kitchen mixer tap</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: PVC elbow 25 mm</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: PVC pipe 25 mm</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: PVC tee 25 mm</option><option value="pt_00000000000d0006" dir="auto">REF-R22: Refrigerant R22</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: Refrigerant R410A</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: Silicone sealant, clear</option></select></label></p>
       <p><label>Quantity <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-qty" value=""></label></p>
       <p><label>Unit cost (AED) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-unit_cost" value=""></label></p>
       <p><label>Reason <input name="reason" maxlength="200" required aria-required="true" id="f-receive-reason" value="" dir="auto"></label></p>
@@ -107,7 +216,7 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
     <p><small class="muted">Enter what you counted on the shelf: the difference is recorded as a move. Asks for your second factor.</small></p>
     <form method="post" action="?/adjust" hx-post="?/adjust" class="stack narrow" id="adjust-form"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="branch" value="br_dubai">
-      <p><label>Part <select name="part" id="f-adjust-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option></select></label></p>
+      <p><label>Part <select name="part" id="f-adjust-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: Run capacitor 35 uF</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: Run capacitor 45 uF</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: Descaling kit</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: AC filter, cassette unit</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: AC filter, split unit</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: Kitchen mixer tap</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: PVC elbow 25 mm</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: PVC pipe 25 mm</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: PVC tee 25 mm</option><option value="pt_00000000000d0006" dir="auto">REF-R22: Refrigerant R22</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: Refrigerant R410A</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: Silicone sealant, clear</option></select></label></p>
       <p><label>Counted quantity <input name="counted" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-adjust-counted" value=""></label></p>
       <p><label>Reason <input name="reason" maxlength="200" required aria-required="true" id="f-adjust-reason" value="" dir="auto"></label></p>
       <p><button type="submit" class="btn-brand" id="adjust-submit">Record the count</button></p>
@@ -117,7 +226,7 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
     
     <form method="post" action="?/transfer" hx-post="?/transfer" class="stack narrow" id="transfer-form"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="branch" value="br_dubai">
-      <p><label>Part <select name="part" id="f-transfer-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option></select></label></p>
+      <p><label>Part <select name="part" id="f-transfer-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: Run capacitor 35 uF</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: Run capacitor 45 uF</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: Descaling kit</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: AC filter, cassette unit</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: AC filter, split unit</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: Kitchen mixer tap</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: PVC elbow 25 mm</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: PVC pipe 25 mm</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: PVC tee 25 mm</option><option value="pt_00000000000d0006" dir="auto">REF-R22: Refrigerant R22</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: Refrigerant R410A</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: Silicone sealant, clear</option></select></label></p>
       <p><label>Quantity <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-transfer-qty" value=""></label></p>
       <p><label>To branch <select name="to_branch" id="f-transfer-to_branch" required aria-required="true"><option value="br_sharjah" dir="auto">Sharjah</option></select></label></p>
       <p><label>Reason <input name="reason" maxlength="200" required aria-required="true" id="f-transfer-reason" value="" dir="auto"></label></p>
@@ -207,6 +316,60 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
         <td dir="ltr">6.00 د.إ.</td>
         <td dir="ltr">102.00 د.إ.</td>
         <td></td>
+      </tr><tr id="stock-pt_00000000000d0003">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0003?branch=br_dubai" dir="auto">CAP-35UF</a></td>
+        <td dir="auto">مكثف تشغيل 35 ميكروفاراد</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">8</td>
+        <td dir="ltr">5</td>
+        <td dir="ltr">22.00 د.إ.</td>
+        <td dir="ltr">176.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0004">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0004?branch=br_dubai" dir="auto">CAP-45UF</a></td>
+        <td dir="auto">مكثف تشغيل 45 ميكروفاراد</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">5</td>
+        <td dir="ltr">26.00 د.إ.</td>
+        <td dir="ltr">156.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d000c">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d000c?branch=br_dubai" dir="auto">DESCALE-KIT</a></td>
+        <td dir="auto">عدة إزالة الترسبات</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">20.00 د.إ.</td>
+        <td dir="ltr">120.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0002">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0002?branch=br_dubai" dir="auto">FIL-AC-C</a></td>
+        <td dir="auto">فلتر مكيف كاسيت</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">18.00 د.إ.</td>
+        <td dir="ltr">72.00 د.إ.</td>
+        <td><strong class="badge" id="low-pt_00000000000d0002">منخفض</strong></td>
+      </tr><tr id="stock-pt_00000000000d0001">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0001?branch=br_dubai" dir="auto">FIL-AC-S</a></td>
+        <td dir="auto">فلتر مكيف سبليت</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">14</td>
+        <td dir="ltr">10</td>
+        <td dir="ltr">12.00 د.إ.</td>
+        <td dir="ltr">168.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d000b">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d000b?branch=br_dubai" dir="auto">MIXER-TAP</a></td>
+        <td dir="auto">خلاط حوض المطبخ</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">2</td>
+        <td dir="ltr">110.00 د.إ.</td>
+        <td dir="ltr">440.00 د.إ.</td>
+        <td></td>
       </tr><tr id="stock-pt_0000000000813a02">
         <td dir="ltr"><a href="/admin/stock/pt_0000000000813a02?branch=br_dubai" dir="auto">PIPE-15</a></td>
         <td dir="auto">أنبوب نحاسي 15 مم</td>
@@ -216,20 +379,75 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
         <td dir="ltr">1.00 د.إ.</td>
         <td dir="ltr">0.00 د.إ.</td>
         <td></td>
+      </tr><tr id="stock-pt_00000000000d0007">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0007?branch=br_dubai" dir="auto">PVC-ELB-25</a></td>
+        <td dir="auto">كوع بي في سي 25 مم</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">60</td>
+        <td dir="ltr">40</td>
+        <td dir="ltr">1.50 د.إ.</td>
+        <td dir="ltr">90.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0009">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0009?branch=br_dubai" dir="auto">PVC-PIPE-25</a></td>
+        <td dir="auto">أنبوب بي في سي 25 مم</td>
+        <td dir="auto">متر</td>
+        <td dir="ltr">30</td>
+        <td dir="ltr">20</td>
+        <td dir="ltr">4.50 د.إ.</td>
+        <td dir="ltr">135.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d0008">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0008?branch=br_dubai" dir="auto">PVC-TEE-25</a></td>
+        <td dir="auto">تي بي في سي 25 مم</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">25</td>
+        <td dir="ltr">30</td>
+        <td dir="ltr">2.00 د.إ.</td>
+        <td dir="ltr">50.00 د.إ.</td>
+        <td><strong class="badge" id="low-pt_00000000000d0008">منخفض</strong></td>
+      </tr><tr id="stock-pt_00000000000d0006">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0006?branch=br_dubai" dir="auto">REF-R22</a></td>
+        <td dir="auto">غاز التبريد R22</td>
+        <td dir="auto">كيلوغرام</td>
+        <td dir="ltr">2</td>
+        <td dir="ltr">3</td>
+        <td dir="ltr">45.00 د.إ.</td>
+        <td dir="ltr">90.00 د.إ.</td>
+        <td><strong class="badge" id="low-pt_00000000000d0006">منخفض</strong></td>
+      </tr><tr id="stock-pt_00000000000d0005">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d0005?branch=br_dubai" dir="auto">REF-R410A</a></td>
+        <td dir="auto">غاز التبريد R410A</td>
+        <td dir="auto">كيلوغرام</td>
+        <td dir="ltr">6</td>
+        <td dir="ltr">4</td>
+        <td dir="ltr">38.00 د.إ.</td>
+        <td dir="ltr">228.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_00000000000d000a">
+        <td dir="ltr"><a href="/admin/stock/pt_00000000000d000a?branch=br_dubai" dir="auto">SEAL-SIL-CL</a></td>
+        <td dir="auto">سيليكون شفاف</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">16</td>
+        <td dir="ltr">12</td>
+        <td dir="ltr">11.00 د.إ.</td>
+        <td dir="ltr">176.00 د.إ.</td>
+        <td></td>
       </tr>
     </tbody>
   </table></div>
   <h2>قيمة المخزون حسب الفرع (متوسط التكلفة)</h2>
   <ul id="totals">
-    <li id="total-br_dubai" dir="auto">دبي: <span dir="ltr">102.00 د.إ.</span></li><li id="total-br_sharjah" dir="auto">الشارقة: <span dir="ltr">18.00 د.إ.</span></li>
+    <li id="total-br_dubai" dir="auto">دبي: <span dir="ltr">2,003.00 د.إ.</span></li><li id="total-br_sharjah" dir="auto">الشارقة: <span dir="ltr">1,630.00 د.إ.</span></li>
   </ul>
   <p><small class="muted">لا تتغير الكمية المتوفرة إلا بحركات: استلام أو جرد أو تحويل أو زيارة أو أمر شراء. افتح رمز الصنف لترى حركاته.</small></p>
+  <p><a href="/reports/stock" id="stock-report-link">تقرير المخزون (CSV وإكسل)</a></p>
 
   <section id="stock-forms">
     <h2>استلام مخزون</h2>
     <form method="post" action="?/receive" hx-post="?/receive" class="stack narrow" id="receive-form"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="branch" value="br_dubai">
-      <p><label>القطعة <select name="part" id="f-receive-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option></select></label></p>
+      <p><label>القطعة <select name="part" id="f-receive-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: مكثف تشغيل 35 ميكروفاراد</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: مكثف تشغيل 45 ميكروفاراد</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: عدة إزالة الترسبات</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: فلتر مكيف كاسيت</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: فلتر مكيف سبليت</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: خلاط حوض المطبخ</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: كوع بي في سي 25 مم</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: أنبوب بي في سي 25 مم</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: تي بي في سي 25 مم</option><option value="pt_00000000000d0006" dir="auto">REF-R22: غاز التبريد R22</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: غاز التبريد R410A</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: سيليكون شفاف</option></select></label></p>
       <p><label>الكمية <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-qty" value=""></label></p>
       <p><label>تكلفة الوحدة (درهم) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-unit_cost" value=""></label></p>
       <p><label>السبب <input name="reason" maxlength="200" required aria-required="true" id="f-receive-reason" value="" dir="auto"></label></p>
@@ -240,7 +458,7 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
     <p><small class="muted">أدخل ما عددته على الرف: يُسجَّل الفرق كحركة. يطلب العامل الثاني للتحقق.</small></p>
     <form method="post" action="?/adjust" hx-post="?/adjust" class="stack narrow" id="adjust-form"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="branch" value="br_dubai">
-      <p><label>القطعة <select name="part" id="f-adjust-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option></select></label></p>
+      <p><label>القطعة <select name="part" id="f-adjust-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: مكثف تشغيل 35 ميكروفاراد</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: مكثف تشغيل 45 ميكروفاراد</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: عدة إزالة الترسبات</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: فلتر مكيف كاسيت</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: فلتر مكيف سبليت</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: خلاط حوض المطبخ</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: كوع بي في سي 25 مم</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: أنبوب بي في سي 25 مم</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: تي بي في سي 25 مم</option><option value="pt_00000000000d0006" dir="auto">REF-R22: غاز التبريد R22</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: غاز التبريد R410A</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: سيليكون شفاف</option></select></label></p>
       <p><label>الكمية المجرودة <input name="counted" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-adjust-counted" value=""></label></p>
       <p><label>السبب <input name="reason" maxlength="200" required aria-required="true" id="f-adjust-reason" value="" dir="auto"></label></p>
       <p><button type="submit" class="btn-brand" id="adjust-submit">سجّل الجرد</button></p>
@@ -250,7 +468,7 @@ exports[`the pages snapshots: the page and the history, in English and in Arabic
     
     <form method="post" action="?/transfer" hx-post="?/transfer" class="stack narrow" id="transfer-form"><input type="hidden" name="_csrf" value="<csrf>">
       <input type="hidden" name="branch" value="br_dubai">
-      <p><label>القطعة <select name="part" id="f-transfer-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option></select></label></p>
+      <p><label>القطعة <select name="part" id="f-transfer-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: مكثف تشغيل 35 ميكروفاراد</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: مكثف تشغيل 45 ميكروفاراد</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: عدة إزالة الترسبات</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: فلتر مكيف كاسيت</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: فلتر مكيف سبليت</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: خلاط حوض المطبخ</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: كوع بي في سي 25 مم</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: أنبوب بي في سي 25 مم</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: تي بي في سي 25 مم</option><option value="pt_00000000000d0006" dir="auto">REF-R22: غاز التبريد R22</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: غاز التبريد R410A</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: سيليكون شفاف</option></select></label></p>
       <p><label>الكمية <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-transfer-qty" value=""></label></p>
       <p><label>إلى الفرع <select name="to_branch" id="f-transfer-to_branch" required aria-required="true"><option value="br_sharjah" dir="auto">الشارقة</option></select></label></p>
       <p><label>السبب <input name="reason" maxlength="200" required aria-required="true" id="f-transfer-reason" value="" dir="auto"></label></p>

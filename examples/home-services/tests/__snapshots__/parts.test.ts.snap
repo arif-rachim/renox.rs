@@ -59,7 +59,87 @@ exports[`the pages, as the owner sees them /admin/parts lists the parts with the
       <tr><th scope="col">SKU</th><th scope="col">Name</th><th scope="col">Unit</th><th scope="col">Cost (AED)</th><th scope="col">Selling price (AED)</th><th scope="col">Minimum stock</th><th scope="col">Status</th><th scope="col">Actions</th></tr>
     </thead>
     <tbody>
-      <tr id="part-pt_00000000000000a2">
+      <tr id="part-pt_00000000000d0003">
+        <td dir="ltr">CAP-35UF</td>
+        <td dir="auto">Run capacitor 35 uF</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 22.00</td>
+        <td dir="ltr">AED 45.00</td>
+        <td dir="ltr">5</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0003#part-form" id="edit-pt_00000000000d0003">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0003">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0003">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0004">
+        <td dir="ltr">CAP-45UF</td>
+        <td dir="auto">Run capacitor 45 uF</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 26.00</td>
+        <td dir="ltr">AED 50.00</td>
+        <td dir="ltr">5</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0004#part-form" id="edit-pt_00000000000d0004">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0004">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0004">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d000c">
+        <td dir="ltr">DESCALE-KIT</td>
+        <td dir="auto">Descaling kit</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 20.00</td>
+        <td dir="ltr">AED 35.00</td>
+        <td dir="ltr">4</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d000c#part-form" id="edit-pt_00000000000d000c">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d000c">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d000c">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0002">
+        <td dir="ltr">FIL-AC-C</td>
+        <td dir="auto">AC filter, cassette unit</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 18.00</td>
+        <td dir="ltr">AED 35.00</td>
+        <td dir="ltr">6</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0002#part-form" id="edit-pt_00000000000d0002">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0002">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0002">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0001">
+        <td dir="ltr">FIL-AC-S</td>
+        <td dir="auto">AC filter, split unit</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 12.00</td>
+        <td dir="ltr">AED 25.00</td>
+        <td dir="ltr">10</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0001#part-form" id="edit-pt_00000000000d0001">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0001">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0001">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000000a2">
         <td dir="ltr">GAS-R32</td>
         <td dir="auto">R32 refrigerant</td>
         <td dir="auto">kg</td>
@@ -73,6 +153,22 @@ exports[`the pages, as the owner sees them /admin/parts lists the parts with the
             <input type="hidden" name="id" value="pt_00000000000000a2">
             <input type="hidden" name="active" value="1">
             <button type="submit" id="active-pt_00000000000000a2">Activate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d000b">
+        <td dir="ltr">MIXER-TAP</td>
+        <td dir="auto">Kitchen mixer tap</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 110.00</td>
+        <td dir="ltr">AED 180.00</td>
+        <td dir="ltr">2</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d000b#part-form" id="edit-pt_00000000000d000b">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d000b">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d000b">Deactivate</button>
           </form>
         </td>
       </tr><tr id="part-pt_00000000000000a1">
@@ -89,6 +185,102 @@ exports[`the pages, as the owner sees them /admin/parts lists the parts with the
             <input type="hidden" name="id" value="pt_00000000000000a1">
             <input type="hidden" name="active" value="0">
             <button type="submit" id="active-pt_00000000000000a1">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0007">
+        <td dir="ltr">PVC-ELB-25</td>
+        <td dir="auto">PVC elbow 25 mm</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 1.50</td>
+        <td dir="ltr">AED 4.00</td>
+        <td dir="ltr">40</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0007#part-form" id="edit-pt_00000000000d0007">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0007">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0007">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0009">
+        <td dir="ltr">PVC-PIPE-25</td>
+        <td dir="auto">PVC pipe 25 mm</td>
+        <td dir="auto">metre</td>
+        <td dir="ltr">AED 4.50</td>
+        <td dir="ltr">AED 9.00</td>
+        <td dir="ltr">20</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0009#part-form" id="edit-pt_00000000000d0009">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0009">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0009">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0008">
+        <td dir="ltr">PVC-TEE-25</td>
+        <td dir="auto">PVC tee 25 mm</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 2.00</td>
+        <td dir="ltr">AED 5.00</td>
+        <td dir="ltr">30</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0008#part-form" id="edit-pt_00000000000d0008">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0008">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0008">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0006">
+        <td dir="ltr">REF-R22</td>
+        <td dir="auto">Refrigerant R22</td>
+        <td dir="auto">kg</td>
+        <td dir="ltr">AED 45.00</td>
+        <td dir="ltr">AED 75.00</td>
+        <td dir="ltr">3</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0006#part-form" id="edit-pt_00000000000d0006">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0006">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0006">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0005">
+        <td dir="ltr">REF-R410A</td>
+        <td dir="auto">Refrigerant R410A</td>
+        <td dir="auto">kg</td>
+        <td dir="ltr">AED 38.00</td>
+        <td dir="ltr">AED 65.00</td>
+        <td dir="ltr">4</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0005#part-form" id="edit-pt_00000000000d0005">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0005">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0005">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d000a">
+        <td dir="ltr">SEAL-SIL-CL</td>
+        <td dir="auto">Silicone sealant, clear</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">AED 11.00</td>
+        <td dir="ltr">AED 22.00</td>
+        <td dir="ltr">12</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d000a#part-form" id="edit-pt_00000000000d000a">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d000a">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d000a">Deactivate</button>
           </form>
         </td>
       </tr>
@@ -181,7 +373,87 @@ exports[`the pages, as the owner sees them /admin/parts lists the parts with the
       <tr><th scope="col">رمز الصنف (SKU)</th><th scope="col">الاسم</th><th scope="col">الوحدة</th><th scope="col">التكلفة (درهم)</th><th scope="col">سعر البيع (درهم)</th><th scope="col">الحد الأدنى للمخزون</th><th scope="col">الحالة</th><th scope="col">الإجراءات</th></tr>
     </thead>
     <tbody>
-      <tr id="part-pt_00000000000000a2">
+      <tr id="part-pt_00000000000d0003">
+        <td dir="ltr">CAP-35UF</td>
+        <td dir="auto">مكثف تشغيل 35 ميكروفاراد</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">22.00 د.إ.</td>
+        <td dir="ltr">45.00 د.إ.</td>
+        <td dir="ltr">5</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0003#part-form" id="edit-pt_00000000000d0003">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0003">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0003">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0004">
+        <td dir="ltr">CAP-45UF</td>
+        <td dir="auto">مكثف تشغيل 45 ميكروفاراد</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">26.00 د.إ.</td>
+        <td dir="ltr">50.00 د.إ.</td>
+        <td dir="ltr">5</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0004#part-form" id="edit-pt_00000000000d0004">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0004">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0004">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d000c">
+        <td dir="ltr">DESCALE-KIT</td>
+        <td dir="auto">عدة إزالة الترسبات</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">20.00 د.إ.</td>
+        <td dir="ltr">35.00 د.إ.</td>
+        <td dir="ltr">4</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d000c#part-form" id="edit-pt_00000000000d000c">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d000c">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d000c">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0002">
+        <td dir="ltr">FIL-AC-C</td>
+        <td dir="auto">فلتر مكيف كاسيت</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">18.00 د.إ.</td>
+        <td dir="ltr">35.00 د.إ.</td>
+        <td dir="ltr">6</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0002#part-form" id="edit-pt_00000000000d0002">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0002">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0002">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0001">
+        <td dir="ltr">FIL-AC-S</td>
+        <td dir="auto">فلتر مكيف سبليت</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">12.00 د.إ.</td>
+        <td dir="ltr">25.00 د.إ.</td>
+        <td dir="ltr">10</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0001#part-form" id="edit-pt_00000000000d0001">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0001">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0001">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000000a2">
         <td dir="ltr">GAS-R32</td>
         <td dir="auto">غاز التبريد R32</td>
         <td dir="auto">كيلوغرام</td>
@@ -195,6 +467,22 @@ exports[`the pages, as the owner sees them /admin/parts lists the parts with the
             <input type="hidden" name="id" value="pt_00000000000000a2">
             <input type="hidden" name="active" value="1">
             <button type="submit" id="active-pt_00000000000000a2">تفعيل</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d000b">
+        <td dir="ltr">MIXER-TAP</td>
+        <td dir="auto">خلاط حوض المطبخ</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">110.00 د.إ.</td>
+        <td dir="ltr">180.00 د.إ.</td>
+        <td dir="ltr">2</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d000b#part-form" id="edit-pt_00000000000d000b">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d000b">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d000b">إيقاف</button>
           </form>
         </td>
       </tr><tr id="part-pt_00000000000000a1">
@@ -211,6 +499,102 @@ exports[`the pages, as the owner sees them /admin/parts lists the parts with the
             <input type="hidden" name="id" value="pt_00000000000000a1">
             <input type="hidden" name="active" value="0">
             <button type="submit" id="active-pt_00000000000000a1">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0007">
+        <td dir="ltr">PVC-ELB-25</td>
+        <td dir="auto">كوع بي في سي 25 مم</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">1.50 د.إ.</td>
+        <td dir="ltr">4.00 د.إ.</td>
+        <td dir="ltr">40</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0007#part-form" id="edit-pt_00000000000d0007">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0007">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0007">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0009">
+        <td dir="ltr">PVC-PIPE-25</td>
+        <td dir="auto">أنبوب بي في سي 25 مم</td>
+        <td dir="auto">متر</td>
+        <td dir="ltr">4.50 د.إ.</td>
+        <td dir="ltr">9.00 د.إ.</td>
+        <td dir="ltr">20</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0009#part-form" id="edit-pt_00000000000d0009">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0009">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0009">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0008">
+        <td dir="ltr">PVC-TEE-25</td>
+        <td dir="auto">تي بي في سي 25 مم</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">2.00 د.إ.</td>
+        <td dir="ltr">5.00 د.إ.</td>
+        <td dir="ltr">30</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0008#part-form" id="edit-pt_00000000000d0008">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0008">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0008">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0006">
+        <td dir="ltr">REF-R22</td>
+        <td dir="auto">غاز التبريد R22</td>
+        <td dir="auto">كيلوغرام</td>
+        <td dir="ltr">45.00 د.إ.</td>
+        <td dir="ltr">75.00 د.إ.</td>
+        <td dir="ltr">3</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0006#part-form" id="edit-pt_00000000000d0006">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0006">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0006">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d0005">
+        <td dir="ltr">REF-R410A</td>
+        <td dir="auto">غاز التبريد R410A</td>
+        <td dir="auto">كيلوغرام</td>
+        <td dir="ltr">38.00 د.إ.</td>
+        <td dir="ltr">65.00 د.إ.</td>
+        <td dir="ltr">4</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d0005#part-form" id="edit-pt_00000000000d0005">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d0005">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d0005">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="part-pt_00000000000d000a">
+        <td dir="ltr">SEAL-SIL-CL</td>
+        <td dir="auto">سيليكون شفاف</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">11.00 د.إ.</td>
+        <td dir="ltr">22.00 د.إ.</td>
+        <td dir="ltr">12</td>
+        <td>نشطة</td>
+        <td>
+          <a href="/admin/parts?edit=pt_00000000000d000a#part-form" id="edit-pt_00000000000d000a">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="pt_00000000000d000a">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-pt_00000000000d000a">إيقاف</button>
           </form>
         </td>
       </tr>
@@ -311,6 +695,34 @@ exports[`the pages, as the owner sees them /admin/suppliers lists the suppliers 
             <input type="hidden" name="id" value="su_00000000000000a1">
             <input type="hidden" name="active" value="0">
             <button type="submit" id="active-su_00000000000000a1">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="supplier-su_00000000000d0002">
+        <td dir="auto">Emirates Plumbing Trading</td>
+        <td dir="ltr">100456789000003</td>
+        <td dir="ltr">+97165550202</td>
+        <td dir="ltr">sales@emiratesplumbing.example</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000d0002#supplier-form" id="edit-su_00000000000d0002">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000d0002">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-su_00000000000d0002">Deactivate</button>
+          </form>
+        </td>
+      </tr><tr id="supplier-su_00000000000d0001">
+        <td dir="auto">Gulf Cooling Supplies LLC</td>
+        <td dir="ltr">100345678900003</td>
+        <td dir="ltr">+97143330101</td>
+        <td dir="ltr">orders@gulfcooling.example</td>
+        <td>Active</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000d0001#supplier-form" id="edit-su_00000000000d0001">Edit</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000d0001">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-su_00000000000d0001">Deactivate</button>
           </form>
         </td>
       </tr><tr id="supplier-su_00000000000000a2">
@@ -422,6 +834,34 @@ exports[`the pages, as the owner sees them /admin/suppliers lists the suppliers 
             <input type="hidden" name="id" value="su_00000000000000a1">
             <input type="hidden" name="active" value="0">
             <button type="submit" id="active-su_00000000000000a1">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="supplier-su_00000000000d0002">
+        <td dir="auto">Emirates Plumbing Trading</td>
+        <td dir="ltr">100456789000003</td>
+        <td dir="ltr">+97165550202</td>
+        <td dir="ltr">sales@emiratesplumbing.example</td>
+        <td>نشط</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000d0002#supplier-form" id="edit-su_00000000000d0002">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000d0002">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-su_00000000000d0002">إيقاف</button>
+          </form>
+        </td>
+      </tr><tr id="supplier-su_00000000000d0001">
+        <td dir="auto">Gulf Cooling Supplies LLC</td>
+        <td dir="ltr">100345678900003</td>
+        <td dir="ltr">+97143330101</td>
+        <td dir="ltr">orders@gulfcooling.example</td>
+        <td>نشط</td>
+        <td>
+          <a href="/admin/suppliers?edit=su_00000000000d0001#supplier-form" id="edit-su_00000000000d0001">تعديل</a>
+          <form method="post" action="?/active" hx-post="?/active" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="id" value="su_00000000000d0001">
+            <input type="hidden" name="active" value="0">
+            <button type="submit" id="active-su_00000000000d0001">إيقاف</button>
           </form>
         </td>
       </tr><tr id="supplier-su_00000000000000a2">

@@ -1,5 +1,5 @@
-// GET /admin/import: bring customers, sites, services and contracts in from
-// Excel (`settings.write`: the owner). Four kinds, one sheet each, with a
+// GET /admin/import: bring customers, sites, services, parts, opening stock and contracts in from
+// Excel (`settings.write`: the owner). Six kinds, one sheet each, with a
 // template to download. The browser sends the file straight to the store with a
 // signed PUT (`public/upload.js`: a page action is limited to 1 MiB), POST
 // ?/upload_url signs it, and POST ?/check makes an `app__imports` row

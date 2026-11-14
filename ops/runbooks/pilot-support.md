@@ -93,6 +93,17 @@ The customer portal (`/book`, `/my`) signs a customer in with a one-time code on
 4. **No free time is offered.** Step 2 searches what `booking` holds; a service or technician added since a dispatcher last opened a job's slot picker offers no slots yet (#797). Open any job page as a dispatcher once, then try again.
 5. **A booking is waiting.** A booking the customer confirmed is a `new` job with "Booked online" on `/dispatch` and on `/jobs?source=self_booking`, until a dispatcher confirms it, unless "Confirm online bookings automatically" is on (`/admin/settings`, "Customer portal").
 
+## Stock does not match the shelf
+
+The number on hand of a part in a branch (`/admin/stock`) is never typed: it is the result of moves, and every move is on the part's page, `/admin/stock/<part>` (reach it from the SKU), newest first, with who made it, when, why, what caused it (a visit, a purchase order, a transfer, or a manual receipt or count) and the balance after it.
+
+1. **Read the history before changing anything.** Look for the move that explains the gap: a delivery that was never received on its purchase order (`/admin/purchasing/<id>`, still *sent*), a technician's visit that used more or less than the shelf lost, a transfer to the other branch, or an opening balance imported twice (it cannot be: `stock_exists`).
+2. **Count and adjust.** The owner or the branch manager opens `/admin/stock`, "Count and adjust", picks the part and enters the quantity counted on the shelf: the app records one `adjust` move of the difference, with "count: was 7, is 5" and the reason in it, and an audit row `stock.adjust`. It asks for the second factor (sign in with the code first, or the page sends the person to the verification and back). The move cannot be undone; a wrong count is corrected with another count.
+3. **A visit can take stock below zero.** A technician who picks a part that the books say is not there is not stopped: the visit's `out` move leaves a negative balance, the stock page marks it "Negative", and the branch's dispatchers are told once for that part and day. The books are wrong, not the visit: receive what arrived and was never booked (`/admin/stock`, Receive, or the order's Receive), or count and adjust.
+4. **Another branch holds it.** Transfer moves it between branches the same person may move stock in (two moves, one transfer id); a manager of one branch neither sees nor moves another's stock.
+5. **Free-text parts do not move stock.** A part typed on a visit as "Other" is a line on the invoice and nothing more. If the technician did not pick the part from the list, the shelf will not match: ask them to pick it, or record the use as a count.
+6. **The opening balance was wrong.** It is a normal `in` move: correct it with a count (the history keeps both). Do not delete rows from `app__stock_moves` or edit `app__stock`: the only code that writes them is `lib/stock.ts`, and the balances after each move would no longer follow.
+
 ## Undo a mistake
 
 Never restore in place. Restore into a new app, check it, then decide.
