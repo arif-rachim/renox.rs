@@ -93,10 +93,10 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 
 [[module]]
 name = "org"
-version = "1.2.0"
+version = "1.3.0"
 source = "official"
-hash = "f1ab9c4a89758bf7e8f0852fc96dd13435aa6cf2af6e02c95468904013546041"
-approved_version = "1.2.0"
+hash = "1d3f9b2b62cb626c634eb8c7e42fad7be1c1557fc09748f7d727413eb1c1aa46"
+approved_version = "1.3.0"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
@@ -117,9 +117,9 @@ approved = { tables = "email__*", network = ["api.resend.com", "email.me-central
 
 [[module]]
 name = "booking"
-version = "1.0.1"
+version = "1.1.0"
 source = "official"
-hash = "7c33ceb9a874af7d5996cbccc271ae3bf931bf01cfc4cf544286e882c1d03351"
+hash = "8e614c0d62165cf229aa21e59f981ae72e867e32345ceb996e3aa895862b02e6"
 isolation = "shared"
 mount = "/booking"
 dependencies = ["auth", "billing", "email", "i18n"]
