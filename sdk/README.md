@@ -165,6 +165,7 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 const t = await app();
 await t.job("nightly");                                  // jobs/nightly.ts runs now; resolves after its commit
 await t.job("import", { payload: { batch: 2 } });        // a queued run, as ctx.jobs.enqueue("import", payload) writes it
+await t.deliver("whatsapp.message_received", { message_id: "m1", from: "+971500000000" }, { module: "whatsapp" }); // a module event, to the app's on handler
 const alice = t.as("alice");                             // signed in through the auth module's pages
 const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
 const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }
@@ -173,6 +174,7 @@ const { tools } = await t.tools({ as: alice, scope: "tools:job_status" }); // th
 ```
 
 - `job(name, { module?, timeoutMs? })` writes a tick of the job (as `renox jobs run`) and waits until its outbox row is gone; it rejects with the job's error text when a run fails, or after `timeoutMs` (10 s).
+- `deliver(event, payload, { module, to?, timeoutMs? })` writes one durable delivery of the module event `event` (emitted by `module`) to `to` (`"app"`, the default, or a module name), as the outbox worker writes one (`ops.md` section 15.4, "Delivery"), and waits until the handler ran. Every call is its own delivery, so two calls run the handler twice. It rejects when `to` has no `on` handler for `event` (a typo fails the test), when the handler fails (the error names its failure), or after `timeoutMs` (10 s).
 - `tool(name, input, { as?, scope?, confirm? })` gets an agent token for `as` (default the calling user) through the `auth` module's OAuth flow, once per user and scope, then calls `tools/call` on `/mcp`. A refusal is `{ ok: false, error: { code, message } }` (`RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, ...). Without the `auth` module it throws.
 - `db` waits up to five seconds on the worker's write lock. A connection a test opens on `dbFile` with `bun:sqlite` should run `pragma busy_timeout = 5000` too, or it fails with `SQLITE_BUSY` while the worker writes.
 

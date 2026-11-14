@@ -280,6 +280,64 @@ test.skipIf(!worker)(
   120_000,
 );
 
+const DELIVER_TS = `import { expect, test } from "bun:test";
+import { app } from "@renoxium/sdk/test";
+
+const t = await app();
+
+test("an app handler receives the payload of the delivery", async () => {
+  await t.deliver("notes.added", { text: "hello" }, { module: "notes" });
+  expect(t.db.query("select event, module, text, attempt from app__seen")).toEqual([{ event: "notes.added", module: "notes", text: "hello", attempt: 1 }]);
+  expect(t.db.query("select count(*) as n from renox__outbox")).toEqual([{ n: 0 }]);
+});
+
+test("two calls deliver twice", async () => {
+  await t.deliver("notes.added", { text: "again" }, { module: "notes", to: "app" });
+  await t.deliver("notes.added", { text: "again" }, { module: "notes" });
+  expect(t.db.query("select count(*) as n from app__seen where text = 'again'")).toEqual([{ n: 2 }]);
+  expect(t.db.query("select count(distinct id) as n from app__seen where text = 'again'")).toEqual([{ n: 2 }]);
+});
+
+test("an unknown event or target rejects, and writes nothing", async () => {
+  await expect(t.deliver("notes.addde", {}, { module: "notes" })).rejects.toThrow("the app has no handler for the event notes.addde");
+  await expect(t.deliver("notes.added", {}, { module: "notes", to: "audit" })).rejects.toThrow("module audit has no handler for the event notes.added");
+  expect(t.db.query("select count(*) as n from renox__outbox")).toEqual([{ n: 0 }]);
+});
+
+test("a throwing handler rejects with its failure", async () => {
+  await expect(t.deliver("notes.broken", { text: "x" }, { module: "notes" })).rejects.toThrow("handler broke on x");
+});
+`;
+
+/** The fixture app with an `on` handler (#787). */
+async function deliverApp(): Promise<string> {
+  const dir = await fixtureApp();
+  write(dir, {
+    "migrations/001_app.sql": "create table app__seen (id text not null, event text not null, module text not null, text text, attempt integer not null);\n",
+    "hooks.ts": `export const on = {
+  "notes.added": async (ctx, e) => {
+    await ctx.db.execute("insert into app__seen (id, event, module, text, attempt) values (?, ?, ?, ?, ?)", [e.id, e.name, "notes", e.payload.text, e.attempt]);
+  },
+  "notes.broken": async (ctx, e) => {
+    throw new Error("handler broke on " + e.payload.text);
+  },
+};\n`,
+    "tests/deliver.test.ts": DELIVER_TS,
+  });
+  return dir;
+}
+
+test.skipIf(!worker)(
+  "renox test: t.deliver writes one durable delivery of a module event and waits for the handler (#787)",
+  async () => {
+    const dir = await deliverApp();
+    const r = await runTests(dir, ["tests/deliver.test.ts"], "pipe");
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("4 pass");
+  },
+  120_000,
+);
+
 test.skipIf(!worker)(
   "a failing test is exit code 2",
   async () => {

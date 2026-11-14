@@ -10,6 +10,7 @@
 //   snapshot(html, { role: "admin" });
 //   await t.job("nightly");                        // a scheduled job, run now (#593)
 //   await t.job("import", { payload: { id: 1 } }); // a queued run with its payload (#770)
+//   await t.deliver("whatsapp.message_received", { id: 1 }, { module: "whatsapp" }); // a module event, to the app's handler
 //   await t.tool("echo", { x: 1 }, { as: alice, confirm: true }); // an App MCP tool as alice's agent
 //
 // Bun-only (bun:test, bun:sqlite): not part of the runtime-neutral SDK
@@ -27,6 +28,7 @@ interface Harness {
   changeModule(project: string, name: string, source: string, scratch?: { project: string; db: string }, worker?: string, version?: string): Promise<ModuleChange & { db: string }>;
   evaluatePolicies(spec: Spec, casesFrom?: string): Promise<{ file: string; case: PolicyCase; result: { allow: boolean; reason: string }; ok: boolean }[]>;
   runJob(spec: Spec, db: string, module: string, name: string, now?: number, payload?: unknown): { id: string; attempts: number };
+  runDeliver(spec: Spec, db: string, event: string, payload: unknown, module: string, to?: string, now?: number): { id: string; attempts: number };
   SERVICE_PATH: string;
 }
 interface Spec {
@@ -123,6 +125,19 @@ export interface TestApp {
    * sees `ctx.job.payload`, every call is its own run (no coalescing).
    */
   job(name: string, options?: { module?: string; timeoutMs?: number; payload?: unknown }): Promise<void>;
+  /**
+   * Delivers the module event `event`, emitted by `module`, to `to` (`"app"`,
+   * the default, or a module name): one durable delivery written the way the
+   * outbox worker writes one (`ops.md` section 15.4, "Delivery"), as a
+   * redelivery after a crash would be. Resolves once the handler ran and
+   * committed (its outbox row is gone); every call is its own delivery, so
+   * two calls run the handler twice (handlers are idempotent on `e.id`).
+   * Rejects when `to` has no `on` handler for `event` (a typo fails the
+   * test), when the handler fails (the error names its failure; the
+   * delivery is dead-lettered, or waits for a retry), or after `timeoutMs`
+   * (default 10 s). `payload` is JSON, at most 64 KiB.
+   */
+  deliver(event: string, payload: unknown, options: { module: string; to?: string; timeoutMs?: number }): Promise<void>;
   /**
    * Calls the App MCP tool `name` (`POST /mcp`, `tools/call`) as the agent
    * of `as` (default this user): an agent token from the auth module's OAuth
@@ -450,6 +465,39 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     sqlite.close();
     await w.stop();
   });
+  // Waits until the outbox row `run.id` of `target` is gone (the run or
+  // delivery committed). An attempt that fails, or a dead letter, rejects
+  // with the cause: the outbox keeps only the code (`threw`), the tenant log
+  // line of the attempt has the thrown text.
+  const settle = async (label: string, what: string, run: { id: string; attempts: number }, target: string, ms: number): Promise<void> => {
+    const deadline = Date.now() + ms;
+    let last: string | null = null;
+    const failure = async (attempt: number, code: string | null): Promise<Error> => {
+      // A job's request id is `<row id>_<attempt>`, an event's `<row id>_<handler>_<attempt>`.
+      const rids = [`${run.id}_${attempt}`, `${run.id}_${target}_${attempt}`];
+      let line: { fields?: { cause_message?: unknown } } | undefined;
+      // The log line may be written just after the outbox row.
+      for (let i = 0; i < 10 && line === undefined; i++) {
+        line = w.logs().find((l) => rids.includes(l.request_id as string)) as typeof line;
+        if (line === undefined) await Bun.sleep(50);
+      }
+      const cause = line?.fields?.cause_message;
+      return new Error(`${label}: ${what} failed: ${typeof cause === "string" ? (code === null ? cause : `${cause} (${code})`) : (code ?? "no error recorded")}`);
+    };
+    for (;;) {
+      const row = sqlite.query("select attempts, last_error from renox__outbox where id = ? and target = ?").get(run.id, target) as { attempts: number; last_error: string | null } | null;
+      if (row === null) {
+        const dead = sqlite.query("select attempts, last_error from renox__outbox_dead where id = ? and target = ?").get(run.id, target) as { attempts: number; last_error: string | null } | null;
+        if (dead !== null) throw await failure(dead.attempts, dead.last_error);
+        return;
+      }
+      if (row.last_error !== null) last = row.last_error;
+      // An attempt of this one failed: its row waits for the retry.
+      if (row.attempts > run.attempts && row.last_error !== null) throw await failure(row.attempts, row.last_error);
+      if (Date.now() > deadline) throw new Error(`${label}: ${what} did not finish within ${ms} ms${last === null ? "" : ` (last error: ${last})`}`);
+      await Bun.sleep(50);
+    }
+  };
   const jars = new Map<string, Jar>();
   const jarOf = (user: string): Jar => {
     let j = jars.get(user);
@@ -533,31 +581,13 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
       dbFile: w.db,
       async job(name, o = {}) {
         const module = o.module ?? "app";
-        const ms = o.timeoutMs ?? 10_000;
         const run = h.runJob(s, w.db, module, name, Date.now(), o.payload);
-        const deadline = Date.now() + ms;
-        let last: string | null = null;
-        for (;;) {
-          const row = sqlite.query("select attempts, last_error from renox__outbox where id = ? and target = ?").get(run.id, module) as { attempts: number; last_error: string | null } | null;
-          if (row === null) return;
-          if (row.last_error !== null) last = row.last_error;
-          // An attempt of this run failed: its row waits for the retry.
-          // The outbox keeps only the code (`threw`); the tenant log line of
-          // the attempt (request id `<row id>_<attempt>`) has the thrown text.
-          if (row.attempts > run.attempts && row.last_error !== null) {
-            const rid = `${run.id}_${row.attempts}`;
-            let line: { fields?: { cause_message?: unknown } } | undefined;
-            // The log line may be written just after the outbox row.
-            for (let i = 0; i < 10 && line === undefined; i++) {
-              line = w.logs().find((l) => l.request_id === rid) as typeof line;
-              if (line === undefined) await Bun.sleep(50);
-            }
-            const cause = line?.fields?.cause_message;
-            throw new Error(`t.job("${name}"): the run failed: ${typeof cause === "string" ? `${cause} (${row.last_error})` : row.last_error}`);
-          }
-          if (Date.now() > deadline) throw new Error(`t.job("${name}"): the run did not finish within ${ms} ms${last === null ? "" : ` (last error: ${last})`}`);
-          await Bun.sleep(50);
-        }
+        await settle(`t.job("${name}")`, "the run", run, module, o.timeoutMs ?? 10_000);
+      },
+      async deliver(event, payload, o) {
+        const to = o.to ?? "app";
+        const run = h.runDeliver(s, w.db, event, payload, o.module, to);
+        await settle(`t.deliver("${event}")`, "the delivery", run, to, o.timeoutMs ?? 10_000);
       },
       async tool(name, input, o = {}) {
         return callTool(self, await tokenOf(o), name, input, o.confirm === true, o.confirmation);
