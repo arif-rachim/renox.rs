@@ -132,19 +132,50 @@ export function load() { return { title: "Fast", cart_count: 1, items: ["tea"] }
 
 const SLOW_THROWS_JS: &str = r#"
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-export async function load() { await sleep(300); throw new Error("database is down"); }
+export async function load() { await sleep(600); throw new Error("database is down"); }
 "#;
 
 const SLOW_REDIRECT_JS: &str = r#"
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function load() {
-  await sleep(300);
+  await sleep(600);
   return new Response(null, { status: 303, headers: { location: "/" } });
 }
 "#;
 
+/// #790: the locale is set after 120 ms, past the shell delay.
+const LOCALE_PAGE_JS: &str = r#"
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export async function load(ctx) {
+  await sleep(120);
+  ctx.setLocale("ar", "rtl");
+  await sleep(150);
+  return { title: "Arabic", cart_count: 3, items: ["dates", "saffron"] };
+}
+"#;
+
+/// #790: never calls `setLocale` and takes 600 ms.
+const NO_LOCALE_PAGE_JS: &str = r#"
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export async function load() {
+  await sleep(600);
+  return { title: "Plain", cart_count: 3, items: ["dates", "saffron"] };
+}
+"#;
+
+/// #790: sets the locale after 120 ms, then throws after the held shell.
+const LOCALE_THROWS_JS: &str = r#"
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export async function load(ctx) {
+  await sleep(120);
+  ctx.setLocale("ar", "rtl");
+  await sleep(200);
+  throw new Error("database is down");
+}
+"#;
+
 const LAYOUT: &str = r#"<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8">
   <link rel="stylesheet" href="/static/app.css">
@@ -160,7 +191,15 @@ const LIST_PAGE: &str = r#"<r-layout use="main"><h1>{{ title }}</h1><ul><li r-fo
 fn write_artifact(artifacts: &Path) -> String {
     let mut project = TemplateProject::new();
     project.insert("pages/_layouts/main.html", LAYOUT);
-    for page in ["slow", "fast", "slow-throws", "slow-redirect"] {
+    for page in [
+        "slow",
+        "fast",
+        "slow-throws",
+        "slow-redirect",
+        "locale",
+        "no-locale",
+        "locale-throws",
+    ] {
         project.insert(format!("pages/{page}.html"), LIST_PAGE);
     }
     project.insert(
@@ -189,6 +228,9 @@ fn write_artifact(artifacts: &Path) -> String {
         ("pages/fast", FAST_PAGE_JS),
         ("pages/slow-throws", SLOW_THROWS_JS),
         ("pages/slow-redirect", SLOW_REDIRECT_JS),
+        ("pages/locale", LOCALE_PAGE_JS),
+        ("pages/no-locale", NO_LOCALE_PAGE_JS),
+        ("pages/locale-throws", LOCALE_THROWS_JS),
     ];
     for (id, js) in functions.iter().chain(pages.iter()) {
         let p = tmp.join("code").join(format!("{id}.js"));
@@ -656,6 +698,104 @@ async fn shell_bytes_arrive_before_a_slow_loader_finishes() {
         slow_html.replace(&nonce(&slow_html), "N"),
         fast_html.replace(&nonce(&fast_html), "N")
     );
+    worker.shutdown().await;
+}
+
+/// `ops.md` section 14 ("The shell delay"; #790): a loader slower than the
+/// delay that calls `ctx.setLocale` gets its shell, held for the call, with
+/// the locale and direction; the page is still streamed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shell_waits_for_set_locale() {
+    let (worker, _config) = start().await;
+    // The first request is cold: warm the deployment up.
+    timed_get(worker.addr, "/p/fast", "").await;
+    let r = timed_get(worker.addr, "/p/locale", "").await;
+    assert_eq!(r.status, 200, "{}", r.head);
+    assert_eq!(r.header("transfer-encoding").as_deref(), Some("chunked"));
+    let html = r.text();
+    assert!(
+        html.starts_with("<!DOCTYPE html><html lang=\"ar\" dir=\"rtl\">"),
+        "{html}"
+    );
+    let first = String::from_utf8_lossy(&r.pieces[0].1).to_string();
+    assert!(
+        first.contains("<html lang=\"ar\" dir=\"rtl\">"),
+        "the first bytes: {first}"
+    );
+    let shell = r.arrival_of("<header class=\"site-header\">").unwrap();
+    let data = r.arrival_of("saffron</li>").unwrap();
+    // The shell left at the call (~120 ms), before the loader returned (~270 ms).
+    assert!(shell < data, "shell at {shell:?}, data at {data:?}");
+    assert!(r.pieces.len() >= 2, "streamed: {}", r.pieces.len());
+    assert!(r.complete);
+    assert!(html.trim_end().ends_with("</html>"), "{html}");
+    assert_eq!(html.matches("<head>").count(), 1, "{html}");
+    worker.shutdown().await;
+}
+
+/// A loader that never calls `setLocale` keeps the defaults and gets its
+/// shell at the second bound (50 ms + 250 ms), before the loader returns.
+/// A fast loader is unchanged: one piece with its length.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shell_wait_is_bounded_without_set_locale() {
+    let (worker, _config) = start().await;
+    timed_get(worker.addr, "/p/fast", "").await;
+    let r = timed_get(worker.addr, "/p/no-locale", "").await;
+    assert_eq!(r.status, 200, "{}", r.head);
+    assert_eq!(r.header("transfer-encoding").as_deref(), Some("chunked"));
+    assert!(
+        r.text()
+            .starts_with("<!DOCTYPE html><html lang=\"en\" dir=\"ltr\">"),
+        "{}",
+        r.text()
+    );
+    let shell = r.arrival_of("<header class=\"site-header\">").unwrap();
+    let data = r.arrival_of("saffron</li>").unwrap();
+    // 300 ms nominal; slack for a loaded runner, but before the loader's 600 ms.
+    assert!(shell >= Duration::from_millis(250), "shell at {shell:?}");
+    assert!(
+        data.saturating_sub(shell) >= Duration::from_millis(150),
+        "shell at {shell:?}, data at {data:?}"
+    );
+    assert!(r.complete);
+
+    let fast = timed_get(worker.addr, "/p/fast", "").await;
+    assert_eq!(fast.status, 200);
+    assert_eq!(
+        fast.header("content-length"),
+        Some(fast.body().len().to_string())
+    );
+    assert!(
+        fast.text()
+            .starts_with("<!DOCTYPE html><html lang=\"en\" dir=\"ltr\">"),
+        "{}",
+        fast.text()
+    );
+    worker.shutdown().await;
+}
+
+/// An error after the held shell is rendered inside the stream, as after
+/// any shell (section 14, "Errors after the shell").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn loader_error_after_the_held_shell_is_rendered_inside_the_stream() {
+    let (worker, config) = start().await;
+    timed_get(worker.addr, "/p/fast", "").await;
+    let r = timed_get(worker.addr, "/p/locale-throws", "").await;
+    assert_eq!(r.status, 200, "{}", r.head);
+    assert!(r.complete);
+    let id = request_id(&r);
+    let html = r.text();
+    assert!(
+        html.starts_with("<!DOCTYPE html><html lang=\"ar\" dir=\"rtl\">"),
+        "{html}"
+    );
+    assert!(
+        html.contains("<body><h1 dir=\"auto\">Error 500</h1><p dir=\"auto\">RENOX_INTERNAL</p>"),
+        "{html}"
+    );
+    assert!(!html.contains("database is down"), "{html}");
+    tenant_log(&config.logs_dir, &id, "streamed").await;
+    assert_eq!(record(&config.meters_dir, &id).await["status"], "error");
     worker.shutdown().await;
 }
 

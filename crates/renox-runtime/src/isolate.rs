@@ -3280,6 +3280,9 @@ struct JsOutcome {
     /// `RENOX_DB_SCOPE`: the error's details and a principal summary, as
     /// JSON, for the tenant log (the dev overlay reads them, #294).
     details_json: Option<String>,
+    /// `KIND_FORBIDDEN` (#795): the guard's `deny_redirect`, set only for a
+    /// signed-in principal on a page route: the answer is a 303 to it.
+    redirect: Option<String>,
     /// `KIND_THROW` of a cross-isolate service call (#769): the declared
     /// code, its filtered details as JSON, and whether they were dropped.
     /// Untrusted: the host checks them again (`ModuleRegistry::declared_cause`).
@@ -4907,10 +4910,28 @@ fn finish_dispatch(
                 f.insert("action".into(), g.action.clone().into());
             }
             add_details(&mut f, o.details_json.as_deref());
+            // #795: a deny stays a deny (log line, meter status, authz
+            // decision); a signed-in principal is sent to `deny_redirect`
+            // (303, same-origin path, checked at build and at load).
+            let redirect = o
+                .redirect
+                .clone()
+                .filter(|to| crate::ops::authz::deny_redirect_problem(to).is_none());
+            if redirect.is_some() {
+                f.insert("redirected".into(), true.into());
+            }
             log_line(ctx, "info", Some(&flight.ctx.request_id), "guard denied", f);
-            ThreadReply::Failed {
-                code: ErrorCode::Forbidden,
-                meter: flight.meter(ctx, MeterStatus::Forbidden),
+            match redirect {
+                Some(to) => ThreadReply::Ok {
+                    status: 303,
+                    headers: vec![("location".into(), to.into_bytes().into())],
+                    body: Bytes::new(),
+                    meter: flight.meter(ctx, MeterStatus::Forbidden),
+                },
+                None => ThreadReply::Failed {
+                    code: ErrorCode::Forbidden,
+                    meter: flight.meter(ctx, MeterStatus::Forbidden),
+                },
             }
         }
         // ops.md 1.5.0 section 17: an uncaught ForbiddenError is 403, not

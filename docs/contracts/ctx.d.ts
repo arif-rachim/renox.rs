@@ -424,7 +424,7 @@ export interface Principal {
   readonly id: string;
   readonly kind: "user" | "system";
   readonly roles: readonly PrincipalRole[];
-  /** What `auth.principal` and its hook fillers added (`mfa_verified`, `org`, ...). */
+  /** What `auth.principal` and its hook fillers added (`mfa_verified`, `org`, ...), and `has_password`; with the app's own booleans declared in `[authz] user_attrs` (1.23.0). */
   readonly attrs: Readonly<Record<string, JsonValue>>;
 }
 
@@ -491,6 +491,13 @@ export interface Authz {
 export interface Guard {
   readonly action: string;
   readonly resource?: { readonly type: string; readonly id: string };
+  /**
+   * Page routes only (1.24.0): a same-origin path (one leading `/`, no `//`,
+   * no backslash, at most 200 characters, not the page's own path). A
+   * signed-in principal the guard denies gets `303` to it instead of the 403;
+   * an anonymous one keeps the 403.
+   */
+  readonly deny_redirect?: string;
 }
 
 // ---------------------------------------------------------------------------

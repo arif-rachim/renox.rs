@@ -36,7 +36,7 @@ async function freshApp(n: number): Promise<{ t: TestApp; ids: string[] }> {
 }
 
 /** The ctx the cell gives org's service, over the tenant file, with `principal`; hook runs and events are recorded. */
-function ctxAs(t: TestApp, principal: Principal, opts: { halt?: (email: string) => boolean; url?: string } = {}) {
+function ctxAs(t: TestApp, principal: Principal, opts: { halt?: (email: string) => boolean; url?: string; caller?: string } = {}) {
   const rw = new Database(t.dbFile);
   rw.exec("pragma busy_timeout = 5000");
   const hooks: { name: string; args: { to?: string; email?: string; args?: { url: string; invited_by: string; org_name: string } } }[] = [];
@@ -44,6 +44,7 @@ function ctxAs(t: TestApp, principal: Principal, opts: { halt?: (email: string) 
   type P = SQLQueryBindings[];
   const ctx = {
     principal,
+    caller: opts.caller ?? "app",
     headers: new Headers(),
     config: {},
     ...(opts.url ? { url: new URL(opts.url) } : {}),
@@ -245,6 +246,34 @@ describe.skipIf(!worker)("org.bootstrap (#747)", () => {
     expect(e).toBeInstanceOf(ServiceError);
     expect(e.code).toBe("RENOX_MODULE_SERVICE");
     expect(counts(t)).toEqual(NOTHING);
+  });
+
+  test("the guard: a module caller is refused (shared ctx, then an isolate module through the worker), nothing written", async () => {
+    const { t, ids } = await freshApp(1);
+    const o = ids[0] as string;
+    // The ctx a shared module's call would give org: caller is the module's name.
+    const shared = await run(t, null, REQ(o), { caller: "orgmail" });
+    expect(shared.e?.code).toBe("RENOX_FORBIDDEN");
+    expect(shared.e?.status).toBe(403);
+    expect(shared.e?.details).toEqual({ action: "org.bootstrap", reason: "caller" });
+    expect(shared.hooks).toEqual([]);
+    expect(shared.events).toEqual([]);
+    // No caller at all is refused too.
+    const none = await run(t, null, REQ(o), { caller: "" });
+    expect(none.e?.details).toEqual({ action: "org.bootstrap", reason: "caller" });
+    expect(counts(t)).toEqual(NOTHING);
+    // End to end: the isolate module orgprobe calls org.bootstrap in the anonymous request of the setup call.
+    const e = (await t
+      .service("orgprobe")
+      .callBootstrap!(REQ(o))
+      .catch((x: unknown) => x)) as ServiceError;
+    expect(e).toBeInstanceOf(ServiceError);
+    expect(e.code).toBe("RENOX_MODULE_SERVICE");
+    expect(counts(t)).toEqual(NOTHING);
+    expect(t.db.query("select count(*) as n from orgmail__sent")).toEqual([{ n: 0 }]);
+    // The app's own call (the platform's setup call) still works.
+    const ok = (await t.service("org").bootstrap!(REQ(o))) as { orgs: unknown[] };
+    expect(ok.orgs).toHaveLength(2);
   });
 
   test("the guard: once an organisation or an invitation exists, bootstrap is dead (not_fresh)", async () => {

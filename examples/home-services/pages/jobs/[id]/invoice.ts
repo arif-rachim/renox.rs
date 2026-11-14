@@ -5,8 +5,8 @@
 // or is not done, is a 409; a job with nothing to invoice a 422. On success the
 // answer is a redirect to the invoice. A GET goes back to the job.
 import type { ActionContext } from "@renoxium/sdk";
-import { twofa } from "renox:modules";
 
+import { stepUp } from "../../../lib/admin";
 import { issueInvoice } from "../../../lib/invoices";
 
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -26,7 +26,8 @@ export const actions = {
       if ((e as { code?: string }).code === "RENOX_FORBIDDEN") return plain(403, "Forbidden");
       throw e;
     }
-    await twofa.requireRecent({ next: `/jobs/${ctx.params.id}` });
+    const step = await stepUp(`/jobs/${ctx.params.id}`);
+    if (step !== null) return step;
     const r = await issueInvoice(ctx, ctx.params.id);
     return r.ok ? redirect(`/invoices/${r.value.number}`) : plain(r.status, r.message);
   },

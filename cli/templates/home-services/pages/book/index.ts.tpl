@@ -34,6 +34,7 @@ import {
   overLimit,
   parseSlot,
   queryOf,
+  resolveSlot,
 } from "../../lib/book";
 import { emirateOptions } from "../../lib/forms";
 import { invalid } from "../../lib/invalid";
@@ -104,7 +105,7 @@ async function view(ctx: Ctx, locale: string, params: { get(name: string): unkno
   if (wanted === "2") return { ...base, step: 2, ...time, hidden: hidden2, back: `/book?${queryOf({ ...c, slot: "" })}` };
   // Step 3: the slot must be one step 2 offers now.
   const parsed = parseSlot(c.slot);
-  const slot = parsed === null ? undefined : (await freeSlots(ctx, branch, { code: place.value.service.code }, dayOf(Math.floor(parsed.start / 1000)))).find((s) => s.value === c.slot);
+  const slot = parsed === null ? undefined : await resolveSlot(ctx, branch, { code: place.value.service.code }, c.slot);
   if (slot === undefined) {
     const t2 = parsed === null ? time : await timeOf(ctx, lang, { ...c, day: dayOf(Math.floor(parsed.start / 1000)) }, branch, place.value.service.code);
     if (parsed === null && c.slot === "") {
@@ -149,7 +150,7 @@ export const actions = {
     const branch = await branchFor(ctx.db, c.emirate);
     const parsed = parseSlot(c.slot);
     if (branch === null || parsed === null) return seeOther(`/book?${queryOf({ ...c, slot: "" })}&step=2`);
-    const slot = (await freeSlots(ctx, branch, { code: place.value.service.code }, dayOf(Math.floor(parsed.start / 1000)))).find((s) => s.value === c.slot);
+    const slot = await resolveSlot(ctx, branch, { code: place.value.service.code }, c.slot);
     if (slot === undefined) return seeOther(`/book?${queryOf({ ...c, slot: "", day: dayOf(Math.floor(parsed.start / 1000)) })}&step=2&taken=1`);
     // The visitor.
     const portal = await portalUser(ctx);

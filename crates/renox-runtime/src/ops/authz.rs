@@ -45,6 +45,37 @@ pub struct Guard {
     pub action: String,
     #[serde(default)]
     pub resource: Option<GuardResource>,
+    /// Artifact 1.13 (#795): a same-origin path a signed-in principal is sent
+    /// to (303) when the guard denies it, instead of the 403. Page routes
+    /// only; checked by [`deny_redirect_problem`].
+    #[serde(default)]
+    pub deny_redirect: Option<String>,
+}
+
+/// Longest `deny_redirect` (`artifact.md` 1.13).
+pub const MAX_DENY_REDIRECT: usize = 200;
+
+/// Why `path` is not a valid `guard.deny_redirect`, or `None` when it is: a
+/// same-origin path starts with one `/`, has no `//`, no backslash, no
+/// control character or whitespace, and is at most 200 characters, so it can
+/// never name another origin (no open redirect).
+pub fn deny_redirect_problem(path: &str) -> Option<&'static str> {
+    if path.len() > MAX_DENY_REDIRECT {
+        return Some("is longer than 200 characters");
+    }
+    if !path.starts_with('/') {
+        return Some("must start with /");
+    }
+    if path.contains("//") {
+        return Some("must not contain //");
+    }
+    if path.contains('\\') {
+        return Some("must not contain a backslash");
+    }
+    if path.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Some("must not contain a control character or whitespace");
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -475,6 +506,8 @@ mod v8_ops {
         policy: Option<String>,
         action: Option<String>,
         resource: Option<serde_json::Value>,
+        /// #795: where a signed-in principal goes instead of the 403.
+        redirect: Option<String>,
     }
 
     /// Evaluates the route's `guard` (`ops.md` section 17, "`guard`").
@@ -494,6 +527,7 @@ mod v8_ops {
                 policy: None,
                 action: None,
                 resource: None,
+                redirect: None,
             });
         };
         let owner = route
@@ -506,6 +540,11 @@ mod v8_ops {
                 policy,
                 action: Some(guard.action.clone()),
                 resource,
+                // #795: only a signed-in principal is redirected; an
+                // anonymous one (or a system one) keeps the 403.
+                redirect: guard.deny_redirect.clone().filter(|_| {
+                    principal_of(&request.borrow()).kind == renox_authz::PrincipalKind::User
+                }),
             };
         let Some(st) = authz_state(&env) else {
             return Ok(deny("evaluation_error", None, None));
@@ -614,6 +653,7 @@ mod v8_ops {
                 policy: None,
                 action: None,
                 resource: None,
+                redirect: None,
             });
         }
         let reference =

@@ -443,6 +443,27 @@ describe("reset second factor", () => {
     expect(rows("select count(*) as n from audit__events where action = 'twofa.reset'")[0]?.n).toBe(0);
   });
 
+  // #769: twofa declares STEP_UP_REQUIRED in [exports.errors], so the step-up crosses to the app as
+  // details.cause_code with cause_details.verify_url. The principal is cached for 60 s with mfa_verified, so a
+  // verification that runs out inside that time passes the policy and is stopped by twofa.requireRecent.
+  test("error case (#769): a verification that ran out within the principal's cache time is sent to twofa's verify_url, nothing changes", async () => {
+    expect((await owner.page("/admin/people")).status).toBe(200);
+    const aged = rw((db) => {
+      const before = db.query<{ session_id: string; verified_at: number }, []>("select session_id, verified_at from twofa__sessions where user_id = 'u_owner'").all();
+      db.exec("update twofa__sessions set verified_at = verified_at - 20 * 60000 where user_id = 'u_owner'");
+      return before;
+    });
+    const stepped = await owner.action("/admin/people", "reset_2fa", { user_id: "u_shj_hamad", confirm: "1" });
+    rw((db) => {
+      for (const r of aged) db.query("update twofa__sessions set verified_at = ? where session_id = ?").run(r.verified_at, r.session_id);
+    });
+    expect(stepped.status).toBe(303);
+    expect(located(stepped)).toBe("/2fa/verify?next=%2Fadmin%2Fpeople");
+    expect(stepped.headers.get("cache-control")).toBe("no-store");
+    expect(enrolled("u_shj_hamad")).toBe(1);
+    expect(rows("select count(*) as n from audit__events where action = 'twofa.reset'")[0]?.n).toBe(0);
+  });
+
   test("error cases: oneself, someone outside the active branch, a stranger and a person with no second factor are 422", async () => {
     // The owner's session works in Sharjah (see "people"): Ali is a Dubai technician.
     await withSecondFactor("ali-2fa", "ali.dubai@fixit.example", "/me");

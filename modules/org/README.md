@@ -60,13 +60,14 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 
 `bootstrap` runs in the caller's transaction, has no session (it sets no active organisation), emits `org.created` and `org.member_added` per organisation, and sends each invitation through `org.before_invite` and `org.send_mail` exactly as `invite` does (`invited_by` is the owner; a halt fails the whole call with `ORG_INVITE_HALTED`). A malformed request throws `RENOX_VALIDATION` with `details: [{ field, reason }]`, before any write.
 
-Who may call it: the app's own code in an anonymous request (no principal), on a fresh app (no organisation and no invitation) whose only user is `owner_user_id`. That is the platform's setup call, which registers the owner just before. Everything else gets `RENOX_FORBIDDEN` with `details: { action: "org.bootstrap", reason }` and nothing is written:
+Who may call it: the app's own code (`ctx.caller === "app"`, which includes the platform's setup call) in an anonymous request (no principal), on a fresh app (no organisation and no invitation) whose only user is `owner_user_id`. That is the platform's setup call, which registers the owner just before. Everything else gets `RENOX_FORBIDDEN` with `details: { action: "org.bootstrap", reason }` and nothing is written:
 
 - `principal`: a page or action with a session, an App MCP tool call, a job or event handler, a module, or the platform's system principal;
+- `caller`: the call comes from a module (`ctx.caller` is the module's name), not from the app's code;
 - `not_fresh`: an organisation or invitation exists. It works once;
 - `owner`: the app has no user, several users, or `owner_user_id` is not the only one.
 
-What the guard does not cover: the runtime does not tell a service which module called it. Another module's code in the same anonymous request, on a fresh app with at most one user, cannot be told apart from the app's code. The window is the app's first anonymous requests, before it has an organisation.
+In `shared` mode `ctx.caller` is only as strong as the shared boundary: module code that gets the app's code to run a function of its own runs it as `"app"`. A module in `isolate` mode is always seen as itself, so `isolate` closes that.
 
 ## Active organisation
 

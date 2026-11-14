@@ -23,7 +23,7 @@ describe.skipIf(!worker)("principal", () => {
     const id = t.db.query<{ id: string }>("select id from auth__users where email = 'pia@example.com'")[0]?.id as string;
     const p = (await pia.request("GET", "/api/principal")).json<{ id: string; kind: string; roles: unknown[]; attrs: Record<string, unknown> }>();
     expect(p.id).toBe(id);
-    expect(p.attrs).toEqual({ email_verified: false, phone_verified: false, created_at: expect.any(Number), org: "o_test" });
+    expect(p.attrs).toEqual({ email_verified: false, phone_verified: false, created_at: expect.any(Number), org: "o_test", has_password: true });
     expect(p.roles).toEqual([]);
     // A role assignment invalidates the cache (authz.roles_changed): the next request has the role.
     expect((await pia.request("POST", "/api/principal")).status).toBe(200);

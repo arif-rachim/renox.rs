@@ -18,6 +18,7 @@
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { twofa } from "renox:modules";
 
+import { syncCatalogue } from "../../lib/booking-sync";
 import { inviteStaff, isStaffRole, notifyTwofaReset, pendingInvites, removeStaff, sensitive, setStaffRole, staffOf, STAFF_ROLES } from "../../lib/admin";
 import { shell } from "../../lib/page";
 import { invalid } from "../../lib/invalid";
@@ -68,6 +69,7 @@ export const actions = {
     if (!isStaffRole(role)) return invalid(page.locale, ctx.form, { role: "backoffice.err.role" });
     const r = await inviteStaff(ctx, scopedDb(ctx.db, branch), branch, email, role);
     if (!r.ok) return invalid(page.locale, ctx.form, { email: r.error });
+    if (r.applied) await syncCatalogue(ctx, branch.id);
     return redirect(`${back}?saved=invited`);
   },
 
@@ -85,6 +87,7 @@ export const actions = {
     if (member === undefined) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.member" });
     if (member.self) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.self" });
     await setStaffRole(ctx, branch, target, role);
+    await syncCatalogue(ctx, branch.id);
     return redirect(`${back}?saved=role`);
   },
 
@@ -101,6 +104,7 @@ export const actions = {
     if (member.self) return invalid(page.locale, ctx.form, { user_id: "backoffice.err.self" });
     const r = await removeStaff(ctx, branch, target);
     if (!r.ok) return invalid(page.locale, ctx.form, { user_id: r.error });
+    await syncCatalogue(ctx, branch.id);
     return redirect(`${back}?saved=removed`);
   },
 

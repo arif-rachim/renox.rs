@@ -1059,6 +1059,13 @@
         "action": {
           "$ref": "#/$defs/actionName"
         },
+        "deny_redirect": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^/([^/\\\\\\s\\u0000-\\u001f\\u007f-\\u009f]+/)*[^/\\\\\\s\\u0000-\\u001f\\u007f-\\u009f]*$",
+          "description": "Version 1.13 (#795): a same-origin path a signed-in principal the guard denies is sent to (303) instead of the 403; page routes only (V25); never the page's own path. Starts with one /, no //, no backslash, no whitespace or control character, at most 200 characters."
+        },
         "resource": {
           "type": "object",
           "additionalProperties": false,
@@ -1086,6 +1093,16 @@
       "additionalProperties": false,
       "description": "Version 1.3 (artifact.md section 3, \"Authorization and realtime\"): the resolved [authz] of the app (renox.toml) or of a module (module.toml, on its entry). V25 and V26 check the references.",
       "properties": {
+        "user_attrs": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "description": "1.8.0 / artifact 1.12 (MF19): the boolean attributes the app adds to Renox::User; only the app's own authz block (renox.toml), never a module's.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,31}$"
+          }
+        },
         "actions": {
           "type": "array",
           "maxItems": 256,

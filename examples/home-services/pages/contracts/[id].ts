@@ -12,8 +12,8 @@
 //   POST ?/cancel    a draft or an active contract
 //   POST ?/renew     the next year as a new draft
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
-import { twofa } from "renox:modules";
 
+import { stepUp } from "../../lib/admin";
 import { itemSchema, itemIdSchema } from "../../lib/contract-forms";
 import { itemViews, priceView, visitViews } from "../../lib/contract-view";
 import { activate, addItem, cancelContract, findContract, readyToActivate, removeItem, renewContract } from "../../lib/contracts";
@@ -108,7 +108,8 @@ export const actions = {
     if (ready.value.price_fils > 0) {
       const issuer = await allowed(ctx, "invoice.issue");
       if (issuer !== null) return issuer;
-      await twofa.requireRecent({ next: back });
+      const step = await stepUp(back);
+      if (step !== null) return step;
     }
     const r = await activate(ctx, ctx.params.id);
     return r.ok ? redirect(back) : plain(r.status, r.message);

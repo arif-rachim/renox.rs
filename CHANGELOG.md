@@ -7,6 +7,28 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **CLI**
 
 - `renox approve <module>` writes the module's resolved `config` and `dependencies` into its lock entry, the same values `renox add` writes, so a config key a new version declares (`auth` 1.3.0's `phone_signup`) no longer fails `renox check` with MF12 until the lock is edited by hand; the MF12 message for `config` now says `run renox approve <module>`. `renox add <module>` keeps the `approved_version` line of the app's other modules instead of dropping it. (#792)
+**Modules**
+
+- `booking` 1.1.0: the reminder job reads its payload from `ctx.job.payload` (the runtime calls `run(ctx)` with one argument; before, every reminder run was a no-op, so no reminder was ever sent). New hook `booking.remind` (`{ booking_id, kind, customer, service, start_at, handled }`): a filler that delivers the reminder itself (WhatsApp, SMS) sets `handled = true`; when none did, the email goes as before and is skipped without error when `customer` is not an auth user with an email. A run without a payload logs one warning. (#799)
+- `org` 1.3.0: `org.bootstrap` also requires `ctx.caller === "app"` (the app's own code or the platform's setup call); a module caller, in `shared` or `isolate` mode, gets `RENOX_FORBIDDEN` with `details.reason: "caller"`. In `shared` mode `ctx.caller` is only as strong as the shared boundary; `isolate` closes that (#763).
+
+**SDK**
+
+- `@renoxium/sdk/test`: `t.deliver(event, payload, { module, to?, timeoutMs? })` writes one durable delivery of a module event to the app (or a module) as the outbox worker writes it, and waits until the handler ran. It rejects when the target has no `on` handler for the event, or when the handler fails (#787).
+**Worker**
+
+- The principal's `has_password` is a platform attribute of `Renox::User` in the Cedar schema (`false` when the principal carries none, `false` for an agent), so a policy can read `principal.has_password`; and an app may declare its own boolean attributes (`renox.toml [authz] user_attrs`), which the merged schema adds to `Renox::User` and entity building sets to `false` when the principal has none, so `forbid ... when { principal.portal }` is never skipped for want of the attribute (`ops.md` 1.23.0, `artifact.md` 1.12; #791).
+- The shell of a streamed page now waits for the locale: a full-page `GET` whose loader is slower than the 50 ms shell delay no longer gets its shell at once, but when the loader calls `ctx.setLocale`, returns, or 250 ms later, whichever comes first, and the shell carries the `lang` and `dir` set by then (a slow Arabic page was sent as `lang="en" dir="ltr"`). A loader that never calls `setLocale` gets its shell at 300 ms instead of 50 ms; a loader that finishes within the delay is unchanged; the wall-clock limit applies as before (`ops.md` 1.22.0, section 14, "The shell delay"). (#790)
+- A page `guard` may carry `deny_redirect`, a same-origin path (one leading `/`, no `//`, no backslash, no whitespace, at most 200 characters, not the page's own path): a signed-in principal the guard denies gets `303` with `Location: <deny_redirect>` instead of `403 RENOX_FORBIDDEN`, so a portal customer who opens a staff page lands on `/my`. An anonymous principal still gets the 403. The deny is still a deny: logged as `guard denied` with `redirected: true`, metered `status: forbidden`, counted as a decision. The cell refuses at load an artifact with a bad path, or with `deny_redirect` on a function, `ws` or `sse` route (`ops.md` 1.24.0, section 17, "`guard`"; `artifact.md` 1.13; #795).
+
+**CLI**
+
+- `renox.toml [authz] user_attrs = ["portal"]` declares the app's boolean attributes of `Renox::User` (each `^[a-z][a-z0-9_]{1,31}$`, at most 8, never a platform name such as `has_password` or `id`); `renox check` and `renox build` refuse a bad list with MF19, and the build carries it into the artifact's `authz` block (`manifest.md` 1.8.0; #791).
+- `export const guard = { action, deny_redirect: "/my" }` on a page: `renox build` copies `deny_redirect` into the route's `guard`; `renox build` and `renox check` refuse a value that is not a same-origin path (`//evil.com`, `https://x`, a backslash, no leading `/`, whitespace, over 200 characters), a redirect to the page's own path (a loop) and the key on a function, `ws` or `sse` route (V25); `renox check --security` lists the guards that redirect (`artifact.md` 1.13; #795).
+
+**Modules**
+
+- `auth` 1.4.0: `principal.attrs.has_password` (true when the account has a password; always false for an agent principal and for a phone-only account), and the app's declared boolean attributes: auth keeps one that the app's own `auth.principal` filler set to a boolean and ignores a module filler's value for it (#791).
 
 ## 0.1.15 (2026-11-13)
 

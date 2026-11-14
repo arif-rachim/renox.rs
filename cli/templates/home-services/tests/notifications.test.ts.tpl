@@ -273,13 +273,9 @@ describe("a customer's reply", () => {
     const notes = rows("select count(*) as n from notifications__items")[0]?.n;
     const message = rows("select id, phone from whatsapp__messages where wa_id = 'wamid.layla-cancel'")[0] as { id: string; phone: string };
     // A redelivery, as the outbox makes one after a crash between the handler's commit and its bookkeeping:
-    // the delivery row written the way the worker writes one (the lock taken first), then a message from a
-    // number nobody knows wakes the outbox.
-    const id = `01HS${crypto.randomUUID().replace(/-/gu, "").slice(0, 22).toUpperCase()}`; // 26 characters, like the platform's ULIDs
-    rw((db) => db.transaction(() => db.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, 'app', 'whatsapp.message_received', ?, 'whatsapp', ?, 0, ?)").run(id, JSON.stringify({ message_id: message.id, from: message.phone }), Date.now(), Date.now())).immediate());
-    expect((await inbound("971500000000", `ping ${++seq}`)).status).toBe(200);
-    await handled();
-    expect(rows("select 1 from renox__outbox_dead where id = ?", [id])).toEqual([]);
+    // t.deliver writes the durable delivery of whatsapp's event to the app the way the broker writes it,
+    // and resolves once the app's handler has run (it rejects if the handler failed or the delivery died).
+    await t.deliver("whatsapp.message_received", { message_id: message.id, from: message.phone }, { module: "whatsapp" });
     expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(1);
     expect(rows("select count(*) as n from notifications__items")[0]?.n).toBe(notes);
   });
@@ -418,5 +414,98 @@ describe("the owner's WhatsApp page (/admin/whatsapp)", () => {
     expect(empty.html).toContain('id="whatsapp-sandbox"');
     expect((await u.page("/admin/whatsapp?lang=ar")).html).toContain("وضع التجربة: لا يخرج شيء من هذا الخادم.");
     expect((await u.page("/admin/whatsapp?lang=en")).status).toBe(200);
+  });
+});
+
+// The booking module's reminders (#799): the module queues a run 24 h and 2 h before a confirmed booking and
+// runs its hook `booking.remind` first; hooks.ts fills it (lib/reminders.ts). The runs are queued for a day two
+// weeks away, so each test runs one now with `t.job` and the payload the module queued.
+describe("the visit reminders (booking.remind)", () => {
+  const bookingOf = (job: string) => String(rows("select booking_id from app__jobs where id = ?", [job])[0]?.booking_id);
+  const remind = (booking: string, kind: "24h" | "2h") => t.job("reminder", { module: "booking", payload: { booking_id: booking, kind } });
+  const reminders = (customerId: string) => sent(customerId).filter((m) => m.template.startsWith("reminder_"));
+  const branchPhone = String(rows("select phone from app__branches where id = 'br_dubai'")[0]?.phone);
+  /** `schedule`, a week later than that helper's Monday: Ali's first Monday is full by now (still within the module's 30 days). */
+  const scheduleNextWeek = async (job: string) => {
+    const day = new Date(Date.parse(`${monday()}T00:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
+    const page = await dubai.page(`/jobs/${job}?day=${day}&technician=${ALI}`);
+    const slot = new RegExp(`value="(${ALI}@\\d+)"`, "u").exec(page.html)?.[1];
+    expect(slot).toBeDefined();
+    return dubai.action(`/jobs/${job}`, "schedule", { slot: slot as string });
+  };
+  /** Waits until nothing is queued any more (the whatsapp-page tests above leave failed and queued rows on purpose, so `settled()` does not fit here). */
+  const delivered = async () => {
+    for (let i = 0; i < 100 && Number(rows("select count(*) as n from whatsapp__messages where direction = 'out' and status = 'queued' and body like '%reminder_%'")[0]?.n) > 0; i++) await Bun.sleep(50);
+    expect(rows("select 1 from whatsapp__messages where direction = 'out' and status = 'queued' and body like '%reminder_%'")).toEqual([]);
+  };
+  const mailCount = () => Number(rows("select count(*) as n from email__messages")[0]?.n);
+
+  test("normal case: the 24 h and the 2 h run each send one WhatsApp message, with the service, the Dubai time window and the branch phone", async () => {
+    expect((await scheduleNextWeek("jb_seed_04")).status).toBe(303);
+    const booking = bookingOf("jb_seed_04");
+    const job = rows("select number, scheduled_start, scheduled_end from app__jobs where id = 'jb_seed_04'")[0] as { number: string; scheduled_start: number; scheduled_end: number };
+    const clock = (s: number) => new Date(s * 1000 + 4 * 3_600_000).toISOString().slice(11, 16);
+    const day = new Date(job.scheduled_start * 1000 + 4 * 3_600_000).toISOString().slice(0, 10);
+    await remind(booking, "24h");
+    await remind(booking, "2h");
+    await delivered();
+    const p = reminders("cu_dxb_05");
+    expect(p.map((m) => m.template)).toEqual(["reminder_24h", "reminder_2h"]);
+    expect(branchPhone).not.toBe("");
+    for (const m of p) {
+      expect(m).toMatchObject({ kind: "template", phone: "+971561110005", language: "en", status: "sent" });
+      expect(m.params[0]).toBe("Al Barsha Facilities LLC");
+      expect(m.text).toContain(job.number);
+      expect(m.text).toContain(`${day} ${clock(job.scheduled_start)}-${clock(job.scheduled_end)}`);
+      expect(m.params.at(-1)).toBe(branchPhone);
+    }
+    expect(messages("cu_dxb_05", "reminder_24h")).toEqual([{ channel: "whatsapp", template: "reminder_24h" }]);
+    expect(messages("cu_dxb_05", "reminder_2h")).toEqual([{ channel: "whatsapp", template: "reminder_2h" }]);
+  });
+
+  test("an Arabic customer gets the Arabic text, and booking sends no email of its own to an app customer", async () => {
+    const before = emails("layla.haddad@example.com").length;
+    const mails = mailCount();
+    expect((await scheduleNextWeek("jb_seed_05")).status).toBe(303);
+    const booking = bookingOf("jb_seed_05");
+    await remind(booking, "24h");
+    await delivered();
+    const p = reminders("cu_dxb_01");
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ kind: "template", phone: PHONE.layla, template: "reminder_24h", language: "ar" });
+    expect(p[0]?.params[0]).toBe("Layla Haddad");
+    expect(p[0]?.params[2]).toBe("J-000005");
+    expect(emails("layla.haddad@example.com")).toHaveLength(before);
+    expect(mailCount()).toBe(mails);
+    // The module's own mark is there: the run went through the hook and nothing else was sent.
+    expect(rows("select kind from booking__reminders where booking_id = ?", [booking])).toEqual([{ kind: "24h" }]);
+  });
+
+  test("edge case: a cancelled visit sends nothing, and booking still sends no email", async () => {
+    expect((await scheduleNextWeek("jb_seed_03")).status).toBe(303);
+    const booking = bookingOf("jb_seed_03");
+    rw((db) => db.run("update app__jobs set status = 'cancelled' where id = 'jb_seed_03'"));
+    const mails = mailCount();
+    await remind(booking, "24h");
+    await remind(booking, "2h");
+    await delivered();
+    expect(reminders("cu_dxb_04")).toEqual([]);
+    expect(messages("cu_dxb_04", "reminder_24h")).toEqual([]);
+    expect(mailCount()).toBe(mails);
+  });
+
+  test("edge case: one run delivered twice sends one message, also when the module's own mark is gone", async () => {
+    expect((await scheduleNextWeek("jb_seed_02")).status).toBe(303);
+    const booking = bookingOf("jb_seed_02");
+    await remind(booking, "2h");
+    await remind(booking, "2h");
+    await delivered();
+    expect(reminders("cu_dxb_02").filter((m) => m.template === "reminder_2h")).toHaveLength(1);
+    // The app's own guard: with the module's row removed, the run reaches the hook again and sends nothing new.
+    rw((db) => db.run("delete from booking__reminders where booking_id = ?", [booking]));
+    await remind(booking, "2h");
+    await delivered();
+    expect(reminders("cu_dxb_02").filter((m) => m.template === "reminder_2h")).toHaveLength(1);
+    expect(messages("cu_dxb_02", "reminder_2h")).toHaveLength(1);
   });
 });

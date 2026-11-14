@@ -25,6 +25,8 @@ export interface AuthCtx {
   password: { hash(password: string): Promise<string>; verify(password: string, hash: string): Promise<boolean> };
   events: { emit(name: string, payload: Record<string, unknown>, options?: { durable?: boolean }): Promise<string> };
   hooks: { run(name: string, args: unknown): Promise<{ halt: false } | { halt: true; response: Response; module: string }> };
+  /** Who the code runs for (ops.md 1.19.0 `ctx.caller`): undefined for the app's own code, else a module's name; read per async context, so inside a hook filler it is the filler's module. */
+  readonly caller?: unknown;
 }
 
 export interface User {

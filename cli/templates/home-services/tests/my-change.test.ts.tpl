@@ -59,6 +59,16 @@ const DAY = (() => {
   }
   throw new Error("no working day ahead");
 })();
+/** A working day (Dubai) after DAY, for tests that must not meet the slots the other tests hold. */
+const DAYS_AFTER = (() => {
+  const out: string[] = [];
+  for (let i = 2; i < 8; i++) {
+    const key = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000).toISOString().slice(0, 10);
+    const wd = new Date(`${key}T00:00:00Z`).getUTCDay();
+    if ([1, 2, 3, 4, 6].includes(wd) && key !== DAY) out.push(key);
+  }
+  return out;
+})();
 const AC = String(service("AC-SERVICE"));
 const AREA = String(rows("select name_en from gcc__areas where emirate = 'AE-DU' order by name_en limit 1")[0]?.name_en);
 const PLACE = { service: AC, emirate: "AE-DU", area: AREA, address: "Marina Gate 2, flat 3301", makani: "", notes: "" };
@@ -67,8 +77,8 @@ const slotsIn = (html: string): string[] => [...html.matchAll(/name="slot" value
 const startOf = (slot: string): number => Number(slot.slice(slot.indexOf("@") + 1));
 
 /** A visitor's hold of `slot` on /book step 3 (it holds the slot in `booking`): another customer taking a time. */
-async function holdAsVisitor(jar: string, slot: string, phone: string) {
-  return t.as(jar).action("/book", "hold", { ...PLACE, day: DAY, slot, name: "Other Visitor", phone, language: "en" });
+async function holdAsVisitor(jar: string, slot: string, phone: string, day = DAY) {
+  return t.as(jar).action("/book", "hold", { ...PLACE, day, slot, name: "Other Visitor", phone, language: "en" });
 }
 
 // Visits of Peter's the seed does not hold: staff visits 13 and 11 hours ahead, a contract visit in 5 days, two
@@ -306,6 +316,26 @@ describe("a requested time moves on a `new` self-booking", () => {
     expect(job("jb_chg_new3d")).toMatchObject({ status: "new", scheduled_start: Math.floor(startOf(slot) / 1000), technician_user_id: null, booking_id: null });
     expect(rows("select from_status, to_status from app__job_events where job_id = 'jb_chg_new3d'")).toEqual([{ from_status: "new", to_status: "new" }]);
     expect(outboxOf(rows, PETER).filter((m) => m.template === "visit_moved" && m.text.includes("J-000975")).length).toBe(1);
+  });
+
+  test("the technician the page showed is taken meanwhile but another is free at that time: the move goes through silently (#802)", async () => {
+    const day = DAYS_AFTER[0] as string;
+    // Its own `new` visit: the limit of two moves belongs to the job, and the tests below move jb_chg_new3d.
+    write(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values ('jb_chg_new_race', 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', null, 'J-000976', 'new', 'normal', ?, '', ?, ?, null, null, 'u_dxb_dispatcher', ?, ?, 'self_booking')",
+      [service("AC-SERVICE"), NOW + 3 * 24 * HOUR, NOW + 3 * 24 * HOUR + HOUR, NOW, NOW],
+    );
+    const page = await peter.page(`/my/visits/jb_chg_new_race?change=1&day=${day}&lang=en`);
+    const radios = slotsIn(page.html);
+    expect(radios.length).toBe(12);
+    expect(new Set(radios.map(startOf)).size).toBe(12);
+    const slot = radios[0] as string;
+    // The technician of the radio is taken by someone else between the page and the post; the other one is free.
+    expect((await holdAsVisitor("other-3", slot, "+971507780003", day)).status).toBe(303);
+    const res = await peter.action("/my/visits/jb_chg_new_race", "reschedule", { slot, day });
+    expect(res.status).toBe(303);
+    expect(located(res)).toBe("/my/visits/jb_chg_new_race?changed=moved");
+    expect(job("jb_chg_new_race")).toMatchObject({ status: "new", scheduled_start: Math.floor(startOf(slot) / 1000) });
   });
 
   test("an empty slot is a 422 that keeps the change step", async () => {
