@@ -415,6 +415,60 @@
       "already_checked_out": "This visit is already checked out. Nothing was saved.",
       "not_checked_in": "You were not checked in to this visit. Nothing was saved.",
       "action_id_taken": "This action id belongs to another account. Nothing was saved."
+    },
+    "attention": {
+      "title": "Needs attention",
+      "done_at": "done on the phone at {time}",
+      "later": "The later steps of this visit were not sent either.",
+      "behind": "Not sent: an earlier step of this visit was not accepted.",
+      "discard": "Discard",
+      "discard_confirm": "Discard these {n} saved steps of this visit from this phone? This cannot be undone.",
+      "discard_confirm_one": "Discard this saved step of this visit from this phone? This cannot be undone.",
+      "discard_yes": "Yes, discard",
+      "discard_no": "Keep",
+      "retry": "Try again",
+      "call": "Call the office",
+      "unknown_job": "Visit {job}",
+      "what_checkin": "Check-in",
+      "what_part": "Part: {description} × {qty}",
+      "what_notes": "Note",
+      "what_summary": "Summary",
+      "what_signature": "Signature",
+      "what_checkout": "Check-out",
+      "what_photo_before": "Photo (before)",
+      "what_photo_after": "Photo (after)",
+      "reason_invalid": "The server could not accept this: {message}",
+      "reason_other": "The server did not accept this: {message}",
+      "reason_generic": "The server did not accept this.",
+      "reason_invalid_record": "This saved step could not be read, so it was not sent."
+    },
+    "refused": {
+      "notice": "{technician}'s {action} for {job}, done offline at {time}, was refused: {reason}",
+      "event": "Offline {action} refused: {reason} (done on the phone at {time})",
+      "action": {
+        "checkin": "check-in",
+        "part": "part",
+        "notes": "note",
+        "summary": "summary",
+        "signature": "signature",
+        "checkout": "check-out",
+        "photo": "photo"
+      },
+      "reason": {
+        "job_cancelled": "the job was cancelled",
+        "job_reassigned": "the job was given to another technician",
+        "already_checked_out": "the visit was already checked out",
+        "not_checked_in": "the technician was not checked in to the visit"
+      }
+    },
+    "signout": {
+      "title": "Sign out?",
+      "waiting": "{n} actions are saved on this phone and not sent. Sign out anyway?",
+      "waiting_one": "1 action is saved on this phone and not sent. Sign out anyway?",
+      "none": "Nothing is waiting on this phone any more.",
+      "hint": "What is saved stays on this phone. It is sent when you sign in again as the same user.",
+      "yes": "Sign out anyway",
+      "no": "Stay signed in"
     }
   },
   "report_page": {

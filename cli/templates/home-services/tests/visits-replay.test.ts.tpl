@@ -11,6 +11,10 @@ import { app } from "@renoxium/sdk/test";
 import ar from "../i18n/ar.json";
 import en from "../i18n/en.json";
 import { base64Of, solidPng } from "../lib/placeholder-png";
+import { OFFLINE_REFUSED, refusalOf } from "../lib/refusal";
+
+/** "HH:MM" in Dubai (UTC+4) of unix seconds, as lib/booking-sync.ts `clock` prints it. */
+const clock = (seconds: number): string => new Date(seconds * 1000 + 4 * 3_600_000).toISOString().slice(11, 16);
 
 const t = await app();
 const PASSWORD = "correct horse battery";
@@ -129,6 +133,19 @@ describe("one action_id, one change", () => {
     const key = await uploadPhoto(ali, job, [9, 90, 190]);
     await twice("photo", { phase: "before", key, caption: "Leak" }, () => count("select count(*) as n from app__visit_photos"));
     expect(rows("select phase, caption, file_key from app__visit_photos where visit_id = ?", [String(visitOf(job)?.id)])).toEqual([{ phase: "before", caption: "Leak", file_key: key }]);
+  });
+
+  test("photo_url with the id of a photo that was accepted answers done, and no URL, to its own technician only (#810)", async () => {
+    const key = await uploadPhoto(ali, job, [90, 9, 190]);
+    const id = fresh();
+    expect((await post(ali, job, "photo", { phase: "after", key, caption: "Dry", action_id: id })).status).toBe(200);
+    const ask = (u: User, action_id: string) => u.action(`/me/visits/${job}`, "photo_url", { name: "x.png", type: "image/png", size: "10", action_id });
+    const mine = await ask(ali, id);
+    expect(mine.status).toBe(200);
+    expect(mine.json()).toEqual({ done: true });
+    // An id that was never accepted, an id of another action, and another technician's ask are the ordinary step one.
+    expect(typeof (await ask(ali, fresh())).json<{ url?: string }>().url).toBe("string");
+    expect((await ask(bilal, id)).status).toBe(403);
   });
 
   test("part, then removePart", async () => {
@@ -392,5 +409,102 @@ describe("jobs/action-log-sweep", () => {
     await t.job("action-log-sweep");
     expect(count("select count(*) as n from app__action_log where action_id = 'sweep-old-0000000001'")).toBe(0);
     expect(count("select count(*) as n from app__action_log where action_id = 'sweep-new-0000000001'")).toBe(1);
+  });
+});
+
+// -- #810: the office learns that a queued action was refused ---------------------------------------------------------
+
+describe("a refused action the phone's queue replays tells the office (x-hs-queued: 1)", () => {
+  /** A replay of the queue: the same post with the header the queue sets on replays only. */
+  async function queued(u: User, jobId: string, action: string, form: Record<string, string>, performed = Date.now() - 90_000): Promise<Posted> {
+    const res = await u.request("POST", `/me/visits/${jobId}?/${action}`, {
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": u.cookie("__Host-renox_csrf") ?? "", accept: "application/json", "x-hs-queued": "1" },
+      body: new URLSearchParams({ ...form, action_id: fresh(), performed_at: String(performed) }).toString(),
+    });
+    return { status: res.status, body: res.json<Body>(), raw: res.html };
+  }
+  const events = (job: string) => rows("select by_user_id, from_status, to_status, note, at from app__job_events where job_id = ? and note like ? order by id", [job, `${OFFLINE_REFUSED}%`]);
+  const notes = (job: string) => rows("select user_id, category, title, link from notifications__items where link = ? and title like '%was refused%' order by id", [`/jobs/${job}`]);
+
+  test("a conflict: one job event with the action, reason, technician and the time on the phone, and one in-app notification for the branch's dispatchers", async () => {
+    const job = newJob();
+    const number = String(jobOf(job).number);
+    expect((await post(ali, job, "checkin", { action_id: fresh() })).status).toBe(200);
+    rw((db) => db.run("update app__jobs set status = 'cancelled' where id = ?", [job]));
+    const done = Date.now() - 125_000;
+    const r = await queued(ali, job, "checkout", {}, done);
+    expect(r.status).toBe(409);
+    expect(r.body).toMatchObject({ ok: false, conflict: "job_cancelled" });
+
+    const [event, ...more] = events(job);
+    expect(more).toEqual([]);
+    expect(event).toMatchObject({ by_user_id: "u_dxb_ali", from_status: null, to_status: null });
+    expect(refusalOf(String(event?.note))).toEqual({ action: "checkout", reason: "job_cancelled", technician: "u_dxb_ali", performed_at: Math.floor(done / 1000) });
+
+    const told = notes(job);
+    expect(told.map((n) => [n.user_id, n.category, n.link])).toEqual([["u_dxb_dispatcher", "jobs", `/jobs/${job}`]]);
+    expect(told[0]?.title).toBe(`Ali Hassan's check-out for ${number}, done offline at ${clock(Math.floor(done / 1000))}, was refused: the job was cancelled`);
+    // Nobody of another branch is told.
+    expect(count("select count(*) as n from notifications__items where user_id = 'u_shj_dispatcher' and title like '%was refused%'")).toBe(0);
+  });
+
+  test("one notification for each job and reason, not for each action; a new reason is told again; the same refusal again adds nothing", async () => {
+    const job = newJob();
+    rw((db) => db.run("update app__jobs set status = 'cancelled' where id = ?", [job]));
+    const first = await queued(ali, job, "checkin", {}, Date.now() - 300_000);
+    const second = await queued(ali, job, "notes", { notes: "x" }, Date.now() - 200_000);
+    expect([first.status, second.status]).toEqual([409, 409]);
+    expect(events(job).map((e) => refusalOf(String(e.note))?.action)).toEqual(["checkin", "notes"]);
+    expect(notes(job).length).toBe(1);
+
+    // The very same refusal (same action, reason, technician and time on the phone) is posted again: no new event.
+    const when = Date.now() - 100_000;
+    await queued(ali, job, "part", { description: "Hose", qty: "1", price: "5" }, when);
+    const once = events(job).length;
+    const body = new URLSearchParams({ description: "Hose", qty: "1", price: "5", action_id: fresh(), performed_at: String(when) }).toString();
+    const again = await ali.request("POST", `/me/visits/${job}?/part`, { headers: { "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": ali.cookie("__Host-renox_csrf") ?? "", accept: "application/json", "x-hs-queued": "1" }, body });
+    expect(again.status).toBe(409);
+    expect(events(job).length).toBe(once);
+    expect(notes(job).length).toBe(1);
+
+    // Another reason on the same job is another notification.
+    rw((db) => db.run("update app__jobs set status = 'scheduled', technician_user_id = 'u_dxb_bilal' where id = ?", [job]));
+    expect((await queued(ali, job, "checkin", {})).body.conflict).toBe("job_reassigned");
+    expect(notes(job).length).toBe(2);
+    expect(String(notes(job)[1]?.title)).toContain("was refused: the job was given to another technician");
+  });
+
+  test("a post without the header, and one that is accepted, tell nobody", async () => {
+    const job = newJob();
+    expect((await queued(ali, job, "checkin", {})).status).toBe(200);
+    rw((db) => db.run("update app__jobs set status = 'cancelled' where id = ?", [job]));
+    expect((await post(ali, job, "notes", { notes: "x", action_id: fresh() })).status).toBe(409);
+    expect(events(job)).toEqual([]);
+    expect(notes(job)).toEqual([]);
+  });
+
+  test("the job page's timeline shows the event, in English and in Arabic", async () => {
+    const job = newJob();
+    rw((db) => db.run("update app__jobs set status = 'cancelled' where id = ?", [job]));
+    const done = Date.now() - 60_000;
+    await queued(ali, job, "checkin", {}, done);
+    const dispatcher = await signIn("dispatcher-timeline", "dispatcher.dubai@fixit.example");
+    const time = clock(Math.floor(done / 1000));
+    const en = await dispatcher.page(`/jobs/${job}?lang=en`);
+    expect(en.html).toContain(`Offline check-in refused: the job was cancelled (done on the phone at ${time})`);
+    expect(en.html).not.toContain(OFFLINE_REFUSED);
+    expect(en.html).toContain("Ali Hassan");
+    const ar = await dispatcher.page(`/jobs/${job}?lang=ar`);
+    expect(ar.html).toContain("رُفض \u2068تسجيل الدخول\u2069 تم دون اتصال");
+    expect(ar.html).not.toContain(OFFLINE_REFUSED);
+  });
+
+  test("the sentences exist for every action and reason, in both languages", () => {
+    for (const lang of [en, ar]) {
+      for (const k of ["checkin", "part", "notes", "summary", "signature", "checkout", "photo"]) expect((lang.visits.refused.action as Record<string, string>)[k]).toBeTruthy();
+      for (const k of ["job_cancelled", "job_reassigned", "already_checked_out", "not_checked_in"]) expect((lang.visits.refused.reason as Record<string, string>)[k]).toBeTruthy();
+      expect(lang.visits.refused.notice).toContain("{technician}");
+      expect(lang.visits.refused.event).toContain("{reason}");
+    }
   });
 });

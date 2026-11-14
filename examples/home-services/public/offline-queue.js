@@ -22,20 +22,42 @@
 // once, as it always did. The queue sends a waiting photo as one step of its job's ordered run, placed by
 // `taken_at` (offline-queue-core.js: `photo_url`, a PUT of the blob, then the `photo` action).
 //
+// "Needs attention" (#810): on /me, a container the page provides (`#needs-attention`, hidden when there is nothing)
+// lists what the server refused, per job, with what waits behind it (offline-queue-core.js `attention`). Each job
+// has Discard (asks in the page first; removes the job's refused and unsent records from the device), Try again
+// (only when every refusal is `job_reassigned` or a 422: the records go back to `pending` and are sent again with
+// the same `action_id`s; there is no force) and Call the office (`tel:` the branch's number, `data-phone`). The
+// replay marks its requests `x-hs-queued: 1` (replays only, never the first online send), which is how the server
+// tells the office about a refusal (lib/action-log.ts).
+// While anything of the signed-in user is saved and not sent, the header's link to the account page (where the
+// auth module's sign-out button is) is swapped for /me/signout, a page that says how many actions are saved on the
+// phone and asks "Sign out anyway?"; the link is put back when nothing is left. The logout itself stays the auth
+// module's.
+//
 // What stays on the device: the records of `actions` (never a CSRF token, never a file) until the server has
-// answered; a refused record stays until the office page of #810 deals with it. The records of `photos` (the
-// downsized image itself, its phase, caption, time and `action_id`, never a token) until the server has the
-// photo, or the technician removes it; a refused photo stays until removed. Nothing else but the flag
-// `hs-queue-sent` in sessionStorage (a count, so "All sent" survives the reload that shows the server's page).
+// answered; a refused record stays until the technician discards it or sends it again ("Needs attention"), and
+// carries the job's number and the customer's name as the visit page showed them (`job_number`, `customer`: the
+// list names the visit with them, also when the office cancelled it and /me no longer lists it). The records of
+// `photos` (the downsized image itself, its phase, caption, time, `action_id`, `job_number` and `customer`, never
+// a token) until the server has the photo, or the technician removes it; a refused photo stays until removed.
+// Nothing else but the flag `hs-queue-sent` in sessionStorage (a count, so "All sent" survives the reload that
+// shows the server's page).
 (() => {
   const core = window.hsQueueCore;
   const me = window.hsMe;
   if (!core || !me || !("indexedDB" in window)) return;
 
   const status = document.getElementById("queue-status");
+  /** The "Needs attention" list of /me (#810) and the text of the sign-out warning page: both are provided by their pages. */
+  const attn = document.getElementById("needs-attention");
+  const attnList = document.getElementById("needs-attention-list");
+  const signoutText = document.getElementById("signout-text");
   const text = (key, values) => core.fill((status && status.dataset[key]) || "", values || {});
   const meta = document.querySelector('meta[name="hs-user"]');
   const pageUser = meta ? meta.content : "";
+  /** The visit page's job number and customer (`<meta name="hs-job">`), kept on what is saved for "Needs attention". */
+  const jobMeta = document.querySelector('meta[name="hs-job"]');
+  const jobLabel = jobMeta ? { job_number: jobMeta.content, customer: jobMeta.dataset.customer || "" } : {};
   const visitPage = /^\/me\/visits\/([A-Za-z0-9_-]{1,64})$/u.exec(location.pathname);
   const pageJob = visitPage ? visitPage[1] : null;
   const CSRF_COOKIE = "__Host-renox_csrf";
@@ -52,6 +74,12 @@
   /** The photo the technician just chose on this page and may still give a caption: `{ id, form, until }`; it waits there. */
   let held = null;
   let persistAsked = false;
+  /** The job whose Discard is waiting for its answer in the "Needs attention" list. */
+  let confirming = null;
+  /** What the list was drawn from last (markup), so it is drawn again only when it changed. */
+  let attnDrawn = null;
+  const ACCOUNT = "/auth/account";
+  const SIGN_OUT = "/me/signout";
   /** How long a chosen photo waits for its caption before it may be sent. */
   const HOLD_MS = 120000;
 
@@ -129,6 +157,18 @@
       };
     });
   const removePhoto = (id) => photoDevice("readwrite", (store) => void store.delete(id));
+  /** The record put back to `pending` without its refusal (Try again): same `action_id`, same place in the order. */
+  const reopen = (store, key) => {
+    store.get(key).onsuccess = (e) => {
+      const old = e.target.result;
+      if (!old) return;
+      const next = { ...old, state: "pending", attempts: 0 };
+      delete next.refused_reason;
+      delete next.refused_message;
+      delete next.refused_errors;
+      store.put(next);
+    };
+  };
 
   // ---- the page ----
 
@@ -433,8 +473,103 @@
     if (status && status.textContent !== line) status.textContent = line;
     dropMarks(records);
     showPhotos(photos);
+    drawAttention(records, photos);
+    guardSignOut(core.unsent(records, photos, sessionUser));
     return records;
   };
+
+  // ---- "Needs attention" on /me, and the sign-out warning ----
+
+  /** The page's text for a key of the "Needs attention" container (data attributes, in the page's language). */
+  const attnText = (key, values) => (attn ? core.fill(attn.dataset[key] || "", values || {}) : "");
+
+  /** Draws the list of what the server refused, when the page has the container; hides it when there is nothing. */
+  const drawAttention = (records, photos) => {
+    if (!attn || !attnList) return;
+    const groups = core.attention(records, photos, sessionUser);
+    if (confirming !== null && !groups.some((g) => g.job_id === confirming)) confirming = null;
+    const html = core.attentionHtml(groups, attnText, { phone: attn.dataset.phone || "", confirming });
+    if (html !== attnDrawn) {
+      const here = document.activeElement && attnList.contains(document.activeElement) && document.activeElement.hasAttribute("data-attention") ? document.activeElement : null;
+      const focus = here ? `${here.getAttribute("data-attention")}|${here.getAttribute("data-job")}` : "";
+      attnList.innerHTML = html;
+      attnDrawn = html;
+      // A redrawn list keeps the focus where the technician was (or moves it into the question they just opened).
+      const ask = confirming !== null ? attnList.querySelector('[data-attention="discard-no"]') : null;
+      const again = focus ? [...attnList.querySelectorAll("[data-attention]")].find((n) => `${n.getAttribute("data-attention")}|${n.getAttribute("data-job")}` === focus) : null;
+      const target = ask || again;
+      if (target) target.focus();
+    }
+    attn.hidden = groups.length === 0;
+  };
+
+  /** Puts /me/signout in the place of the header's link to the account page while something is saved and not sent; puts it back after. */
+  const guardSignOut = (count) => {
+    for (const a of document.querySelectorAll(`.site-header a[href="${ACCOUNT}"], .site-header a[href="${SIGN_OUT}"]`)) {
+      const want = count > 0 ? SIGN_OUT : ACCOUNT;
+      if (a.getAttribute("href") !== want) a.setAttribute("href", want);
+    }
+    if (signoutText) {
+      const key = count === 0 ? "none" : count === 1 ? "waitingOne" : "waiting";
+      const line = core.fill(signoutText.dataset[key] || "", { n: count });
+      if (signoutText.textContent !== line) signoutText.textContent = line;
+    }
+  };
+
+  /** The records of one job that "Needs attention" lists for the user: refused ones and the ones that wait behind them. */
+  const listed = async (job) => {
+    const records = await all();
+    const photos = await allPhotos();
+    const group = core.attention(records, photos, sessionUser).find((g) => g.job_id === job);
+    return group ? group.items : [];
+  };
+
+  /** Discard: removes the job's listed records from the device. */
+  const discardJob = async (job) => {
+    const items = await listed(job);
+    await device("readwrite", (store) => {
+      for (const i of items) if (i.kind === "action") store.delete(i.id);
+    });
+    await photoDevice("readwrite", (store) => {
+      for (const i of items) if (i.kind === "photo") store.delete(i.id);
+    });
+  };
+
+  /** Try again: the job's refused records go back to `pending` (same `action_id`s) and the queue is run. */
+  const retryJob = async (job) => {
+    const items = (await listed(job)).filter((i) => i.state === "refused");
+    await device("readwrite", (store) => {
+      for (const i of items) if (i.kind === "action") reopen(store, i.id);
+    });
+    await photoDevice("readwrite", (store) => {
+      for (const i of items) if (i.kind === "photo") reopen(store, i.id);
+    });
+  };
+
+  if (attn) {
+    attn.addEventListener("click", async (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-attention]") : null;
+      if (button === null || button.tagName !== "BUTTON") return;
+      const job = button.getAttribute("data-job") || "";
+      const what = button.getAttribute("data-attention");
+      try {
+        if (what === "discard") {
+          confirming = job;
+        } else if (what === "discard-no") {
+          confirming = null;
+        } else if (what === "discard-yes") {
+          confirming = null;
+          await discardJob(job);
+        } else if (what === "retry") {
+          await retryJob(job);
+        }
+      } catch {
+        // the device could not be changed: the list stays as it was.
+      }
+      await view();
+      if (what === "retry") run(true);
+    });
+  }
 
   // ---- sending ----
 
@@ -460,8 +595,11 @@
     return token;
   };
 
-  /** One POST of the action; `{ status, body }`, or null when there is no answer. 303/401 to the login page is a 401. */
-  const post = async (record, token) => {
+  /**
+   * One POST of the action; `{ status, body }`, or null when there is no answer. 303/401 to the login page is a 401.
+   * `queued` marks a replay of a saved action (`x-hs-queued: 1`): a conflict the server answers to it tells the office.
+   */
+  const post = async (record, token, queued) => {
     const body = new URLSearchParams(record.fields);
     body.set("action_id", record.action_id);
     body.set("performed_at", String(record.performed_at));
@@ -471,7 +609,7 @@
     try {
       const res = await fetch(`${record.url}?/${record.action}`, {
         method: "POST",
-        headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": token },
+        headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": token, ...(queued ? { "x-hs-queued": "1" } : {}) },
         body: body.toString(),
         credentials: "same-origin",
         cache: "no-store",
@@ -493,10 +631,10 @@
     }
   };
 
-  /** Sends one record; a 403 is tried once more with a renewed token (a lost cookie is not a signed-out user). */
+  /** Replays one saved record; a 403 is tried once more with a renewed token (a lost cookie is not a signed-out user). */
   const send = async (record) => {
-    let answer = await post(record, await csrfToken(false));
-    if (answer !== null && answer.status === 403) answer = await post(record, await csrfToken(true));
+    let answer = await post(record, await csrfToken(false), true);
+    if (answer !== null && answer.status === 403) answer = await post(record, await csrfToken(true), true);
     return answer;
   };
 
@@ -532,7 +670,7 @@
           {
             method: "POST",
             headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": token },
-            body: new URLSearchParams({ name: `photo-${photo.phase}.${EXTENSION[photo.type] || "jpg"}`, type: photo.type, size: String(photo.size), _csrf: token }).toString(),
+            body: new URLSearchParams({ name: `photo-${photo.phase}.${EXTENSION[photo.type] || "jpg"}`, type: photo.type, size: String(photo.size), action_id: photo.action_id, _csrf: token }).toString(),
             credentials: "same-origin",
             cache: "no-store",
             redirect: "manual",
@@ -700,7 +838,7 @@
   };
 
   const queue = async (f, target, fields, id, performed) => {
-    const record = { action_id: id, user_id: pageUser, job_id: target.job_id, url: target.url, action: target.action, fields, performed_at: performed, state: "pending", attempts: 0 };
+    const record = { action_id: id, user_id: pageUser, job_id: target.job_id, url: target.url, action: target.action, fields, performed_at: performed, state: "pending", attempts: 0, ...jobLabel };
     let seq;
     try {
       if (pageUser === "") throw new Error("no user");
@@ -795,6 +933,7 @@
       action_id: core.actionIdOf(crypto.randomUUID()),
       state: "pending",
       attempts: 0,
+      ...jobLabel,
     };
     let id;
     try {

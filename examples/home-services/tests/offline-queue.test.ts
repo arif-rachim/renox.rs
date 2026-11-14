@@ -44,6 +44,11 @@ import {
   splitPhotos,
   targetOf,
   tooLarge,
+  attention,
+  attentionHtml,
+  reasonText,
+  telOf,
+  unsent,
   type Answer,
   type PhotoAnswer,
   type PhotoIo,
@@ -390,6 +395,16 @@ describe("photos: where a photo goes among the actions of its job", () => {
     expect(await sendPhoto(p, io)).toEqual({ kind: "refused", reason: "too_large", message: "A photo is at most 10 MiB.", stop: "none" });
     expect(failed).toEqual([]);
   });
+
+  test("a photo the server has already (the signed URL answers done): no upload, the photo action answers what it stored (#810)", async () => {
+    const asked: string[] = [];
+    const p = photo(8, "jb_a", T0);
+    const io = { ...fineIo(asked), signed: (q) => (asked.push(`url ${q.id}`), { status: 200, body: { done: true } }) } satisfies PhotoIo;
+    expect(await sendPhoto(p, io)).toEqual({ kind: "ok", adjusted: false });
+    expect(asked).toEqual(["url 8", "post 8 "]);
+    expect(photoOutcomeOf("url", { status: 200, body: { done: true } })).toEqual({ kind: "continue" });
+    expect(photoOutcomeOf("url", { status: 200, body: {} })).toEqual({ kind: "retry" });
+  });
 });
 
 describe("photos: what each answer does", () => {
@@ -702,5 +717,147 @@ describe("the pages that carry the queue", () => {
     const ping = await ali.request("GET", "/me/ping");
     expect(ping.status).toBe(204);
     expect(ping.headers.get("x-hs-user")).toBe("u_dxb_ali");
+  });
+});
+
+// -- #810: "Needs attention" ---------------------------------------------------------------------------------------------------------
+
+describe("Needs attention: what is listed, per job", () => {
+  const photo = (id: number, job: string, extra: Partial<QueuedPhoto> = {}): QueuedPhoto => ({
+    id, user_id: ME, job_id: job, phase: "after", caption: "", blob: null, type: "image/jpeg", size: 10, taken_at: 1_700_000_000_000 + id, action_id: `p${String(id).padStart(15, "0")}`, state: "pending", ...extra,
+  });
+  const texts: Record<string, string> = {
+    whatCheckin: "Check-in", whatPart: "Part: {description} × {qty}", whatNotes: "Note", whatCheckout: "Check-out", whatPhotoBefore: "Photo (before)", whatPhotoAfter: "Photo (after)",
+    doneAt: "done on the phone at {time}", later: "The later steps of this visit were not sent either.", behind: "Not sent: an earlier step was not accepted.",
+    discard: "Discard", discardConfirm: "Discard these {n} steps?", discardConfirmOne: "Discard this step?", discardYes: "Yes, discard", discardNo: "Keep", retry: "Try again", call: "Call the office", unknownJob: "Visit {job}",
+    reasonJobCancelled: "The office cancelled this job. Nothing was saved.", reasonJobReassigned: "This job was given to another technician. Nothing was saved.",
+    reasonInvalid: "The server could not accept this: {message}", reasonOther: "The server did not accept this: {message}", reasonGeneric: "The server did not accept this.", reasonInvalidRecord: "This saved step could not be read, so it was not sent.",
+  };
+  const say = (key: string, values?: Record<string, string | number>): string => fill(texts[key] ?? "", values ?? {});
+
+  test("a refused action and what waits behind it make one group that says the later steps were not sent; the others' jobs and other accounts are left out", () => {
+    const records = [
+      act(1, "jb_a", "checkin", { state: "refused", refused_reason: "job_cancelled", job_number: "J-001042", customer: "Layla Haddad" }),
+      act(2, "jb_a", "part", { fields: { description: "Filter", qty: "2", price: "10" } }),
+      act(3, "jb_b", "notes"),
+      act(4, "jb_a", "checkout", { user_id: "u_other", state: "refused", refused_reason: "job_cancelled" }),
+    ];
+    const groups = attention(records, [photo(1, "jb_a", { taken_at: 1_700_000_000_009 })], ME);
+    expect(groups.map((g) => [g.job_id, g.number, g.customer, g.blocked, g.later, g.retry])).toEqual([["jb_a", "J-001042", "Layla Haddad", true, true, false]]);
+    expect(groups[0]?.items.map((i) => [i.key, i.state, i.reason])).toEqual([["action:1", "refused", "job_cancelled"], ["action:2", "behind", ""], ["photo:1", "behind", ""]]);
+    expect(groups[0]?.items.map((i) => say(i.what.key, i.what.values))).toEqual(["Check-in", "Part: Filter × 2", "Photo (after)"]);
+    expect(unsent(records, [photo(1, "jb_a")], ME)).toBe(4);
+    expect(attention([act(1, "jb_a")], [], ME)).toEqual([]);
+  });
+
+  test("Try again is offered when every refusal is job_reassigned or a 422, and for no other reason", () => {
+    const retry = (reason: string, extra: Partial<QueuedAction> = {}) => attention([act(1, "jb_a", "notes", { state: "refused", refused_reason: reason, ...extra })], [], ME)[0]?.retry;
+    expect(retry("job_reassigned")).toBe(true);
+    expect(retry("invalid")).toBe(true);
+    for (const reason of ["job_cancelled", "already_checked_out", "not_checked_in", "action_id_taken", "http_404", "invalid_record"]) expect(retry(reason), reason).toBe(false);
+    // A group with one refusal that can be retried and one that cannot is not retried as a whole.
+    const mixed = attention([act(1, "jb_a", "notes", { state: "refused", refused_reason: "job_reassigned" })], [photo(1, "jb_a", { state: "refused", refused_reason: "too_large" })], ME);
+    expect(mixed[0]?.retry).toBe(false);
+  });
+
+  test("a photo the server found wrong does not stop its job: the group has no later steps and nothing behind", () => {
+    const groups = attention([act(1, "jb_a", "notes")], [photo(1, "jb_a", { state: "refused", refused_reason: "too_large", refused_message: "A photo is at most 10 MiB." })], ME);
+    expect(groups.map((g) => [g.blocked, g.later, g.items.map((i) => [i.key, i.state])])).toEqual([[false, false, [["photo:1", "refused"]]]]);
+    expect(reasonText(groups[0]?.items[0] as never, say)).toBe("The server did not accept this: A photo is at most 10 MiB.");
+  });
+
+  test("the reason is in plain words: the conflict's text, a 422's message, a photo refused as forbidden is a reassigned job", () => {
+    const of = (reason: string, message = "") => reasonText({ kind: "action", id: 1, key: "action:1", what: { key: "whatNotes", values: {} }, at: 0, state: "refused", reason, message }, say);
+    expect(of("job_cancelled", "ignored: the page's own text wins")).toBe("The office cancelled this job. Nothing was saved.");
+    expect(of("forbidden")).toBe("This job was given to another technician. Nothing was saved.");
+    expect(of("invalid", "Enter a quantity above 0.")).toBe("The server could not accept this: Enter a quantity above 0.");
+    expect(of("invalid")).toBe("The server did not accept this.");
+    expect(of("http_404")).toBe("The server did not accept this.");
+    expect(of("invalid_record")).toBe("This saved step could not be read, so it was not sent.");
+    expect(reasonText({ kind: "action", id: 1, key: "action:1", what: { key: "whatNotes", values: {} }, at: 0, state: "behind", reason: "", message: "" }, say)).toBe("Not sent: an earlier step was not accepted.");
+  });
+
+  test("the markup: names the visit, escapes what the phone holds, has Discard and Call the office, Try again only when offered, and the question in the page", () => {
+    const evil = act(1, "jb_a", "part", { state: "refused", refused_reason: "job_reassigned", job_number: "J-1", customer: '<img src=x onerror="alert(1)"> & Co', fields: { description: "<b>bold</b>", qty: "1", price: "1" } });
+    const groups = attention([evil], [], ME);
+    const html = attentionHtml(groups, say, { phone: "+971 (4) 555-0100" });
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<b>");
+    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; Co");
+    expect(html).toContain("Part: &lt;b&gt;bold&lt;/b&gt; × 1");
+    expect(html).toContain('<a href="tel:+97145550100" data-attention="call">Call the office</a>');
+    expect(html).toContain('data-attention="discard" data-job="jb_a">Discard</button>');
+    expect(html).toContain('data-attention="retry" data-job="jb_a">Try again</button>');
+    expect(html).not.toContain("data-attention-confirm");
+    const asking = attentionHtml(groups, say, { phone: "", confirming: "jb_a" });
+    expect(asking).toContain("data-attention-confirm");
+    expect(asking).toContain("Discard this step?");
+    expect(asking).toContain('data-attention="discard-yes"');
+    expect(asking).toContain('data-attention="discard-no"');
+    expect(asking).not.toContain("tel:");
+    expect(asking).not.toContain('data-attention="retry"');
+    // Nobody to call: no link. A cancelled job: no Try again.
+    const cancelled = attentionHtml(attention([act(1, "jb_a", "checkout", { state: "refused", refused_reason: "job_cancelled" })], [], ME), say, { phone: "x" });
+    expect(cancelled).not.toContain("tel:");
+    expect(cancelled).not.toContain("Try again");
+    expect(cancelled).toContain("Visit jb_a");
+  });
+
+  test("a phone number becomes digits and a leading +, or nothing", () => {
+    expect(telOf("+971 4 555 0100")).toBe("+97145550100");
+    expect(telOf("04-555 0100")).toBe("045550100");
+    for (const bad of ["", "call me", "javascript:alert(1)", "+", "12;ext=5"]) expect(telOf(bad), bad).toBe("");
+  });
+});
+
+describe("Needs attention: the script and the pages", () => {
+  const read = (file: string) => Bun.file(new URL(`../public/${file}`, import.meta.url)).text();
+
+  test("only a replay carries x-hs-queued; the first online send does not; Try again keeps the action ids", async () => {
+    const js = await read("offline-queue.js");
+    expect([...js.matchAll(/"x-hs-queued"/gu)].length).toBe(1);
+    expect(js).toContain("const post = async (record, token, queued) =>");
+    expect(js).toContain("await post(record, await csrfToken(false), true)");
+    expect(js).toContain("await post({ url: target.url, action: target.action, action_id: id, performed_at: performed, fields }, token);");
+    // reopen() puts the record back to pending without touching its action_id; there is no force.
+    expect(js).toContain('state: "pending", attempts: 0');
+    expect(js).not.toMatch(/force:\s*true|x-hs-force/u);
+    // No browser dialog: the question is in the page.
+    expect(js).not.toMatch(/\bconfirm\(|\balert\(|\bprompt\(/u);
+    expect(js).toContain('"/me/signout"');
+  });
+
+  test("/me carries the container: hidden, a polite live region, the texts in the page's language and the office's phone", async () => {
+    const res = await ali.page("/me?lang=en");
+    expect(res.html).toMatch(/<section id="needs-attention" class="attention" hidden aria-live="polite" aria-labelledby="needs-attention-title"/u);
+    expect(res.html).toContain('data-title="Needs attention"');
+    expect(res.html).toContain('data-later="The later steps of this visit were not sent either."');
+    expect(res.html).toContain('data-call="Call the office"');
+    expect(res.html).toContain('data-reason-job-cancelled="The office cancelled this job. Nothing was saved."');
+    expect(res.html).toMatch(/data-phone="\+?[0-9 ]+"/u);
+    expect(res.html).toContain('<div id="needs-attention-list"></div>');
+    const ar = await ali.page("/me?lang=ar");
+    await ali.page("/me?lang=en");
+    expect(ar.html).toContain('data-title="يحتاج إلى انتباه"');
+    expect(ar.html).toContain('data-call="اتصل بالمكتب"');
+    // The visit page names its job for what it saves.
+    const visit = await ali.page("/me/visits/jb_seed_10");
+    expect(visit.html).toMatch(/<meta name="hs-job" content="J-\d+" data-customer="[^"]+">/u);
+    expect(visit.html).not.toContain("needs-attention");
+  });
+
+  test("/me/signout is a technician's page: the count is filled in by the script; Sign out anyway posts to the auth module's logout; Stay goes back", async () => {
+    const res = await ali.page("/me/signout?lang=en");
+    expect(res.status).toBe(200);
+    expect(res.html).toMatch(/<form method="post" action="\/auth\/account\?\/logout"[^>]*>\s*<input type="hidden" name="_csrf"/u);
+    expect(res.html).toContain("Sign out anyway");
+    expect(res.html).toMatch(/<a href="\/me" id="signout-stay">Stay signed in<\/a>/u);
+    expect(res.html).toContain('data-waiting="{n} actions are saved on this phone and not sent. Sign out anyway?"');
+    expect(res.html).toContain('data-waiting-one="1 action is saved on this phone and not sent. Sign out anyway?"');
+    expect(res.html).toContain('id="signout-text"');
+    const dina = t.as("dina-signout");
+    await dina.action("/auth/login", "default", { email: "dispatcher.dubai@fixit.example", password: PASSWORD, next: "/" });
+    expect((await dina.page("/me/signout")).status).toBe(403);
+    expect((await t.as("nobody").request("GET", "/me/signout")).status).not.toBe(200);
   });
 });

@@ -109,8 +109,19 @@ export const actions = {
     });
   },
 
-  /** Step one of a photo (`upload.js`): a signed URL for the browser's PUT, as JSON `{ url, max_bytes }`; a refusal is JSON `{ message }` with its status. Changes nothing, so it is not logged. */
+  /**
+   * Step one of a photo (`upload.js`): a signed URL for the browser's PUT, as JSON `{ url, max_bytes }`; a refusal is
+   * JSON `{ message }` with its status. Changes nothing, so it is not logged. A queued photo asks with its `action_id`
+   * (#810): when that photo was accepted already (its `photo` action is in the log, for this user) the answer is
+   * `{ done: true }` and the phone goes straight to the `photo` action, which answers the stored result: a queue sent
+   * again leaves no second upload behind, even after the visit was closed.
+   */
   async photo_url(ctx: ActionContext) {
+    const given = ctx.form.get("action_id");
+    if (typeof given === "string" && /^[A-Za-z0-9_-]{16,64}$/u.test(given) && ctx.principal !== null) {
+      const known = await ctx.db.queryOne<{ user_id: string }>("select user_id from app__action_log where action_id = ? and action = 'photo'", [given]);
+      if (known !== null && known.user_id === ctx.principal.id) return Response.json({ done: true }, { headers: { "cache-control": "no-store" } });
+    }
     const size = ctx.form.get("size");
     const r = await photoUploadUrl(storage, ctx, ctx.params.id, {
       name: String(ctx.form.get("name") ?? ""),

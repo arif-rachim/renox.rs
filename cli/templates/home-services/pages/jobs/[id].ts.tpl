@@ -27,12 +27,13 @@ import { check } from "../../lib/forms";
 import { aed } from "../../lib/money";
 import { imageOf, partsOf, partTotal, photosOf, visitOfJob } from "../../lib/visit-data";
 import { summarySchema } from "../../lib/visit-forms";
+import { refusalOf } from "../../lib/refusal";
 import { setSummary } from "../../lib/visits";
 import { assignSchema, scheduleSchema, statusSchema } from "../../lib/job-forms";
 import { invoiceOfJob } from "../../lib/invoices";
 import { assign, eventsOf, findJob, jobResource, scheduleJob, TRANSITIONS, transition, type JobRow, type Outcome } from "../../lib/jobs";
 import { shell } from "../../lib/page";
-import { invalid } from "../../lib/invalid";
+import { invalid, lookup } from "../../lib/invalid";
 import { day } from "../../lib/quotes";
 import { branchOf, noBranch, scopedDb, type Branch } from "../../lib/scope";
 import { techniciansOf } from "../../lib/technicians";
@@ -47,6 +48,14 @@ const requestedMs = (job: JobRow): number | null => (online(job) && job.status =
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 const when = (seconds: number): string => `${day(seconds)} ${clock(seconds)}`;
 const DAY = /^\d{4}-\d{2}-\d{2}$/u;
+
+/** The timeline's sentence for a refused offline action ("Offline check-out refused: the job was cancelled (done on the phone at 10:14)"). */
+function refusedText(locale: string, r: { action: string; reason: string; performed_at: number }): string {
+  const lang = locale === "ar" ? "ar" : "en";
+  const say = (key: string): string => lookup(lang, key) ?? key;
+  const values: Record<string, string> = { action: say(`visits.refused.action.${r.action}`), reason: say(`visits.refused.reason.${r.reason}`), time: clock(r.performed_at) };
+  return say("visits.refused.event").replace(/\{(\w+)\}/gu, (all, k: string) => values[k] ?? all);
+}
 
 async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: string, job: JobRow) {
   const scoped = scopedDb(ctx.db, branch);
@@ -137,15 +146,20 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
     customer: customer === null ? null : { id: customer.id, name: customer.name, phone: customer.phone },
     site,
     quote,
-    events: events.map((e) => ({
-      id: e.id,
-      at: when(e.at),
-      from: e.from_status,
-      to: e.to_status,
-      created: e.from_status === null,
-      note: e.note,
-      by: e.by_user_id === null ? "" : (names.get(e.by_user_id) ?? ""),
-    })),
+    events: events.map((e) => {
+      const refusal = refusalOf(e.note);
+      return {
+        id: e.id,
+        at: when(e.at),
+        from: e.from_status,
+        to: e.to_status,
+        created: e.from_status === null && refusal === null,
+        // A queued action of a technician's phone that the server refused (#810): its sentence, in the page's language.
+        refused: refusal === null ? "" : refusedText(locale, refusal),
+        note: refusal === null ? e.note : "",
+        by: e.by_user_id === null ? "" : (names.get(e.by_user_id) ?? ""),
+      };
+    }),
     online: online(job),
     requested,
     can_dispatch: dispatcher,

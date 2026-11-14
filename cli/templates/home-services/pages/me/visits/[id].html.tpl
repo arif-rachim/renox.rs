@@ -2,6 +2,7 @@
   <r-group slot="title">{{ job.number }} · {{ brand.name }}</r-group>
   <div class="touch">
   <meta name="hs-user" content="{{ user_id }}">
+  <meta name="hs-job" :content="job.number" :data-customer="customer.name if customer else ''">
   <p id="offline-banner" class="warning" hidden role="status" :data-saved-at="saved_at"><r-t key="visits.offline" /> <bdi dir="ltr" id="offline-time"></bdi>.</p>
   <x-queue-status />
   <p><a href="/me"><r-t key="visits.back" /></a></p>

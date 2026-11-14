@@ -19,6 +19,12 @@
 // device until the technician removes it and does not stop its job; a refusal about the job (a conflict) stops the
 // rest of the job, photos included. At most 20 photos wait on a device.
 //
+// "Needs attention" (#810, the list on /me): `attention` groups what the server refused, and what waits behind
+// it, per job; `attentionHtml` is the markup of that list (a string with every value escaped, so a test can render
+// it without a DOM). "Try again" is offered for a group whose refusals are `job_reassigned` or a 422 only
+// (`RETRY_REASONS`); the same `action_id`s are sent again, never a force. `unsent` counts what the sign-out
+// warning page says is saved on the phone.
+//
 // A classic script (loaded with `defer`) that sets `hsQueueCore` on the page; `require`d or imported, it
 // exports the same object.
 (function (root, factory) {
@@ -266,7 +272,7 @@
 
   /**
    * What an answer means for one of the three requests of a photo. `step` is "url" (the page action `photo_url`),
-   * "put" (the signed PUT, which answers 201 and `{ key }`) or "post" (the `photo` action). `answer` is
+   * "put" (the signed PUT, which answers 201 and `{ key }`) or "post" (the `photo` action). The "url" step may answer `{ done: true }`: the photo is on the server already. `answer` is
    * `{ status, body }` or null (no answer); for "url" it may carry `signedIn: true`: the page checked that the user
    * still is signed in, so a 403 is the job's (it is not the visit's technician any more), not a lost session.
    *  - continue: the step worked, go to the next one. ok: the photo is on the server.
@@ -277,7 +283,7 @@
     if (answer === null || answer === undefined) return { kind: "retry" };
     const { status } = answer;
     const body = answer.body && typeof answer.body === "object" ? answer.body : {};
-    const done = step === "url" ? status === 200 && typeof body.url === "string" : step === "put" ? status === 201 && typeof body.key === "string" : status === 200 && body.ok === true;
+    const done = step === "url" ? status === 200 && (typeof body.url === "string" || body.done === true) : step === "put" ? status === 201 && typeof body.key === "string" : status === 200 && body.ok === true;
     if (done) return step === "post" ? { kind: "ok", adjusted: body.time_adjusted === true } : { kind: "continue" };
     if (status >= 500 || status === 408 || status === 429 || status === 200 || status === 201) return { kind: "retry" };
     if (step === "put" && (status === 401 || status === 403)) return { kind: "retry" };
@@ -300,6 +306,8 @@
     const signed = await io.signed(photo);
     const first = photoOutcomeOf("url", signed);
     if (first.kind !== "continue") return first;
+    // The server has this photo already (a queue sent again, #810): no second upload, the `photo` action answers what it stored.
+    if (signed.body && signed.body.done === true) return photoOutcomeOf("post", await io.post(photo, ""));
     // The signed URL is new for each try, so a repeated PUT (after a crash, or an answer that never arrived) stores
     // the file under a new key and leaves the first one unreferenced: the `photo` action is idempotent by action_id
     // (#806), the orphan object is the open issue #833 (no sweep of unreferenced storage/<visit>/ files exists yet).
@@ -355,6 +363,134 @@
     }
   };
 
+  // ---- "Needs attention" (#810) ----
+
+  /** The refusals "Try again" is offered for: the job was given to another technician (an undone reassignment), or a form the server found wrong (422). */
+  const RETRY_REASONS = ["job_reassigned", "invalid", "forbidden"];
+  /** The conflict codes of the server (lib/visits.ts): each has its text in the page (`visits.conflict.<code>`). */
+  const CONFLICTS = ["job_cancelled", "job_reassigned", "already_checked_out", "not_checked_in", "action_id_taken"];
+
+  /** What the technician reads for one saved action or photo: the key of its name and the values that go into it. */
+  const whatOf = (kind, record) => {
+    if (kind === "photo") return { key: record.phase === "after" ? "whatPhotoAfter" : "whatPhotoBefore", values: {} };
+    const fields = record.fields || {};
+    const name = `what${String(record.action).charAt(0).toUpperCase()}${String(record.action).slice(1)}`;
+    return { key: name, values: { description: fields.description || "", qty: fields.qty || "" } };
+  };
+
+  /** One line of the list for a record: what it was, when it was done on the phone, and why it is here. */
+  const itemOf = (kind, record, state) => ({
+    kind,
+    id: kind === "photo" ? record.id : record.seq,
+    key: `${kind}:${kind === "photo" ? record.id : record.seq}`,
+    what: whatOf(kind, record),
+    at: kind === "photo" ? record.taken_at : record.performed_at,
+    state,
+    reason: state === "refused" ? record.refused_reason || "conflict" : "",
+    message: state === "refused" ? record.refused_message || "" : "",
+  });
+
+  /**
+   * What "Needs attention" lists for the signed-in user, per job: the actions and photos the server refused
+   * (`state: "refused"`), and the ones that wait behind a refusal of their job and were not sent (`state: "behind"`).
+   * A group is `{ job_id, number, customer, items, blocked, later, retry }`: `later` says the queue stopped the
+   * job with steps still unsent; `retry` says "Try again" is offered (every refusal is a `RETRY_REASONS`).
+   * Jobs are in the order of their earliest item; the items of a job in the order they were done.
+   */
+  const attention = (records, photos, userId) => {
+    const blocked = blockedJobs(records, userId, photos);
+    const groups = new Map();
+    const group = (record) => {
+      let g = groups.get(record.job_id);
+      if (!g) {
+        g = { job_id: record.job_id, number: "", customer: "", items: [], blocked: blocked.has(record.job_id), later: false, retry: false };
+        groups.set(record.job_id, g);
+      }
+      if (!g.number && record.job_number) g.number = String(record.job_number);
+      if (!g.customer && record.customer) g.customer = String(record.customer);
+      return g;
+    };
+    for (const r of inState(records, "refused").filter((x) => x.user_id === userId)) group(r).items.push(itemOf("action", r, "refused"));
+    for (const p of shots(photos || [], "refused").filter((x) => x.user_id === userId)) group(p).items.push(itemOf("photo", p, "refused"));
+    for (const r of split(records, userId).mine.filter((x) => blocked.has(x.job_id))) group(r).items.push(itemOf("action", r, "behind"));
+    for (const p of splitPhotos(photos || [], userId).mine.filter((x) => blocked.has(x.job_id))) group(p).items.push(itemOf("photo", p, "behind"));
+    const out = [...groups.values()];
+    for (const g of out) {
+      g.items.sort((a, b) => a.at - b.at || (a.key < b.key ? -1 : 1));
+      const refused = g.items.filter((i) => i.state === "refused");
+      g.later = g.blocked && g.items.some((i) => i.state === "behind");
+      g.retry = refused.length > 0 && refused.every((i) => RETRY_REASONS.includes(i.reason));
+    }
+    return out.sort((a, b) => (a.items[0] ? a.items[0].at : 0) - (b.items[0] ? b.items[0].at : 0) || (a.job_id < b.job_id ? -1 : 1));
+  };
+
+  /** How many saved actions and photos of the user are not sent: waiting, refused, or behind a refusal (the sign-out warning's number). */
+  const unsent = (records, photos, userId) => {
+    const a = split(records, userId);
+    const p = splitPhotos(photos || [], userId);
+    return a.mine.length + a.refused.length + p.mine.length + p.refused.length;
+  };
+
+  /** A value in HTML text or in a quoted attribute. */
+  const esc = (v) =>
+    String(v)
+      .replace(/&/gu, "&amp;")
+      .replace(/</gu, "&lt;")
+      .replace(/>/gu, "&gt;")
+      .replace(/"/gu, "&quot;")
+      .replace(/'/gu, "&#39;");
+
+  /** "reason_x" -> the key of the page's text for it. */
+  const camel = (code) => String(code).replace(/_([a-z])/gu, (all, c) => c.toUpperCase());
+
+  /** The reason of an item in plain words. `t(key, values)` gives the page's text for a key ("" when it has none). */
+  const reasonText = (item, t) => {
+    if (item.state === "behind") return t("behind");
+    const message = item.message;
+    const reason = item.reason === "forbidden" ? "job_reassigned" : item.reason;
+    if (CONFLICTS.includes(reason)) return t(`reason${camel(`_${reason}`)}`) || message || reason;
+    if (reason === "invalid_record") return t("reasonInvalidRecord");
+    if (reason === "invalid") return message ? t("reasonInvalid", { message }) : t("reasonGeneric");
+    return message ? t("reasonOther", { message }) : t("reasonGeneric");
+  };
+
+  /** The digits of a phone number for a `tel:` link (a leading + and digits only); "" when there are none. */
+  const telOf = (phone) => {
+    const m = /^\s*(\+?)([0-9 ()\-.]*)$/u.exec(String(phone || ""));
+    if (m === null) return "";
+    const digits = m[2].replace(/[^0-9]/gu, "");
+    return digits === "" ? "" : `${m[1]}${digits}`;
+  };
+
+  /**
+   * The markup of the "Needs attention" list for these groups. `t(key, values)` gives the page's text for a key.
+   * `phone` is the office's number ("" hides "Call the office"); `confirming` is the job whose Discard waits for
+   * its answer (an in-page question: browser dialogs are not used).
+   */
+  const attentionHtml = (groups, t, options) => {
+    const phone = telOf(options && options.phone);
+    const confirming = options && options.confirming;
+    return groups
+      .map((g) => {
+        const id = esc(g.job_id);
+        const name = g.number ? `<span dir="ltr">${esc(g.number)}</span>` : `<span>${esc(t("unknownJob", { job: g.job_id }))}</span>`;
+        const who = g.customer ? ` · <bdi>${esc(g.customer)}</bdi>` : "";
+        const items = g.items
+          .map((i) => {
+            const what = t(i.what.key, i.what.values);
+            return `<li data-attention-item="${esc(i.key)}" data-attention-state="${i.state}"><strong dir="auto">${esc(what)}</strong> · <small>${esc(t("doneAt", { time: dubai(i.at) }))}</small><p class="attention-reason">${esc(reasonText(i, t))}</p></li>`;
+          })
+          .join("");
+        const later = g.later ? `<p class="muted" data-attention-later>${esc(t("later"))}</p>` : "";
+        const buttons =
+          confirming === g.job_id
+            ? `<div class="attention-actions" role="group" aria-labelledby="attention-${id}-ask" data-attention-confirm><p id="attention-${id}-ask">${esc(g.items.length === 1 ? t("discardConfirmOne") : t("discardConfirm", { n: g.items.length }))}</p><button type="button" data-attention="discard-yes" data-job="${id}">${esc(t("discardYes"))}</button><button type="button" data-attention="discard-no" data-job="${id}">${esc(t("discardNo"))}</button></div>`
+            : `<div class="attention-actions"><button type="button" data-attention="discard" data-job="${id}">${esc(t("discard"))}</button>${g.retry ? `<button type="button" data-attention="retry" data-job="${id}">${esc(t("retry"))}</button>` : ""}${phone ? `<a href="tel:${esc(phone)}" data-attention="call">${esc(t("call"))}</a>` : ""}</div>`;
+        return `<article class="attention-job" id="attention-${id}" data-attention-job="${id}" aria-labelledby="attention-${id}-h"><h3 id="attention-${id}-h">${name}${who}</h3>${later}<ul>${items}</ul>${buttons}</article>`;
+      })
+      .join("");
+  };
+
   /** "2026-11-14 10:42": the Dubai time of a unix ms, as the pages show a visit's times (Dubai is UTC+4 all year). */
   const dubai = (ms) => {
     const d = new Date(ms + 4 * 3600 * 1000);
@@ -365,5 +501,5 @@
   /** A text with `{name}` placeholders filled in. */
   const fill = (text, values) => String(text).replace(/\{(\w+)\}/gu, (all, k) => (Object.prototype.hasOwnProperty.call(values, k) ? String(values[k]) : all));
 
-  return { LIMIT, OLD_MS, BACKOFF_MS, POLL_MS, PHOTO_LIMIT, MIN_FREE_BYTES, MAX_SIDE, JPEG_QUALITY, MAX_PHOTO_BYTES, PHOTO_CONTENT, ACTIONS, actionIdOf, backoffMs, canQueue, isOld, targetOf, split, blockedJobs, nextAction, behindRefused, outcomeOf, settle, retryAt, replay, pendingPhotos, canTakePhoto, hasRoom, fitSize, tooLarge, splitPhotos, merge, nextItem, photoOutcomeOf, sendPhoto, settlePhoto, replayAll, dubai, fill };
+  return { LIMIT, OLD_MS, BACKOFF_MS, POLL_MS, PHOTO_LIMIT, MIN_FREE_BYTES, MAX_SIDE, JPEG_QUALITY, MAX_PHOTO_BYTES, PHOTO_CONTENT, ACTIONS, actionIdOf, backoffMs, canQueue, isOld, targetOf, split, blockedJobs, nextAction, behindRefused, outcomeOf, settle, retryAt, replay, pendingPhotos, canTakePhoto, hasRoom, fitSize, tooLarge, splitPhotos, merge, nextItem, photoOutcomeOf, sendPhoto, settlePhoto, replayAll, RETRY_REASONS, attention, unsent, attentionHtml, reasonText, telOf, esc, dubai, fill };
 });

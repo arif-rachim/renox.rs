@@ -20,8 +20,10 @@
 // that is not suppressed) and a send that cannot work is skipped, not tried.
 import { branchDb, type Scopable } from "./scope";
 import type { DbStatements } from "@renoxium/sdk";
-import { email, gcc, notifications, whatsapp } from "renox:modules";
+import { email, gcc, i18n, notifications, whatsapp } from "renox:modules";
 
+import { clock } from "./booking-sync";
+import { lookup } from "./invalid";
 import { type Language, type MessageKind, renderMessage } from "./messages";
 import { brandName, getSettings } from "./settings";
 
@@ -126,4 +128,37 @@ async function deliver(ctx: NotifyCtx, sdb: DbStatements, c: CustomerRow, kind: 
     channel = "email";
   }
   return { channel, template: msg.template };
+}
+
+/** A text with `{name}` placeholders filled in. */
+const fill = (text: string, values: Record<string, string>): string => text.replace(/\{(\w+)\}/gu, (all, k: string) => values[k] ?? all);
+
+/** What a refused offline action is about (lib/visits.ts `noteOfflineRefusal`). */
+export interface OfflineRefusalNote {
+  job_id: string;
+  number: string;
+  technician: string;
+  action: string;
+  reason: string;
+  /** When the technician did it on the phone, unix seconds. */
+  performed_at: number;
+}
+
+/**
+ * Tells each of these dispatchers in the app that a queued action was refused ("Ali's check-out for J-1042, done
+ * offline at 10:14, was refused: the job was cancelled"), in the language they read the app in (#810).
+ */
+export async function notifyOfflineRefusal(userIds: readonly string[], n: OfflineRefusalNote): Promise<void> {
+  for (const id of new Set(userIds)) {
+    const lang = (await i18n.detectLocale({ user_id: id, org_locale: null })).locale === "ar" ? "ar" : "en";
+    const say = (key: string): string => lookup(lang, key) ?? key;
+    const title = fill(say("visits.refused.notice"), {
+      technician: n.technician,
+      action: say(`visits.refused.action.${n.action}`),
+      job: n.number,
+      time: clock(n.performed_at),
+      reason: say(`visits.refused.reason.${n.reason}`),
+    });
+    await notifications.notify(id, { category: "jobs", title: title.slice(0, 200), link: `/jobs/${n.job_id}` });
+  }
 }

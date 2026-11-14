@@ -65,6 +65,17 @@ Others you may meet: `RENOX_DB_QUOTA` (the free tier's database is full: writes 
 6. **The customer.** A customer with no phone gets the email instead; a phone must be a valid UAE number (stored as `+971...`).
 7. **`public_url`** in `app__settings` must be the app's real address, or links in the messages are wrong.
 
+## A technician's work did not arrive
+
+A technician says they checked in, added photos or checked out with no signal, and the office does not see it. The visit page keeps those actions on the phone and sends them when it is online (`docs/reference-app.md`, "Working without signal"); the work is either still on the phone or refused by the server with a reason.
+
+1. **Ask them to open `/me` with a signal.** The phone sends what it holds when the page opens; the status line says "Sending…" and then "All sent". If it says "N actions waiting to be sent" and stays so, the phone has no working connection yet or the server answered 5xx (it tries again after 30 s, 1, 2 and 5 minutes); if it says "Sign in again to send…", they must sign in as the same user.
+2. **Read "Needs attention".** It is on `/me`, under the status line, and only shows when something was refused. Each visit lists its steps, when they were done on the phone and why they were not accepted: *the office cancelled this job* or *given to another technician* (check the job on `/jobs/<id>`: if the cancellation or the reassignment was a mistake, undo it, then ask the technician to press **Try again** when the job is theirs again), *already checked out* or *not checked in* (the visit changed meanwhile: the technician discards, the office enters what is missing on the job page), or the server's message for a form that was wrong (**Try again** after fixing, or Discard). A cancelled or closed visit cannot be forced in; Discard removes the steps from the phone.
+3. **The job's timeline.** A refused replay shows as "Offline … refused: <reason> (done on the phone at …)" on the job page, and the dispatchers were notified once for that job and reason (the bell in the header). The timeline is where to look when the technician cannot show the phone.
+4. **The phone keeps the work until it is sent or discarded.** It is stored per user in the browser (IndexedDB `hs-offline`), so another account on the same phone does not send it, and signing out first asks "Sign out anyway?" while something waits. It is lost when the browser's site data is cleared (Settings, "Clear data", a browser reinstall, a private window closed), and nothing on the server can bring it back: ask the technician to re-enter what matters on the visit page, or enter it for them.
+5. **Offline reading is not on in production yet.** Saved copies of `/me` and the visit pages depend on #832 (a page loader cannot send the header the service worker looks for), so a technician who lost signal before opening a visit sees the browser's offline page. Queuing works on a page that was already open.
+6. **Photos.** A photo refused for its size or type shows its message in "Needs attention" and does not stop the rest of the visit. A photo whose upload was repeated can leave an unused file in the store (#833); it does not show anywhere and is not a missing photo.
+
 ## Someone cannot sign in
 
 1. **Invitation.** `/admin/people`, "Pending invitations": is the person's email there? An invitation expires after 7 days, works once and only for the address it was sent to. Send a new one with the right email. "The invitation was refused" means the person is already a member.

@@ -14,6 +14,9 @@ declare module "*/offline-queue-core.js" {
     refused_reason?: string;
     refused_message?: string;
     refused_errors?: Record<string, string>;
+    /** The job's number and customer as the visit page showed them when the action was made (#810: "Needs attention" names the visit with them). */
+    job_number?: string;
+    customer?: string;
   }
   export interface QueuedPhoto {
     id: number;
@@ -30,6 +33,27 @@ declare module "*/offline-queue-core.js" {
     attempts?: number;
     refused_reason?: string;
     refused_message?: string;
+    job_number?: string;
+    customer?: string;
+  }
+  export interface AttentionItem {
+    kind: "action" | "photo";
+    id: number;
+    key: string;
+    what: { key: string; values: Record<string, string> };
+    at: number;
+    state: "refused" | "behind";
+    reason: string;
+    message: string;
+  }
+  export interface AttentionGroup {
+    job_id: string;
+    number: string;
+    customer: string;
+    items: AttentionItem[];
+    blocked: boolean;
+    later: boolean;
+    retry: boolean;
   }
   export type PhotoOutcome =
     | { kind: "continue" }
@@ -88,6 +112,13 @@ declare module "*/offline-queue-core.js" {
     send: (record: QueuedAction) => Promise<Answer> | Answer,
     sendOne: (photo: QueuedPhoto) => Promise<PhotoOutcome> | PhotoOutcome,
   ): Promise<{ log: { kind: "action" | "photo"; id: number; outcome: string; patch: Record<string, unknown> }[]; stopped: string; records: QueuedAction[]; photos: QueuedPhoto[] }>;
+  export const RETRY_REASONS: string[];
+  export function attention(records: QueuedAction[], photos: QueuedPhoto[], userId: string): AttentionGroup[];
+  export function unsent(records: QueuedAction[], photos: QueuedPhoto[], userId: string): number;
+  export function attentionHtml(groups: AttentionGroup[], t: (key: string, values?: Record<string, string | number>) => string, options?: { phone?: string; confirming?: string | null }): string;
+  export function reasonText(item: AttentionItem, t: (key: string, values?: Record<string, string | number>) => string): string;
+  export function telOf(phone: string): string;
+  export function esc(value: unknown): string;
   export function dubai(ms: number): string;
   export function fill(text: string, values: Record<string, string | number>): string;
 }

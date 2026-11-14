@@ -53,6 +53,12 @@ footer { padding: 1rem 1.5rem; text-align: center; }
 .photos { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
 .photos li { display: flex; flex-direction: column; gap: .125rem; max-inline-size: 10rem; }
 .thumb { max-inline-size: 100%; block-size: auto; border-radius: .25rem; }
+.attention { border: 2px solid var(--rx-rule-strong); border-inline-start: 6px solid var(--brand-line); border-radius: .5rem; padding: .75rem; margin-block: 1rem; }
+.attention-job { margin-block: .75rem; padding-block-start: .5rem; border-block-start: 1px solid var(--rx-rule-strong); }
+.attention-job:first-of-type { border-block-start: 0; }
+.attention-job ul { padding-inline-start: 1.25rem; }
+.attention-reason { margin-block: .1rem .5rem; }
+.attention-actions { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; }
 .sig-canvas { inline-size: 100%; max-inline-size: 20rem; aspect-ratio: 2 / 1; border: 2px dashed var(--rx-ink-2); border-radius: .25rem; background: #fff; touch-action: none; }
 .parts-table { inline-size: 100%; }
 form.inline { display: inline; }

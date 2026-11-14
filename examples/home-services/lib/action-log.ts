@@ -15,13 +15,17 @@
 // `Accept: application/json` gets `{ ok, status, redirect?, errors?, conflict?, time_adjusted? }` with that
 // status (200 for a success); a plain form post keeps the 303 to the page, the 422 re-render and the plain
 // text of a refusal, and a conflict re-renders the page with its message (`visits.conflict.<code>`; as plain
-// text when the page is no longer the user's: reassigned, or another user's id), so the page works without scripts. `performed_at` (unix ms) says when the action happened: lib/visits.ts keeps it
+// text when the page is no longer the user's: reassigned, or another user's id), so the page works without scripts.
+// A conflict answered to a request that carries `x-hs-queued: 1` (the phone's queue sets it on replays only) is also
+// recorded as a job event `offline_action_refused` and told to the branch's dispatchers (`noteOfflineRefusal` of
+// lib/visits.ts, #810); the event is written in this same transaction, which commits because the action answers
+// the 409 instead of throwing. `performed_at` (unix ms) says when the action happened: lib/visits.ts keeps it
 // only when it is plausible, else the server's time is used and the result says `time_adjusted: true`.
 import type { ActionContext } from "@renoxium/sdk";
 
 import { invalid } from "./invalid";
 import { shell } from "./page";
-import { conflictOf, performedAt, type Conflict, type Failure, type Result } from "./visits";
+import { conflictOf, noteOfflineRefusal, performedAt, type Conflict, type Failure, type Result } from "./visits";
 
 /** What an action's body hands over: its result, a refusal, or the 422 of a form that is wrong. */
 export type Step = Result<unknown> | ReturnType<typeof invalid>;
@@ -109,6 +113,8 @@ export async function withActionId(ctx: ActionContext, action: string, jobId: un
   const found = await conflictOf(ctx, jobId, action);
   if (found !== null && "conflict" in found) {
     // Not stored: the same id is checked again on its next post.
+    // A request the phone's queue replays (`x-hs-queued: 1`, set on replays only) that is refused tells the office (#810).
+    if (ctx.headers.get("x-hs-queued") === "1") await noteOfflineRefusal(ctx, jobId, action, found.conflict, run.at);
     return respond(refused(found.conflict));
   } else if (found !== null) {
     answer = { ok: true, status: 200, redirect: to };

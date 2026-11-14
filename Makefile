@@ -80,7 +80,7 @@ lighthouse:
 # test fail instead of skip; not part of `make test`.
 JOURNEY_TESTS := control/dashboard/tests/account.browser.test.ts cli/tests/browser/client-events.test.ts
 # An example app's own browser tests: the root bunfig.toml ignores examples/home-services/**, so they run from the app's folder (#807, #808, #809).
-JOURNEY_APP_TESTS := tests/browser/offline-read.test.ts tests/browser/offline-queue.test.ts tests/browser/offline-photos.test.ts
+JOURNEY_APP_TESTS := tests/browser/offline-read.test.ts tests/browser/offline-queue.test.ts tests/browser/offline-photos.test.ts tests/browser/offline-visit.test.ts
 journey:
 ifeq ($(RENOX_WORKER_PATH),)
 	@echo "journey: RENOX_WORKER_PATH is not set (cargo build -p renox-cell --bin renox-worker, or bun cli/scripts/fetch-worker.ts)" >&2; exit 1

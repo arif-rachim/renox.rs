@@ -11,15 +11,17 @@
 // the visit's folder of the storage module (`storage/<visit id>/`, `storage.uploadUrl`) and the form then posts
 // its key. The rows keep the keys. Photos stay private: the page shows them through short-lived signed URLs.
 import type { Ai, DbStatements, Storage } from "@renoxium/sdk";
+import { dispatchersOf } from "./book";
 import { type JobCtx, type JobRow, findJob, jobResource, transition } from "./jobs";
 import { issueLink } from "./links";
-import { notifyCustomer } from "./notify";
+import { notifyCustomer, notifyOfflineRefusal } from "./notify";
 import { buildReport } from "./report";
 import { branchOf, scopedDb, type Branch } from "./scope";
 import { draftSummary } from "./summary";
 import { memberName } from "./technicians";
 import { type PartRow, type PhotoRow, type StorageModule, type VisitRow, MAX_PHOTO_BYTES, bytesOfDataUrl, partsOf, photoLimitMessage, visitOfJob } from "./visit-data";
 import type { PartInput, Phase } from "./visit-forms";
+import { OFFLINE_REFUSED, type OfflineRefusal } from "./refusal";
 
 export const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const EXTENSION: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
@@ -113,6 +115,29 @@ export async function conflictOf(ctx: VisitCtx, rawJobId: unknown, action: strin
   if (visit === null && action !== "checkin") return { conflict: "not_checked_in" };
   if (visit !== null && action === "checkin") return { exists: visit };
   return null;
+}
+
+/**
+ * The office learns that a queued action of a phone was refused (lib/action-log.ts calls this for a request that
+ * carries `x-hs-queued: 1` and is answered with a conflict): a job event `offline_action_refused` on the job's
+ * timeline, and the branch's dispatchers told in the app, once for each job and reason. The same refusal again
+ * (a "Try again" of the phone that is refused again) adds nothing. It runs in the action's own transaction, which
+ * commits because the action answers the 409 instead of throwing.
+ */
+export async function noteOfflineRefusal(ctx: VisitCtx, rawJobId: unknown, action: string, reason: Conflict, performed: number): Promise<void> {
+  const branch = await branchOf(ctx);
+  if (branch === null) return;
+  const sdb = scopedDb(ctx.db, branch);
+  const job = await findJob(sdb, rawJobId);
+  if (job === null) return;
+  const who = ctx.principal?.id ?? "";
+  const refusal: OfflineRefusal = { action, reason, technician: who, performed_at: performed };
+  const note = `${OFFLINE_REFUSED} ${JSON.stringify(refusal)}`;
+  if ((await sdb.queryOne("select id from app__job_events where job_id = ? and note = ?", [job.id, note])) !== null) return;
+  const told = await sdb.queryOne("select id from app__job_events where job_id = ? and instr(note, ?) = 1 and instr(note, ?) > 0", [job.id, `${OFFLINE_REFUSED} `, `"reason":"${reason}"`]);
+  await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, null, null, ?)", [job.id, branch.id, now(), who === "" ? null : who, note]);
+  if (told !== null) return;
+  await notifyOfflineRefusal(await dispatchersOf(ctx, branch), { job_id: job.id, number: job.number, technician: await memberName(ctx.db, branch, who), action, reason, performed_at: performed });
 }
 
 /** Opens the visit and moves the job to `in_progress` (a job that already is stays so). Twice is a 409. */

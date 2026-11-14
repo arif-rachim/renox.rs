@@ -4,6 +4,8 @@
 //    The build serves a public file a template links under a content-hashed
 //    name (/app.<16 hex>.css), immutable, so those are cached on first use; the
 //    icons and the font are cached at install.
+//    The prefetch of today's pages also keeps the hashed files each page links to (#810), so a visit page
+//    opened offline for the first time has its scripts.
 // 2. Today's pages (#807): navigations to /me and /me/visits/<id> only (no query
 //    but `lang`), network first with a 4 s timeout, kept in the cache
 //    `hs-day-v1-<user id>` and served from it, with `x-hs-from-cache: 1`, when the
@@ -179,12 +181,32 @@ function dayPage(event, req, url) {
 }
 
 // ---- prefetch: me.js asks for today's visit pages, one at a time ----
+
+/** Keeps the shell files (hashed scripts, styles, fonts) a page links to, those not kept yet; a file that cannot be fetched is left. */
+async function keepLinked(html) {
+  const cache = await caches.open(CACHE);
+  const paths = new Set();
+  for (const m of html.matchAll(/\b(?:src|href)=["'](\/[^"'?#\s]+)["']/giu)) if (isShell(m[1]) && HASHED.test(m[1])) paths.add(m[1]);
+  for (const path of paths) {
+    try {
+      if (await cache.match(path)) continue;
+      const file = await fetch(path, { credentials: "same-origin" });
+      if (file.ok) await cache.put(path, file);
+    } catch {
+      // Offline or refused: the page works without it, as it did.
+    }
+  }
+}
+
 async function prefetch(urls) {
   for (const raw of urls.slice(0, MAX_PREFETCH)) {
     try {
       const url = new URL(raw, self.location.origin);
       if (!isDayPage(url)) continue;
       const res = await fetch(url.href, { credentials: "same-origin" });
+      // A page opened offline later needs its own scripts and styles (the visit page's visit.js writes the typed
+      // signature, #810): the hashed files it links are kept with it, as if the page had been opened.
+      if (res.status === 200) await keepLinked(await res.clone().text());
       await storeDayPage(url.href, res);
     } catch {
       // Offline or refused: the page is simply not kept.
