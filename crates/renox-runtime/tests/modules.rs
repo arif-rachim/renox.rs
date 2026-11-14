@@ -225,6 +225,15 @@ fn artifact(
     extra_modules: Vec<serde_json::Value>,
     extra_files: &[(&str, &str)],
 ) -> (std::path::PathBuf, String) {
+    artifact_with(None, extra_modules, extra_files)
+}
+
+/// [`artifact`], with `auth`'s resolved config replaced by `auth_config`.
+fn artifact_with(
+    auth_config: Option<serde_json::Value>,
+    extra_modules: Vec<serde_json::Value>,
+    extra_files: &[(&str, &str)],
+) -> (std::path::PathBuf, String) {
     let mut modules = vec![
         module(
             "auth",
@@ -259,6 +268,9 @@ fn artifact(
             serde_json::json!({}),
         ),
     ];
+    if let Some(config) = auth_config {
+        modules[0]["config"] = config;
+    }
     modules.extend(extra_modules);
     let mut entry = serde_json::json!({
         "functions/f": "functions/f.js",
@@ -365,6 +377,47 @@ async fn each_module_gets_its_own_secrets_tables_and_hosts() {
     let f = &v["foreignHost"]["error"];
     assert_eq!(f["code"], "RENOX_FETCH_BLOCKED", "{v}");
     assert_eq!(f["details"]["reason"], "not_allowlisted");
+}
+
+/// deploy-api.md 0.12 (#825): the route entry's `module_config` fills a
+/// module config key the artifact leaves `""`, and never replaces one the
+/// manifest sets.
+#[tokio::test]
+async fn module_config_overlay_fills_an_empty_config_key() {
+    let (rt, sink) = runtime();
+    let overlay = BTreeMap::from([(
+        "auth".to_string(),
+        BTreeMap::from([("app_url".to_string(), "https://a.example".to_string())]),
+    )]);
+    for (manifest_url, expected) in [
+        ("", "https://a.example"),
+        ("https://b.example", "https://b.example"),
+    ] {
+        let (dir, hash) = artifact_with(
+            Some(serde_json::json!({ "greeting": "hi", "app_url": manifest_url })),
+            vec![],
+            &[],
+        );
+        let mut s = spec(&dir, &hash, Limits::FREE);
+        s.secrets = BTreeMap::from([
+            ("APP_SECRET".to_string(), "app-secret-value-123".to_string()),
+            (
+                "AUTH_SECRET".to_string(),
+                "auth-secret-value-123".to_string(),
+            ),
+            (
+                "BILLING_KEY".to_string(),
+                "billing-secret-value-1".to_string(),
+            ),
+        ]);
+        s.db = Some(tenant_db());
+        s.module_config = overlay.clone();
+        let iso = rt.create_isolate(s).await.unwrap();
+        let v = case(&iso, &sink, "isolation").await;
+        assert_eq!(v["auth"]["config"]["app_url"], expected, "{v}");
+        assert_eq!(v["auth"]["config"]["greeting"], "hi", "{v}");
+        iso.terminate();
+    }
 }
 
 /// docs/24-threat-model.md "Module calling a service or hook it did not

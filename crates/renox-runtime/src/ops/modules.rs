@@ -262,6 +262,35 @@ impl ModuleRegistry {
         self
     }
 
+    /// deploy-api.md 0.12 (sections 8, 10): the route entry's
+    /// `module_config`, values the platform computes (the email module's
+    /// `app_url`). For each module of `overlay` that is installed, a key
+    /// whose value in the deployment's resolved config is absent or `""` is
+    /// set to the overlay's string; every other key is left as the artifact
+    /// has it, and a module that is not installed is ignored.
+    pub fn with_config_overlay(
+        mut self,
+        overlay: &BTreeMap<String, BTreeMap<String, String>>,
+    ) -> ModuleRegistry {
+        for (module, values) in overlay {
+            let Some(info) = self.modules.iter_mut().find(|m| &m.name == module) else {
+                continue;
+            };
+            for (key, value) in values {
+                let empty = match info.config.get(key) {
+                    None => true,
+                    Some(serde_json::Value::String(s)) => s.is_empty(),
+                    Some(_) => false,
+                };
+                if empty {
+                    info.config
+                        .insert(key.clone(), serde_json::Value::String(value.clone()));
+                }
+            }
+        }
+        self
+    }
+
     /// The owned tables `db.scoped()` fences for `module` (`None`: the app).
     pub fn ownership(&self, module: Option<&str>) -> Arc<renox_data::Ownership> {
         self.ownership
@@ -482,6 +511,49 @@ mod tests {
             )
             .unwrap();
         assert_eq!(c.details, Some(serde_json::json!({ "note": "[redacted]" })));
+    }
+
+    /// deploy-api.md 0.12: the overlay fills only absent or `""` keys of
+    /// installed modules.
+    #[test]
+    fn config_overlay_fills_only_empty_keys_of_installed_modules() {
+        let mut email = entry("email", &[]);
+        email["config"] =
+            serde_json::json!({ "app_url": "", "from": "a@b.example", "reply_to": "" });
+        let mut auth = entry("auth", &[]);
+        auth["config"] = serde_json::json!({ "app_url": "", "greeting": "hi" });
+        let overlay: BTreeMap<String, BTreeMap<String, String>> = [
+            (
+                "email".to_string(),
+                [
+                    ("app_url".to_string(), "https://shop.example".to_string()),
+                    ("from".to_string(), "x@y.example".to_string()),
+                    ("base".to_string(), "https://base.example".to_string()),
+                ]
+                .into(),
+            ),
+            (
+                "billing".to_string(),
+                [("app_url".to_string(), "https://billing.example".to_string())].into(),
+            ),
+        ]
+        .into();
+        let r = ModuleRegistry::from_manifest(Some(&serde_json::json!([email, auth])))
+            .unwrap()
+            .with_config_overlay(&overlay);
+        let cfg = &r.get("email").unwrap().config;
+        // `""` and absent keys are filled.
+        assert_eq!(cfg["app_url"], "https://shop.example");
+        assert_eq!(cfg["base"], "https://base.example");
+        // A non-empty key is kept; a key the overlay does not name is untouched.
+        assert_eq!(cfg["from"], "a@b.example");
+        assert_eq!(cfg["reply_to"], "");
+        // Another module's keys are untouched, and a module not installed is ignored.
+        let auth = &r.get("auth").unwrap().config;
+        assert_eq!(auth["app_url"], "");
+        assert_eq!(auth["greeting"], "hi");
+        assert!(r.get("billing").is_none());
+        assert_eq!(r.modules().len(), 2);
     }
 
     #[test]

@@ -161,6 +161,7 @@ impl Preparer {
                 app: Some(p.app.clone()),
                 secrets_version: p.secrets_version,
                 database: None,
+                module_config: Default::default(),
             },
         );
         let store = self.store.clone();

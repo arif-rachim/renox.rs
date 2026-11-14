@@ -49,25 +49,32 @@ pub struct Handover {
     deployments: Mutex<HashMap<String, Prepare>>,
 }
 
+impl Handover {
+    /// Stores `p` and answers whether the cell built from the deployment's
+    /// previous handover is stale ([`DeploymentMeta::is_stale_against`]).
+    /// A first handover is not a change.
+    pub fn insert(&self, p: Prepare) -> bool {
+        let current = p.meta();
+        let previous = self
+            .deployments
+            .lock()
+            .expect("handover lock")
+            .insert(p.deployment_hash.clone(), p);
+        previous.is_some_and(|old| old.meta().is_stale_against(&current))
+    }
+}
+
 impl DeploymentLookup for Handover {
     fn lookup(&self, _tenant_id: &str, deployment_hash: &str) -> DeploymentMeta {
         let d = self.deployments.lock().expect("handover lock");
         match d.get(deployment_hash) {
-            Some(p) => DeploymentMeta {
-                tier: if p.tier == "paid" {
-                    TierName::Paid
-                } else {
-                    TierName::Free
-                },
-                app: p.app.clone(),
-                secrets_version: p.secrets_version,
-                database: p.database.clone(),
-            },
+            Some(p) => p.meta(),
             None => DeploymentMeta {
                 tier: TierName::Free,
                 app: None,
                 secrets_version: 0,
                 database: None,
+                module_config: Default::default(),
             },
         }
     }
@@ -305,11 +312,12 @@ impl State {
                 };
                 match serde_json::from_slice::<Prepare>(&bytes) {
                     Ok(p) if p.tenant_id == self.tenant => {
-                        self.handover
-                            .deployments
-                            .lock()
-                            .expect("handover lock")
-                            .insert(p.deployment_hash.clone(), p);
+                        let hash = p.deployment_hash.clone();
+                        // The handover is stored first, so a cell created
+                        // after the recycle reads it (#825).
+                        if self.handover.insert(p) {
+                            self.manager.recycle(&self.tenant, &hash);
+                        }
                         Response::new(Body::empty())
                     }
                     Ok(_) => ipc::error(

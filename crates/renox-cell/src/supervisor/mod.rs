@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cell::SecretsRequest;
 use crate::config::{Launcher, ProcessSection};
-use crate::manager::CellManager;
+use crate::manager::{CellManager, DeploymentMeta, ModuleConfig};
 use crate::tiers::TierName;
 
 pub mod cgroup;
@@ -56,8 +56,28 @@ pub struct Prepare {
     /// The app's own database, if any (deploy-api.md 0.3 section 3).
     #[serde(default)]
     pub database: Option<String>,
+    /// The route entry's `module_config` (deploy-api.md 0.12, #825).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub module_config: ModuleConfig,
     /// Name → value; in memory only, never logged.
     pub secrets: BTreeMap<String, String>,
+}
+
+impl Prepare {
+    /// The deployment's metadata as the child's cells see it.
+    pub fn meta(&self) -> DeploymentMeta {
+        DeploymentMeta {
+            tier: if self.tier == "paid" {
+                TierName::Paid
+            } else {
+                TierName::Free
+            },
+            app: self.app.clone(),
+            secrets_version: self.secrets_version,
+            database: self.database.clone(),
+            module_config: self.module_config.clone(),
+        }
+    }
 }
 
 /// The longest a crashed child waits before it is started again.
@@ -90,8 +110,11 @@ struct ChildSlot {
     socket: PathBuf,
     state: tokio::sync::Mutex<ChildState>,
     last_used: Mutex<Instant>,
-    /// `(deployment_hash, secrets_version)` handed to the running child.
-    prepared: Mutex<HashSet<(String, u64)>>,
+    /// Per deployment hash, the metadata handed to the running child.
+    prepared: Mutex<HashMap<String, DeploymentMeta>>,
+    /// Serialises the `prepare` calls to the child, so they reach it in the
+    /// order their metadata was read (a late one never undoes a newer one).
+    preparing: tokio::sync::Mutex<()>,
     draining: AtomicBool,
 }
 
@@ -198,6 +221,8 @@ impl<D: CellDispatcher> Supervisor<D> {
         };
         let observer = s.clone();
         manager.set_sync_observer(Arc::new(move |entries| observer.sync(entries)));
+        let observer = s.clone();
+        manager.set_recycle_observer(Arc::new(move |tenant, hash| observer.recycle(tenant, hash)));
         s.spawn_idle_reaper();
         Ok(s)
     }
@@ -256,7 +281,8 @@ impl<D: CellDispatcher> Supervisor<D> {
                 cgroup: None,
             }),
             last_used: Mutex::new(Instant::now()),
-            prepared: Mutex::new(HashSet::new()),
+            prepared: Mutex::new(HashMap::new()),
+            preparing: tokio::sync::Mutex::new(()),
             draining: AtomicBool::new(false),
         });
         children.insert(tenant.to_string(), slot.clone());
@@ -431,19 +457,42 @@ impl<D: CellDispatcher> Supervisor<D> {
         tracing::error!(tenant_id = %slot.tenant, pid, %status, restarts = st.restarts, backoff_ms = wait.as_millis() as u64, "child exited; restarting on the next request");
     }
 
-    /// Hands the deployment of `ctx` to the child once per secret version.
+    /// Hands the deployment of `ctx` to the child unless it holds what the
+    /// route table says now. A child whose cell was built from older
+    /// metadata recycles it on this `prepare` (`child.rs`), before the
+    /// request that follows reaches it.
     async fn ensure_prepared(&self, slot: &Arc<ChildSlot>, ctx: &RequestCtx) -> Result<(), String> {
+        self.prepare_deployment(slot, &ctx.tenant_id, &ctx.deployment_hash)
+            .await
+    }
+
+    async fn prepare_deployment(
+        &self,
+        slot: &Arc<ChildSlot>,
+        tenant_id: &str,
+        deployment_hash: &str,
+    ) -> Result<(), String> {
         let config = self.inner.manager.config();
-        let meta = config
-            .deployments
-            .lookup(&ctx.tenant_id, &ctx.deployment_hash);
-        let key = (ctx.deployment_hash.clone(), meta.secrets_version);
-        if slot.prepared.lock().expect("prepared lock").contains(&key) {
+        let held = |meta: &DeploymentMeta| {
+            slot.prepared
+                .lock()
+                .expect("prepared lock")
+                .get(deployment_hash)
+                == Some(meta)
+        };
+        if held(&config.deployments.lookup(tenant_id, deployment_hash)) {
+            return Ok(());
+        }
+        // Read again in order: a `prepare` sent before this one carries
+        // older metadata, never newer.
+        let _order = slot.preparing.lock().await;
+        let meta = config.deployments.lookup(tenant_id, deployment_hash);
+        if held(&meta) {
             return Ok(());
         }
         // The artifact on this node's disk (controlled mode fetches it).
         let store = config.artifacts.clone();
-        let hash = ctx.deployment_hash.clone();
+        let hash = deployment_hash.to_string();
         tokio::task::spawn_blocking(move || store.get(&hash).map(drop))
             .await
             .map_err(|e| e.to_string())?
@@ -451,23 +500,24 @@ impl<D: CellDispatcher> Supervisor<D> {
         let secrets = config
             .secrets
             .secrets(SecretsRequest {
-                tenant_id: ctx.tenant_id.clone(),
+                tenant_id: tenant_id.to_string(),
                 app: meta.app.clone(),
-                deployment_hash: ctx.deployment_hash.clone(),
+                deployment_hash: deployment_hash.to_string(),
                 secrets_version: meta.secrets_version,
             })
             .await
             .map_err(|e| format!("secrets: {e:?}"))?;
         let prepare = Prepare {
-            tenant_id: ctx.tenant_id.clone(),
-            deployment_hash: ctx.deployment_hash.clone(),
+            tenant_id: tenant_id.to_string(),
+            deployment_hash: deployment_hash.to_string(),
             tier: match meta.tier {
                 TierName::Free => "free".into(),
                 TierName::Paid => "paid".into(),
             },
-            app: meta.app,
+            app: meta.app.clone(),
             secrets_version: meta.secrets_version,
-            database: meta.database,
+            database: meta.database.clone(),
+            module_config: meta.module_config.clone(),
             secrets,
         };
         let body = serde_json::to_vec(&prepare).map_err(|e| e.to_string())?;
@@ -477,8 +527,41 @@ impl<D: CellDispatcher> Supervisor<D> {
         if !status.is_success() {
             return Err(format!("prepare answered {status}"));
         }
-        slot.prepared.lock().expect("prepared lock").insert(key);
+        slot.prepared
+            .lock()
+            .expect("prepared lock")
+            .insert(deployment_hash.to_string(), meta);
         Ok(())
+    }
+
+    /// The route entry of `(tenant, hash)` changed what its cell is built
+    /// from ([`CellManager::recycle`], #825). A running child of `tenant`
+    /// gets the new metadata now, not on its next request, so its cell
+    /// (and the outbox and jobs it runs between requests) stops using the
+    /// old one; a child that cannot take it is stopped.
+    pub fn recycle(&self, tenant: &str, hash: &str) {
+        let Some(slot) = self
+            .inner
+            .children
+            .lock()
+            .expect("children lock")
+            .get(tenant)
+            .cloned()
+        else {
+            return;
+        };
+        let me = self.clone();
+        let (tenant, hash) = (tenant.to_string(), hash.to_string());
+        self.inner.handle.spawn(async move {
+            let running = slot.state.lock().await.running.load(Ordering::SeqCst);
+            if !running || slot.draining.load(Ordering::SeqCst) {
+                return;
+            }
+            if let Err(e) = me.prepare_deployment(&slot, &tenant, &hash).await {
+                tracing::error!(tenant_id = %tenant, deployment_hash = %hash, error = %e, "child did not take the changed route entry");
+                me.stop(&slot, "the changed route entry could not be handed over");
+            }
+        });
     }
 
     async fn forward(

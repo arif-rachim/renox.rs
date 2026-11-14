@@ -71,6 +71,10 @@ pub struct Cell {
     pub(crate) mcp: crate::mcp::Mcp,
     /// `/_img` and `/_files` (#321; ops.md 1.7.0 section 21).
     pub(crate) files: Option<crate::images::Files>,
+    /// The database key (tenant id or `<tenant_id>.<app>`) the cell
+    /// opened, released at eviction: a recycled cell can be evicted after
+    /// its successor of the same key was created (#825).
+    pub(crate) db_key: Option<String>,
 }
 
 impl Cell {
@@ -81,6 +85,7 @@ impl Cell {
             web,
             realtime: None,
             files: None,
+            db_key: None,
             mcp: crate::mcp::Mcp::default(),
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
