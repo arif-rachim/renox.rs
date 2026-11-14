@@ -1086,6 +1086,16 @@
       "additionalProperties": false,
       "description": "Version 1.3 (artifact.md section 3, \"Authorization and realtime\"): the resolved [authz] of the app (renox.toml) or of a module (module.toml, on its entry). V25 and V26 check the references.",
       "properties": {
+        "user_attrs": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "description": "1.8.0 / artifact 1.12 (MF19): the boolean attributes the app adds to Renox::User; only the app's own authz block (renox.toml), never a module's.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,31}$"
+          }
+        },
         "actions": {
           "type": "array",
           "maxItems": 256,

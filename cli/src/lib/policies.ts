@@ -25,6 +25,8 @@ export interface AuthzBlock {
   entities?: Record<string, { table?: string; id?: string; attrs?: string[] }>;
   default_roles?: Record<string, string[]>;
   sensitive?: string[];
+  /** Only the app's `renox.toml [authz]` (manifest.md 1.8.0, MF19). */
+  user_attrs?: string[];
 }
 
 /** `export const guard` (artifact.md 1.3, route `guard`). */
@@ -37,6 +39,33 @@ export interface Guard {
 export const PLATFORM_ACTIONS = ["realtime.subscribe"];
 
 const ACTION = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/u;
+
+/** The attributes of `Renox::User` the platform owns (renox-authz `USER_ATTRS`): an app's `user_attrs` never names one (MF19). */
+export const PLATFORM_USER_ATTRS = ["created_at", "email_verified", "has_password", "id", "mfa_verified", "org", "phone_verified"];
+export const USER_ATTR_NAME = /^[a-z][a-z0-9_]{1,31}$/u;
+export const MAX_USER_ATTRS = 8;
+
+/**
+ * MF19: `renox.toml [authz] user_attrs` names at most 8 boolean attributes,
+ * each `^[a-z][a-z0-9_]{1,31}$`, distinct, none a platform attribute of
+ * `Renox::User`. A module's `[authz]` has none.
+ */
+export function userAttrProblems(app: AuthzBlock | undefined, modules: readonly { name: string; authz?: AuthzBlock }[] = []): string[] {
+  const out: string[] = [];
+  for (const m of modules) if (m.authz?.user_attrs !== undefined) out.push(`MF19: ${m.name}: [authz] user_attrs is only for the app's renox.toml`);
+  const names = app?.user_attrs;
+  if (names === undefined) return out;
+  if (!Array.isArray(names)) return [...out, "MF19: [authz] user_attrs must be an array of names"];
+  if (names.length > MAX_USER_ATTRS) out.push(`MF19: [authz] user_attrs declares ${names.length} names, more than ${MAX_USER_ATTRS}`);
+  const seen = new Set<string>();
+  for (const n of names) {
+    if (typeof n !== "string" || !USER_ATTR_NAME.test(n)) out.push(`MF19: [authz] user_attrs ${JSON.stringify(n)} does not match ^[a-z][a-z0-9_]{1,31}$`);
+    else if (PLATFORM_USER_ATTRS.includes(n)) out.push(`MF19: [authz] user_attrs ${JSON.stringify(n)} is a platform attribute of Renox::User (${PLATFORM_USER_ATTRS.join(", ")})`);
+    else if (seen.has(n)) out.push(`MF19: [authz] user_attrs names ${JSON.stringify(n)} twice`);
+    seen.add(String(n));
+  }
+  return out;
+}
 
 /** The app's `[authz]`, or undefined when renox.toml has none. */
 export function appAuthz(project: string): AuthzBlock | undefined {

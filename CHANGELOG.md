@@ -2,6 +2,20 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.16 (unreleased)
+
+**Worker**
+
+- The principal's `has_password` is a platform attribute of `Renox::User` in the Cedar schema (`false` when the principal carries none, `false` for an agent), so a policy can read `principal.has_password`; and an app may declare its own boolean attributes (`renox.toml [authz] user_attrs`), which the merged schema adds to `Renox::User` and entity building sets to `false` when the principal has none, so `forbid ... when { principal.portal }` is never skipped for want of the attribute (`ops.md` 1.23.0, `artifact.md` 1.12; #791).
+
+**CLI**
+
+- `renox.toml [authz] user_attrs = ["portal"]` declares the app's boolean attributes of `Renox::User` (each `^[a-z][a-z0-9_]{1,31}$`, at most 8, never a platform name such as `has_password` or `id`); `renox check` and `renox build` refuse a bad list with MF19, and the build carries it into the artifact's `authz` block (`manifest.md` 1.8.0; #791).
+
+**Modules**
+
+- `auth` 1.4.0: `principal.attrs.has_password` (true when the account has a password; always false for an agent principal and for a phone-only account), and the app's declared boolean attributes: auth keeps one that the app's own `auth.principal` filler set to a boolean and ignores a module filler's value for it (#791).
+
 ## 0.1.15 (2026-11-13)
 
 **Install**

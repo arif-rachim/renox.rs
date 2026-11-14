@@ -43,6 +43,29 @@ Modules ship default policies under `modules/<module>/policies/`. The app adds p
 
 **Contract.** The runtime side of this document is `docs/contracts/ops.md` section 17 (1.5.0, #272): the principal reaches Rust through the `auth` module's exported service `auth.principal` (never by the cell reading `auth__sessions`), cached per cell by session id and invalidated by `authz.roles_changed`, `auth.login`, and `auth.logout`; `op_authz_*` and `ctx.authz` (`require`, `can`, `canBatch`, `explain`, `roles`), the `guard` export, `db.scoped()` with `[authz.ownership]`, the append-only `renox__authz_audit` row for sensitive actions, and the evaluation count `authz_evals`. The Cedar schema qualifies the platform types this document writes bare: `Role::"finance"` is `Renox::Role::"finance"`, `Action::"invoice.read"` is `Renox::Action::"invoice.read"`, and a module's `Invoice` is `Billing::Invoice`. The `realtime.authorize` hook of the table below is a policy on `Renox::Topic`, not a hook (`docs/09-htmx-realtime.md`).
 
+## The principal's attributes, and the app's own
+
+`principal` in a policy is a `Renox::User` with the platform's attributes: `id`, `created_at`, `email_verified`, `phone_verified`, `has_password` (true when the account has a password; false for a phone-only account and for an agent), `mfa_verified` and `org`. They come from the `auth` module and its `auth.principal` fillers (2fa, org); a policy may name only these.
+
+An **app attribute** is a boolean the app adds to `Renox::User` for its own rules, such as "this user is a customer of the portal, never staff". The app declares its names in `renox.toml` and sets them from its own `hooks.ts` filler of `auth.principal`:
+
+```toml
+[authz]
+user_attrs = ["portal"]   # ^[a-z][a-z0-9_]{1,31}$, at most 8, never a platform name
+```
+
+```cedar
+forbid (principal is Renox::User, action in [Renox::Action::"job.edit"], resource)
+when { principal.portal };
+```
+
+- Only the **app's own** filler may set one; a module's filler (`auth.principal` is open to modules) cannot, and its write is ignored. A module's `module.toml` cannot declare them.
+- Only booleans. A missing value, or any other type, is `false`: a `forbid ... when { principal.portal }` is never skipped for want of the attribute.
+- An app attribute cannot widen or overwrite a platform one: a name that is one of the platform's (`has_password` and `id` included) is refused at `renox check` (MF19) and by the worker when it builds the schema, and the platform's own values (`id`, `has_password`) are not taken from a filler.
+- A name the app did not declare is not in the schema, so a policy cannot read it (a policy that names it fails validation, `RENOX_POLICY_INVALID`) and the value is inert.
+
+The contracts: `manifest.md` 1.8.0 (`[authz] user_attrs`, MF19), `artifact.md` 1.12 (the app's `authz.user_attrs`), `ops.md` 1.23.0 section 17.
+
 ## Enforcement points
 
 | Layer | How | Role |

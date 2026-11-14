@@ -424,7 +424,7 @@ export interface Principal {
   readonly id: string;
   readonly kind: "user" | "system";
   readonly roles: readonly PrincipalRole[];
-  /** What `auth.principal` and its hook fillers added (`mfa_verified`, `org`, ...). */
+  /** What `auth.principal` and its hook fillers added (`mfa_verified`, `org`, ...), and `has_password`; with the app's own booleans declared in `[authz] user_attrs` (1.23.0). */
   readonly attrs: Readonly<Record<string, JsonValue>>;
 }
 

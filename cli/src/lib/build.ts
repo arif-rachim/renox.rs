@@ -40,7 +40,7 @@ import { hashFiles, sha256Hex } from "./hash.ts";
 import { lazyModuleEntries, readHookKeys, unapprovedHookMessage, unreadableMessage } from "./hook-keys.ts";
 import { toPosix } from "./paths.ts";
 import { rewriteAssetRefs } from "./public-assets.ts";
-import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, v25Problems } from "./policies.ts";
+import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, userAttrProblems, v25Problems } from "./policies.ts";
 import { mergeSlots, moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
 import { readLock } from "./modules/lock.ts";
 import { appSlotProblems } from "../check/app-slots.ts";
@@ -631,7 +631,7 @@ export async function buildFiles(
   const authz = appAuthz(project);
   // (modules/build.ts puts a module's `[authz]` and `[realtime]` on its entry.)
   const moduleAuthz = (mods?.modules ?? []).map((m) => ({ name: m.lock.name, authz: (m.manifest.doc as { authz?: AuthzBlock }).authz }));
-  const v25 = [...v25Problems(routes, authz, moduleAuthz), ...toolProblems(extra.tools, authz, moduleAuthz)];
+  const v25 = [...userAttrProblems(authz, moduleAuthz), ...v25Problems(routes, authz, moduleAuthz), ...toolProblems(extra.tools, authz, moduleAuthz)];
   if (v25.length) throw new BuildError("authorization references do not resolve", v25);
   // V26 (#284): feed and ownership tables exist in their owner's migrations.
   const appRealtime = appRealtimeBlock(project);

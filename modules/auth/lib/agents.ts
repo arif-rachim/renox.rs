@@ -21,8 +21,73 @@
 
 import { type AuthCtx, randomHex, sha256Hex, type User } from "./core.ts";
 
-/** The user attributes the platform's Cedar schema knows (renox-authz USER_ATTRS); a filler's other keys are dropped. */
-export const PRINCIPAL_ATTRS = ["created_at", "email_verified", "mfa_verified", "org", "phone_verified"] as const;
+/** The user attributes the platform's Cedar schema knows (renox-authz USER_ATTRS); a filler's other keys are dropped, except the app's own (below). */
+export const PRINCIPAL_ATTRS = ["created_at", "email_verified", "has_password", "mfa_verified", "org", "phone_verified"] as const;
+
+/** The name of an app attribute (`renox.toml [authz] user_attrs`, manifest.md MF19). */
+export const APP_ATTR_NAME = /^[a-z][a-z0-9_]{1,31}$/u;
+/** At most this many app attributes (MF19). */
+export const MAX_APP_ATTRS = 8;
+
+const isPlatformAttr = (k: string | symbol): boolean => typeof k === "string" && (PRINCIPAL_ATTRS as readonly string[]).includes(k);
+
+/**
+ * An `attrs` object for the `auth.principal` hook's fillers (ops.md 1.23.0
+ * section 17): a write of a key outside the platform's user attributes is
+ * kept only when the filler is the app's own (`ctx.caller` is undefined
+ * there; a module filler's is its name, read per async context). A module
+ * cannot set, change or delete an app attribute, whatever its value. The
+ * platform's own keys are open to every filler, as before.
+ */
+function guardAttrs(ctx: { readonly caller?: unknown }, target: Record<string, unknown>): Record<string, unknown> {
+  const blocked = (k: string | symbol): boolean => !isPlatformAttr(k) && ctx.caller !== undefined;
+  return new Proxy(target, {
+    set: (t, k, v, r) => (blocked(k) ? true : Reflect.set(t, k, v, r)),
+    defineProperty: (t, k, d) => (blocked(k) ? false : Reflect.defineProperty(t, k, d)),
+    deleteProperty: (t, k) => (blocked(k) ? true : Reflect.deleteProperty(t, k)),
+  });
+}
+
+/**
+ * The principal handed to `auth.principal` fillers, with `attrs` guarded
+ * (see `guardAttrs`); a filler that replaces `attrs` gets the new object
+ * guarded too. `read()` is what the fillers left.
+ */
+export function principalForFillers<T extends { attrs: Record<string, unknown> }>(ctx: { readonly caller?: unknown }, p: T): { principal: T; read(): T } {
+  let attrs = p.attrs;
+  const principal = new Proxy(p, {
+    get: (t, k, r) => (k === "attrs" ? guardAttrs(ctx, attrs) : Reflect.get(t, k, r)),
+    set: (t, k, v, r) => {
+      if (k !== "attrs") return Reflect.set(t, k, v, r);
+      // Replacing attrs: a module filler may only carry the platform keys over.
+      const next: Record<string, unknown> = {};
+      if (v !== null && typeof v === "object") for (const [key, val] of Object.entries(v as Record<string, unknown>)) if (isPlatformAttr(key) || ctx.caller === undefined) next[key] = val;
+      if (ctx.caller !== undefined) for (const key of Object.keys(attrs)) if (!isPlatformAttr(key)) next[key] = attrs[key];
+      attrs = next;
+      return true;
+    },
+  });
+  return { principal, read: () => ({ ...p, attrs }) };
+}
+
+/**
+ * What auth keeps of the attributes the fillers left: the platform's user
+ * attributes, and the app's own, which are booleans under an `APP_ATTR_NAME`
+ * name (at most `MAX_APP_ATTRS`, in the order set); anything else is
+ * dropped. The cell and the Cedar schema keep only the names the app
+ * declares in `[authz] user_attrs`; an undeclared one is inert there.
+ */
+export function keptAttrs(attrs: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of PRINCIPAL_ATTRS) if (attrs[k] !== undefined) out[k] = attrs[k];
+  let app = 0;
+  for (const [k, v] of Object.entries(attrs)) {
+    if (isPlatformAttr(k) || typeof v !== "boolean" || !APP_ATTR_NAME.test(k) || app >= MAX_APP_ATTRS) continue;
+    out[k] = v;
+    app++;
+  }
+  return out;
+}
 
 /** One organisation an agent may act in, from the `auth.agent_orgs` hook's fillers (org). */
 export interface AgentOrg {
@@ -282,12 +347,13 @@ export async function verify(ctx: AuthCtx, token: string): Promise<VerifiedAgent
   );
   if (row === null) return null;
   await ctx.db.execute("update auth__agent_tokens set last_used_at = ? where id = ?", [t, row.id]);
-  const p = { id: row.user_id, attrs: { email_verified: row.email_verified_at !== null, phone_verified: row.phone_verified_at !== null, created_at: row.created_at } as Record<string, unknown> };
-  await ctx.hooks.run("auth.principal", { principal: p, agent: true, org_id: row.org_id });
-  const attrs: Record<string, unknown> = {};
-  for (const k of PRINCIPAL_ATTRS) if (p.attrs[k] !== undefined) attrs[k] = p.attrs[k];
-  // No second factor for an agent token, whatever a filler set.
+  const base = { id: row.user_id, attrs: { email_verified: row.email_verified_at !== null, phone_verified: row.phone_verified_at !== null, created_at: row.created_at } as Record<string, unknown> };
+  const f = principalForFillers(ctx, base);
+  await ctx.hooks.run("auth.principal", { principal: f.principal, agent: true, org_id: row.org_id });
+  const attrs = keptAttrs(f.read().attrs);
+  // No second factor and no password for an agent token, whatever a filler set.
   attrs.mfa_verified = false;
+  attrs.has_password = false;
   const assigned = (await (ctx as RolesCtx).authz?.roles?.list(row.user_id)) ?? [];
   const roles = assigned.map((r) => ({ role: r.role, scope_type: r.scope_type, scope_id: r.scope_id ?? null }));
   return {
