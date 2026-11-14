@@ -14,6 +14,7 @@
 import type { DbStatements, Principal } from "@renoxium/sdk";
 import { audit, reports } from "renox:modules";
 
+import { markSyncPending } from "./booking-sync";
 import { type ContractInput, validDay } from "./contract-forms";
 import { createContract } from "./contracts";
 import { insertCustomer, insertSite } from "./customers";
@@ -665,6 +666,8 @@ async function writeServices(ctx: PlanCtx, plan: Planned[]): Promise<void> {
       await ctx.db.execute("insert into app__services (branch_id, code, name_en, name_ar, unit, price_fils, vat_rate, active) values (?, ?, ?, ?, ?, ?, ?, 1)", [p.service_branch ?? null, r.code, r.name_en, r.name_ar, r.unit, r.price_fils, r.vat_rate]);
     }
   }
+  // The job runs as System::"app", which holds no booking.manage: the next staff request mirrors the services into `booking` (lib/page.ts shell).
+  if (plan.some((p) => p.op !== "exists")) await markSyncPending(ctx.db);
 }
 
 /** One draft contract per number, in the customer's branch, with one item per row (`createContract`); the file's number replaces the generated one. */

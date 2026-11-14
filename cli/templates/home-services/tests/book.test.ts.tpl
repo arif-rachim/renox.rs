@@ -493,3 +493,126 @@ describe("one radio per time: the technician is not the customer's choice (#802)
     expect(page.html).toContain("That time was just taken, please pick another.");
   });
 });
+
+// #797: what /book offers follows the catalogue at once. The anonymous /book request cannot call `booking`'s
+// managing services, so each action that changes the catalogue mirrors it (lib/booking-sync.ts syncCatalogue); a
+// caller that holds no booking.manage (the org.member_added handler) leaves booking_sync_pending for the next
+// staff request (lib/page.ts shell).
+describe("/book follows the catalogue without a scheduling in between (#797)", () => {
+  let owner: ReturnType<typeof t.as>;
+  const NEW_EMAIL = "new.tech797@fixit.example";
+  const pendingFlag = () => rows("select value from app__settings where key = 'booking_sync_pending'")[0]?.value;
+  const bookingStaff = () => rows("select id from booking__staff order by id").map((r) => String(r.id));
+  const step1 = async () => (await t.as("anonymous").page("/book?lang=en")).html;
+  const week = (extra: Record<string, string>): Record<string, string> => {
+    const form: Record<string, string> = { branch_id: "br_dubai" };
+    for (const wd of [0, 1, 2, 3, 4, 5, 6]) Object.assign(form, wd === 0 ? { closed_0: "on" } : { [`open_${wd}`]: wd === 5 ? "14:00" : "08:00", [`close_${wd}`]: "18:00" });
+    return { ...form, ...extra };
+  };
+  /** Ali and Bilal each have a job on `day`, so a technician with none is the least busy and takes every time. */
+  const loadBoth = (day: string, n: number) => {
+    const base = Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) - 4 * 3600;
+    for (const [i, who] of ["u_dxb_ali", "u_dxb_bilal"].entries()) {
+      write(
+        "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values (?, 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', null, ?, 'scheduled', 'normal', ?, '', ?, ?, ?, null, 'u_dxb_dispatcher', 1793000000, 1793000000, 'staff')",
+        [`jb_797_${n}_${i}`, `J-0${n}${i}797`, Number(AC), base + 15 * 3600, base + 16 * 3600, who],
+      );
+    }
+  };
+  const slotCount = async (url: string) => [...(await t.as("anonymous").page(url)).html.matchAll(/name="slot" value="([^"]+)"/gu)].length;
+
+  test("setup: the owner signs in with a second factor", async () => {
+    write("delete from twofa__totp where user_id = 'u_owner'");
+    write("delete from twofa__sessions where user_id = 'u_owner'");
+    const email = "owner@fixit.example";
+    const enrolling = t.as("own797-enrol");
+    expect((await enrolling.action("/auth/login", "default", { email, password: PASSWORD, next: "/" })).status).toBe(303);
+    const secret = (/id="secret"[^>]*>([A-Z2-7 ]+)</u.exec((await enrolling.page("/2fa/enroll/totp")).html)?.[1] ?? "").replace(/ /gu, "");
+    expect((await enrolling.action("/2fa/enroll/totp", "confirm", { code: await totp(secret) })).status).toBe(200);
+    owner = t.as("own797");
+    await owner.action("/auth/login", "default", { email, password: PASSWORD, next: "/services" });
+    expect((await owner.action("/2fa/verify", "totp", { code: await totp(secret, Date.now() / 1000 + 30), next: "/services" })).status).toBe(303);
+  });
+
+  test("a service the owner switches on at /services is bookable on step 2 with no scheduling in between", async () => {
+    write("insert into app__services (branch_id, code, name_en, name_ar, unit, price_fils, vat_rate, active, self_booking) values (null, 'MOLD-CHECK', 'Mold check', 'فحص العفن', 'visit', 15000, 5, 0, 1)");
+    const id = String(rows("select id from app__services where code = 'MOLD-CHECK'")[0]?.id);
+    expect(await step1()).not.toContain("Mold check");
+    expect(rows("select id from booking__services where id = 'mold-check'")).toEqual([]);
+    expect((await owner.action("/services", "save", { service: id, price: "150.00", active: "1", self_booking: "1" })).status).toBe(200);
+    expect(rows("select id from booking__services where id = 'mold-check'")).toEqual([{ id: "mold-check" }]);
+    expect(await step1()).toContain("Mold check");
+    expect(await slotCount(`/book?${q({ ...PLACE, service: id, step: "2", day: OTHER_DAYS[2] as string })}`)).toBeGreaterThan(0);
+  });
+
+  test("a deactivated service is gone from step 1 and its times from step 2", async () => {
+    const id = String(rows("select id from app__services where code = 'MOLD-CHECK'")[0]?.id);
+    const url = `/book?${q({ ...PLACE, service: id, step: "2", day: OTHER_DAYS[2] as string })}`;
+    expect((await owner.action("/services", "save", { service: id, price: "150.00", self_booking: "1" })).status).toBe(200);
+    expect(await step1()).not.toContain("Mold check");
+    expect(await slotCount(url)).toBe(0);
+    // Back on: bookable again.
+    expect((await owner.action("/services", "save", { service: id, price: "150.00", active: "1", self_booking: "1" })).status).toBe(200);
+    expect(await slotCount(url)).toBeGreaterThan(0);
+  });
+
+  test("a branch's changed hours change the times at once", async () => {
+    const day = OTHER_DAYS[0] as string;
+    const hourOf = (slot: string): number => new Date(startOf(slot) + 4 * 3_600_000).getUTCHours();
+    const before = await slotsOn(day);
+    expect(before.length).toBe(12);
+    try {
+      const saved = await owner.action("/admin/branches", "hours", week(Object.fromEntries([1, 2, 3, 4, 5, 6].flatMap((wd) => [[`open_${wd}`, "10:00"], [`close_${wd}`, "13:00"]]))));
+      expect(saved.status).toBe(303);
+      const after = await slotsOn(day);
+      expect(after.length).toBeGreaterThan(0);
+      expect(after.every((s) => hourOf(s) >= 10 && hourOf(s) < 13)).toBe(true);
+      expect(after.length).toBeLessThan(before.length);
+    } finally {
+      expect((await owner.action("/admin/branches", "hours", week({}))).status).toBe(303);
+    }
+    expect((await slotsOn(day)).length).toBe(12);
+  });
+
+  test("a technician the owner gives the role to at /admin/people has free time on /book at once", async () => {
+    const day = OTHER_DAYS[0] as string;
+    loadBoth(day, 1);
+    expect((await slotsOn(day)).length).toBeGreaterThan(0);
+    expect(bookingStaff()).not.toContain("u_dxb_accountant");
+    expect((await owner.action("/admin/people", "role", { user_id: "u_dxb_accountant", role: "technician" })).status).toBe(303);
+    expect(bookingStaff()).toContain("u_dxb_accountant");
+    expect(new Set((await slotsOn(day)).map(techOf))).toEqual(new Set(["u_dxb_accountant"]));
+    write("delete from app__jobs where id like 'jb_797_1_%'");
+    // Back to their role: not a technician any more, so never offered.
+    expect((await owner.action("/admin/people", "role", { user_id: "u_dxb_accountant", role: "accountant" })).status).toBe(303);
+    expect((await slotsOn(day)).map(techOf)).not.toContain("u_dxb_accountant");
+  });
+
+  test("a technician who accepts the invitation is mirrored by the next staff page, which clears the pending mark", async () => {
+    const day = OTHER_DAYS[1] as string;
+    loadBoth(day, 2);
+    expect((await owner.action("/admin/people", "invite", { email: NEW_EMAIL, role: "technician" })).status).toBe(303);
+    const token = /\/org\/accept\/([A-Za-z0-9_-]+)/u.exec(String(rows("select text_body from email__messages where to_address = ?", [NEW_EMAIL])[0]?.text_body))?.[1] ?? "";
+    expect(token).not.toBe("");
+    const newbie = t.as("newbie797");
+    expect((await newbie.action("/auth/register", "default", { email: NEW_EMAIL, password: PASSWORD, display_name: "Nadia Newtech" })).status).toBe(200);
+    expect((await newbie.action("/auth/login", "default", { email: NEW_EMAIL, password: PASSWORD })).status).toBe(303);
+    expect((await newbie.action(`/org/accept/${token}`, "accept", {})).status).toBe(303);
+    // The handler is System::"app" (no booking.manage): it leaves the mark, and `booking` does not know her yet.
+    await until(() => pendingFlag(), "the pending mark");
+    const id = String(rows("select id from auth__users where email = ?", [NEW_EMAIL])[0]?.id);
+    expect(pendingFlag()).toBe("1");
+    expect(bookingStaff()).not.toContain(id);
+    expect((await slotsOn(day)).map(techOf)).not.toContain(id);
+    // A page of a person with no booking.manage does not clear it.
+    expect((await newbie.page("/me")).status).toBe(200);
+    expect(pendingFlag()).toBe("1");
+    // The next staff page (a dispatcher's) syncs and clears it.
+    const dispatching = t.as("dispatcher797");
+    expect((await dispatching.action("/auth/login", "default", { email: "dispatcher.dubai@fixit.example", password: PASSWORD, next: "/dispatch" })).status).toBe(303);
+    expect((await dispatching.page("/dispatch")).status).toBe(200);
+    expect(pendingFlag()).toBeUndefined();
+    expect(bookingStaff()).toContain(id);
+    expect(new Set((await slotsOn(day)).map(techOf))).toEqual(new Set([id]));
+  });
+});

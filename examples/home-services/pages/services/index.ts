@@ -5,6 +5,7 @@
 // means every branch), so the statements name the branch themselves.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
+import { syncCatalogue } from "../../lib/booking-sync";
 import { check, serviceSchema } from "../../lib/forms";
 import { shell } from "../../lib/page";
 import { invalid } from "../../lib/invalid";
@@ -72,6 +73,8 @@ export const actions = {
     const row = await ctx.db.queryOne<{ code: string }>("select code from app__services where id = ? and (branch_id is null or branch_id = ?)", [s.id, branch.id]);
     if (row === null) return new Response("Service not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
     await ctx.db.execute("update app__services set price_fils = ?, active = ?, self_booking = ? where id = ?", [s.price_fils, s.active, s.self_booking, s.id]);
+    // settings.write is the owner's, who holds booking.manage: /book offers the change at once.
+    await syncCatalogue(ctx);
     return catalogue(ctx, branch, page.locale, null, row.code);
   },
 };

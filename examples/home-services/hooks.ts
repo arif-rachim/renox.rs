@@ -23,6 +23,7 @@ import { i18n, notifications, twofa } from "renox:modules";
 
 import ar from "./i18n/ar.json";
 import en from "./i18n/en.json";
+import { markSyncPending } from "./lib/booking-sync";
 import { applyPendingRole, inviteOf } from "./lib/admin";
 import { isStaff } from "./lib/portal";
 import { handleInbound } from "./lib/inbox";
@@ -37,6 +38,9 @@ export const on = {
   "org.member_added": async (ctx: EventContext, e: DeliveredEvent<MemberAdded>) => {
     const applied = await applyPendingRole(ctx, e.payload.org_id, e.payload.user_id);
     if (applied === null) return;
+    // This handler is System::"app", which holds no booking.manage (policies/ stay as they are): a new technician
+    // is mirrored into `booking` by the next staff request (lib/page.ts shell).
+    if (applied.role === "technician") await markSyncPending(ctx.db);
     await ctx.events.emit("app.member_ready", { user_id: e.payload.user_id, branch_id: applied.branch.id } satisfies MemberReady);
   },
 

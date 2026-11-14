@@ -7,12 +7,12 @@
 // grants it to the people who dispatch). Slots are searched per technician of
 // the branch, so another branch's staff never appear. A service's length is on
 // this side: the catalogue prices a visit, an hour or a unit, not a duration.
-import type { DbStatements } from "@renoxium/sdk";
+import type { Authz, DbStatements } from "@renoxium/sdk";
 import { booking } from "renox:modules";
 
 import { day as dayOf } from "./quotes";
 import type { Branch } from "./scope";
-import type { Technician } from "./technicians";
+import { techniciansOf, type Technician } from "./technicians";
 
 /** The app's offset from UTC in milliseconds (Asia/Dubai, no daylight saving). */
 export const OFFSET_MS = 4 * 3_600_000;
@@ -145,3 +145,32 @@ export async function cancelVisit(bookingId: string): Promise<void> {
 
 /** The local time of a unix-seconds instant as `HH:MM`. */
 export const clock = (seconds: number): string => new Date(seconds * 1000 + OFFSET_MS).toISOString().slice(11, 16);
+
+/** What `syncCatalogue` reads: the request's Db and the roles (the technicians are the holders of the `technician` role). */
+interface SyncCtx {
+  readonly authz: Pick<Authz, "roles">;
+  readonly db: DbStatements;
+}
+
+/**
+ * Mirrors what `/book` offers into `booking`: the active services, the technicians of the branch
+ * (`branchId`; default every branch) and the branch's working hours, closed weekdays included. Idempotent
+ * (ensureSynced and syncHours only upsert), and a call always repeats the hand-over, even when this request did
+ * it before: the caller has just changed something. Every action that changes the catalogue calls it (a service
+ * saved, a technician's role, a branch's hours) and so does `shell()` for a pending sync. It needs
+ * `booking.manage`: a caller without it (an event handler, a job, the setup route: `System::"app"` or no
+ * principal) calls `markSyncPending` instead.
+ */
+export async function syncCatalogue(ctx: SyncCtx, branchId?: string): Promise<void> {
+  done.delete(ctx.db);
+  const branches = await ctx.db.query<Branch>("select id, org_id, name_en, name_ar, slug, emirate, area from app__branches where (? is null or id = ?) order by id", [branchId ?? null, branchId ?? null]);
+  for (const branch of branches) await syncHours(ctx.db, branch, await techniciansOf(ctx, branch));
+}
+
+/** The settings key that says a sync is still to be made: set by a caller that cannot sync, cleared by `shell()`. */
+export const SYNC_PENDING = "booking_sync_pending";
+
+/** Records that `/book` may offer something `booking` does not hold yet; the next request of a person who holds `booking.manage` syncs (lib/page.ts). */
+export async function markSyncPending(db: DbStatements): Promise<void> {
+  await db.execute("insert into app__settings (key, value) values (?, '1') on conflict (key) do update set value = excluded.value", [SYNC_PENDING]);
+}
