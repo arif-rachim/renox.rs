@@ -10,6 +10,7 @@ import { ownerFor } from "../workers/assign.ts";
 import { healthyNodes } from "../workers/repo.ts";
 import type { Deps } from "../context.ts";
 import { routeService } from "./service.ts";
+import { manifestOf, moduleConfigFor } from "./module-config.ts";
 import { entriesWhere, lockRoutes, removeEntry, upsertEntry } from "./table.ts";
 
 /** deploy-api.md section 8: a draining entry is removed this long after the switch. */
@@ -43,13 +44,19 @@ async function pointAt(tx: Db, deps: Deps, d: { tenant_id: string; app: string }
   const own = await tx.query<{ database: string | null }>("select database from apps where tenant_id = $1 and name = $2 and deleted_at is null", [d.tenant_id, d.app]);
   if (own[0] === undefined) throw notFound();
   const database = own[0].database ?? null;
+  const overlay = async (h: string) => {
+    const module_config = await moduleConfigFor(tx, deps, d.tenant_id, d.app, await manifestOf(tx, d.tenant_id, d.app, h));
+    return module_config === undefined ? {} : { module_config };
+  };
+  const activeOverlay = await overlay(hash);
+  const previousOverlay = previous !== null && previous !== hash ? await overlay(previous) : {};
   for (const hostname of hostnamesOf(deps, d.app)) {
     const base = { hostname, tenant_id: d.tenant_id, app: d.app, updated_at: now, tier, node_id: node, ...(database === null ? {} : { database }) };
     if (previous !== null && previous !== hash) {
       const [old] = await entriesWhere(tx, "hostname = $1 and deployment_hash = $2", [hostname, previous]);
-      await upsertEntry(tx, { ...base, deployment_hash: previous, status: "draining", secrets_version: old?.secrets_version ?? 0 });
+      await upsertEntry(tx, { ...base, deployment_hash: previous, status: "draining", secrets_version: old?.secrets_version ?? 0, ...previousOverlay });
     }
-    await upsertEntry(tx, { ...base, deployment_hash: hash, status: "active", secrets_version: secretsVersion });
+    await upsertEntry(tx, { ...base, deployment_hash: hash, status: "active", secrets_version: secretsVersion, ...activeOverlay });
   }
 }
 
@@ -193,4 +200,26 @@ export async function republishApp(deps: Deps, tx: Db, tenantId: string, app: st
   if (node === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 5 });
   await pointAt(tx, deps, { tenant_id: tenantId, app }, active.hash, null, node, tier, Number(active.secrets_version ?? 0), now);
   return true;
+}
+
+/**
+ * deploy-api.md 0.12 section 10 (#826): recomputes `module_config` of the app's platform entries
+ * (active and draining) from their deployments' manifests and the app's verified custom domains,
+ * and re-upserts the ones that differ, inside the caller's transaction. Needs no healthy node and
+ * leaves node, tier and secret version as they are. Returns true when an entry changed; the
+ * caller mirrors the custom hostnames (domains/repo.ts) and publishes.
+ */
+export async function refreshModuleConfig(deps: Deps, tx: Db, tenantId: string, app: string, now: number): Promise<boolean> {
+  await lockRoutes(tx);
+  let changed = false;
+  for (const hostname of hostnamesOf(deps, app)) {
+    for (const e of await entriesWhere(tx, "hostname = $1 and tenant_id = $2 and status in ('active', 'draining')", [hostname, tenantId])) {
+      const next = await moduleConfigFor(tx, deps, tenantId, app, await manifestOf(tx, tenantId, app, e.deployment_hash));
+      if (JSON.stringify(next ?? null) === JSON.stringify(e.module_config ?? null)) continue;
+      const { version: _v, module_config: _m, ...rest } = e;
+      await upsertEntry(tx, { ...rest, updated_at: now, ...(next === undefined ? {} : { module_config: next }) });
+      changed = true;
+    }
+  }
+  return changed;
 }

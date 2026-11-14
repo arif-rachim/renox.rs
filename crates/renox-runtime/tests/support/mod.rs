@@ -103,6 +103,7 @@ pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
         ai: None,
         templates: None,
         authz: None,
+        module_config: Default::default(),
     }
 }
 

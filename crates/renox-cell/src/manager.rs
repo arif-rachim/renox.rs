@@ -115,7 +115,28 @@ pub struct DeploymentMeta {
     /// app has a database of its own (`<tenant_id>.<app>`); `None` is the
     /// tenant's shared file.
     pub database: Option<String>,
+    /// deploy-api.md 0.12: the route entry's `module_config` (per module,
+    /// config values the platform computes); empty: none.
+    pub module_config: ModuleConfig,
 }
+
+impl DeploymentMeta {
+    /// Whether a cell built from `self` must not serve once `current` is
+    /// what the deployment's lookup answers: something that reached the
+    /// isolate at creation changed (deploy-api.md sections 8 to 10: the
+    /// secret set, `secrets_version`, #830, and the `module_config`
+    /// overlay, #825). The one test behind every recycle: the route
+    /// table's ([`crate::control::routes`]) and a child's handover
+    /// (`supervisor::child`).
+    pub fn is_stale_against(&self, current: &DeploymentMeta) -> bool {
+        self.secrets_version != current.secrets_version
+            || self.module_config != current.module_config
+    }
+}
+
+/// A route entry's `module_config` (deploy-api.md 0.12): module name to
+/// key to value.
+pub type ModuleConfig = BTreeMap<String, BTreeMap<String, String>>;
 
 /// Looks up [`DeploymentMeta`] of `(tenant_id, deployment_hash)`.
 pub trait DeploymentLookup: Send + Sync + 'static {
@@ -147,6 +168,7 @@ impl DeploymentLookup for StaticTiers {
             app: None,
             secrets_version: 0,
             database: None,
+            module_config: ModuleConfig::new(),
         }
     }
 }
@@ -238,6 +260,9 @@ struct Inner {
     /// Told about every route sync (#254: the supervisor places tenants
     /// in children from the same entries).
     sync_observer: std::sync::OnceLock<SyncObserver>,
+    /// Told about every [`CellManager::recycle`] (#825, #830: the
+    /// supervisor hands the changed deployment to a tenant's own child).
+    recycle_observer: std::sync::OnceLock<RecycleObserver>,
     db_lifecycle: std::sync::OnceLock<Arc<dyn DbLifecycle>>,
     /// The database key (tenant id or `<tenant_id>.<app>`) of each cell.
     db_keys: Mutex<HashMap<CellKey, String>>,
@@ -249,6 +274,10 @@ struct Inner {
 
 /// Called with the entries of every [`CellManager::sync_routes`].
 pub type SyncObserver = Arc<dyn Fn(&[RouteEntry]) + Send + Sync>;
+
+/// Called with `(tenant_id, deployment_hash)` of every
+/// [`CellManager::recycle`].
+pub type RecycleObserver = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// What happens around a tenant file's life in this process (#255: the
 /// Litestream sidecar, `crate::replication`).
@@ -308,6 +337,7 @@ impl CellManager {
                 #[cfg(feature = "test-support")]
                 idle_override_us: std::sync::atomic::AtomicU64::new(u64::MAX),
                 sync_observer: std::sync::OnceLock::new(),
+                recycle_observer: std::sync::OnceLock::new(),
                 db_lifecycle: std::sync::OnceLock::new(),
                 db_keys: Mutex::new(HashMap::new()),
                 moving: Mutex::new(HashSet::new()),
@@ -485,6 +515,11 @@ impl CellManager {
         let _ = self.inner.sync_observer.set(observer);
     }
 
+    /// Registers the observer of [`Self::recycle`] (once).
+    pub fn set_recycle_observer(&self, observer: RecycleObserver) {
+        let _ = self.inner.recycle_observer.set(observer);
+    }
+
     /// Marks `tenant_id` as moving (#259); false when it already was.
     pub fn start_moving(&self, tenant_id: &str) -> bool {
         self.inner
@@ -595,6 +630,38 @@ impl CellManager {
             }
         }
         n
+    }
+
+    /// The route entry of `(tenant_id, deployment_hash)` changed what its
+    /// cell is built from (deploy-api.md sections 8 to 10: `module_config`,
+    /// #825; `secrets_version`, #830). Call it after the new entry is in
+    /// the [`DeploymentLookup`]. The cell's slot leaves the map at once, so
+    /// the next request creates a fresh cell that reads the new entry; a
+    /// live cell only finishes what it has in flight (draining, then
+    /// evicted), and a cell still being created from the old entry is
+    /// drained as soon as it is ready and serves nothing. The recycle
+    /// observer is told even when this process has no cell (the tenant may
+    /// run in a child of its own). Returns whether a slot was detached.
+    pub fn recycle(&self, tenant_id: &str, deployment_hash: &str) -> bool {
+        let key = CellKey {
+            tenant_id: tenant_id.to_string(),
+            deployment_hash: deployment_hash.to_string(),
+        };
+        let slot = self.inner.cells.lock().expect("cells lock").remove(&key);
+        if let Some(slot) = &slot {
+            tracing::info!(
+                tenant_id,
+                deployment_hash,
+                "cell recycled: its route entry changed"
+            );
+            if let Some(cell) = slot.get() {
+                cell.start_draining();
+            }
+        }
+        if let Some(observer) = self.inner.recycle_observer.get() {
+            observer(tenant_id, deployment_hash);
+        }
+        slot.is_some()
     }
 
     /// Drain every cell of `tenant_id` (#254: the tenant moved to a child
@@ -832,6 +899,11 @@ impl CellManager {
             if current && cell.try_admit() {
                 return Ok(cell);
             }
+            if !current {
+                // Evicted, or detached by `recycle` while it was being
+                // created from the previous route entry: it serves nothing.
+                cell.start_draining();
+            }
         }
     }
 
@@ -940,6 +1012,7 @@ impl CellManager {
                     }),
                 ),
                 authz: Some(renox_runtime::SharedAuthz(authz_slot)),
+                module_config: meta.module_config.clone(),
             };
             let prepare_db = async {
                 db.ready().await.map_err(CellError::Db)?;
@@ -1041,6 +1114,7 @@ impl CellManager {
             },
         };
         let mut cell = Cell::new(key.clone(), isolate, web);
+        cell.db_key = Some(db_key.clone());
         cell.realtime = Some(host);
         cell.files = Some(files);
         let cell = Arc::new(cell);
@@ -1184,8 +1258,13 @@ impl CellManager {
                         .get(&cell.key)
                         .and_then(|s| s.get())
                         .is_some_and(|c| Arc::ptr_eq(c, &cell));
-                    if mine && cell.try_mark_evicted(idle) {
-                        cells.remove(&cell.key);
+                    // Not in the map: not installed yet (left alone), or
+                    // detached by `recycle` (draining: no request reaches
+                    // it again, so it goes once its in-flight work ends).
+                    if (mine || cell.is_draining()) && cell.try_mark_evicted(idle) {
+                        if mine {
+                            cells.remove(&cell.key);
+                        }
                         true
                     } else {
                         false
@@ -1214,13 +1293,20 @@ impl CellManager {
             self.wake_for_jobs(cell.key.clone(), at);
         }
         cell.isolate.terminate();
-        let db_key = self
-            .inner
-            .db_keys
-            .lock()
-            .expect("db keys lock")
-            .remove(&cell.key)
-            .unwrap_or_else(|| cell.key.tenant_id.clone());
+        let db_key = {
+            // A successor of the same key (after `recycle`) keeps its entry.
+            let cells = self.inner.cells.lock().expect("cells lock");
+            let mut keys = self.inner.db_keys.lock().expect("db keys lock");
+            let mapped = if cells.contains_key(&cell.key) {
+                keys.get(&cell.key).cloned()
+            } else {
+                keys.remove(&cell.key)
+            };
+            cell.db_key
+                .clone()
+                .or(mapped)
+                .unwrap_or_else(|| cell.key.tenant_id.clone())
+        };
         drop(cell);
         self.release_db(&db_key).await;
         self.inner

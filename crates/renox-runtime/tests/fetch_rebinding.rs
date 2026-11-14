@@ -233,6 +233,7 @@ mod tenant {
             ai: None,
             templates: None,
             authz: None,
+            module_config: Default::default(),
         })
         .await
         .unwrap()
@@ -463,6 +464,7 @@ mod tenant {
                 ai: None,
                 templates: None,
                 authz: None,
+                module_config: Default::default(),
             })
             .await
             .unwrap();

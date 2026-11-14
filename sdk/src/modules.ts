@@ -11,7 +11,7 @@
 //     },
 //   });
 
-import type { ConfigValue, Ctx, DeliveredEvent, EmitOptions, EventContext, HookFiller, HookFillerResult, HookRunResult } from "./ctx.ts";
+import type { ConfigValue, Ctx, DeliveredEvent, EmitOptions, EventContext, HookFiller, HookFillerResult } from "./ctx.ts";
 
 /** What the generated types say about one module. */
 export interface ModuleSpec {
@@ -42,9 +42,23 @@ export interface TypedEvents<E> {
   emit<N extends keyof E & string>(name: N, payload: E[N], options?: EmitOptions): Promise<string>;
 }
 
+/** One filler's `{ result }` of hook point `N`, typed by the hook's `result`. */
+export interface TypedHookResult<R> {
+  readonly module: string;
+  readonly result: R;
+}
+
+/** `run`'s answer with `results[].result` typed as the hook's `result`. */
+export type TypedHookRunResult<R> =
+  | { readonly halt: false; readonly results: readonly TypedHookResult<R>[] }
+  | { readonly halt: true; readonly response: Response; readonly module: string; readonly results: readonly TypedHookResult<R>[] };
+
 /** `ctx.hooks` with the module's own hook points. */
 export interface TypedHooks<H> {
-  run<N extends keyof H & string>(name: N, args: H[N] extends { args: infer A } ? A : unknown): Promise<HookRunResult>;
+  run<N extends keyof H & string>(
+    name: N,
+    args: H[N] extends { args: infer A } ? A : unknown,
+  ): Promise<TypedHookRunResult<H[N] extends { result: infer R } ? R : unknown>>;
 }
 
 /**

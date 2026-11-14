@@ -1,0 +1,27 @@
+{
+  "$comment": "0.12: the active entry of shop carries module_config.email.app_url, the platform host because the app has no verified custom domain (section 10).",
+  "type": "route_delta",
+  "schema_version": 0,
+  "prev_version": 50,
+  "version": 51,
+  "upserts": [
+    {
+      "hostname": "shop.renoxium.app",
+      "tenant_id": "t_shop",
+      "app": "shop",
+      "deployment_hash": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "status": "active",
+      "updated_at": 1793318500000,
+      "version": 51,
+      "tier": "free",
+      "node_id": "node-dxb-01",
+      "secrets_version": 2,
+      "module_config": {
+        "email": {
+          "app_url": "https://shop.renoxium.app"
+        }
+      }
+    }
+  ],
+  "removals": []
+}

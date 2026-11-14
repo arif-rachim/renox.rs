@@ -222,6 +222,7 @@ impl DeploymentLookup for Apps {
             app,
             secrets_version: 0,
             database: None,
+            module_config: Default::default(),
         }
     }
 

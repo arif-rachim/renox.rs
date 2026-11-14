@@ -23,6 +23,16 @@
 //!    controller fetches a snapshot after registering, on `resync`, after a
 //!    gap, and every `resync_interval_ms` with `If-None-Match` (304:
 //!    unchanged).
+//!
+//! Recycling (deploy-api.md sections 8 to 10; #825, #830): a cell is built
+//! from what [`DeploymentLookup::lookup`] answers for its deployment. When
+//! a snapshot or delta changes that answer's `secrets_version` (rotated
+//! secrets) or `module_config` (0.12) for a deployment that had an entry
+//! before and still has one, the deployment's
+//! cell is recycled ([`CellManager::recycle`]) once the new table is
+//! published: the next request gets a fresh cell built from the new entry.
+//! A new entry or a removed one is not such a change (a removal drains
+//! through [`CellManager::sync_routes`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,7 +42,7 @@ use renox_gateway::{RouteEntry, RouteStatus, RouteTable};
 use serde::{Deserialize, Serialize};
 
 use crate::control::degraded::SnapshotFile;
-use crate::manager::{CellManager, DeploymentLookup, DeploymentMeta};
+use crate::manager::{CellManager, DeploymentLookup, DeploymentMeta, ModuleConfig};
 use crate::process::{ProcessKind, ProcessLookup};
 use crate::tiers::TierName;
 
@@ -61,6 +71,11 @@ pub struct ControlEntry {
     /// 0.5.1 (#346): the tenant's name on a `suspended` entry's page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// 0.12 (#825): per module, config values the platform computes,
+    /// merged into `ctx.config` where the artifact leaves a key absent or
+    /// `""`; missing means none (older control planes).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub module_config: ModuleConfig,
 }
 
 fn tier_name<S: serde::Serializer>(t: &TierName, s: S) -> Result<S::Ok, S::Error> {
@@ -95,6 +110,71 @@ pub struct Delta {
 }
 
 type Key = (String, String);
+
+/// `(tenant_id, deployment_hash)`: the deployment a cell serves.
+type Deployment = (String, String);
+
+/// The entry [`DeploymentLookup::lookup`] answers for `(tenant_id,
+/// deployment_hash)`: the newest one of any hostname.
+fn effective<'a>(
+    entries: &'a BTreeMap<Key, ControlEntry>,
+    tenant_id: &str,
+    deployment_hash: &str,
+) -> Option<&'a ControlEntry> {
+    entries
+        .values()
+        .filter(|e| e.tenant_id == tenant_id && e.deployment_hash == deployment_hash)
+        .max_by_key(|e| e.version)
+}
+
+/// What a cell of `e`'s deployment is built from.
+fn meta(e: &ControlEntry) -> DeploymentMeta {
+    DeploymentMeta {
+        tier: e.tier,
+        app: Some(e.app.clone()),
+        secrets_version: e.secrets_version,
+        database: e.database.clone(),
+        module_config: e.module_config.clone(),
+    }
+}
+
+/// Whether a cell built from `before` is stale once `after` is the
+/// deployment's entry ([`DeploymentMeta::is_stale_against`]).
+fn needs_recycle(before: &ControlEntry, after: &ControlEntry) -> bool {
+    meta(before).is_stale_against(&meta(after))
+}
+
+/// The deployments of `before` (each with the [`effective`] entry it had)
+/// whose effective entry in `entries` [`needs_recycle`]. A deployment
+/// without an entry before or after is left out.
+fn stale(
+    before: impl IntoIterator<Item = (Deployment, Option<ControlEntry>)>,
+    entries: &BTreeMap<Key, ControlEntry>,
+) -> Vec<Deployment> {
+    before
+        .into_iter()
+        .filter_map(|((tenant, hash), old)| {
+            let new = effective(entries, &tenant, &hash)?;
+            needs_recycle(old.as_ref()?, new).then_some((tenant, hash))
+        })
+        .collect()
+}
+
+/// Every deployment of `entries` with its [`effective`] entry.
+fn effective_all(
+    entries: &BTreeMap<Key, ControlEntry>,
+) -> BTreeMap<Deployment, Option<ControlEntry>> {
+    let mut out: BTreeMap<Deployment, Option<ControlEntry>> = BTreeMap::new();
+    for e in entries.values() {
+        let slot = out
+            .entry((e.tenant_id.clone(), e.deployment_hash.clone()))
+            .or_default();
+        if slot.as_ref().is_none_or(|s| s.version < e.version) {
+            *slot = Some(e.clone());
+        }
+    }
+    out
+}
 
 #[derive(Default)]
 struct Table {
@@ -135,6 +215,9 @@ pub struct RouteState {
     /// Tenants of this node whose active entry asks for `own` while
     /// `[process]` is off, each warned about once.
     own_ignored: Mutex<BTreeSet<String>>,
+    /// Every deployment recycled, in order (unit tests have no manager).
+    #[cfg(test)]
+    recycled: Mutex<Vec<Deployment>>,
 }
 
 impl RouteState {
@@ -148,6 +231,8 @@ impl RouteState {
             expected: Mutex::new(HashMap::new()),
             process_enabled: AtomicBool::new(false),
             own_ignored: Mutex::new(BTreeSet::new()),
+            #[cfg(test)]
+            recycled: Mutex::new(Vec::new()),
         }
     }
 
@@ -254,8 +339,9 @@ impl RouteState {
 
     /// Replaces the whole table.
     pub fn apply_snapshot(&self, snapshot: Snapshot) {
-        {
+        let stale = {
             let mut t = self.table.lock().expect("routes lock");
+            let before = effective_all(&t.entries);
             if snapshot.version < t.version {
                 tracing::warn!(
                     snapshot = snapshot.version,
@@ -271,8 +357,10 @@ impl RouteState {
                 .into_iter()
                 .map(|e| ((e.hostname.clone(), e.deployment_hash.clone()), e))
                 .collect();
-        }
+            stale(before, &t.entries)
+        };
         self.publish();
+        self.recycle(stale);
     }
 
     /// Applies a delta under rule 1. Returns false when it reveals a gap
@@ -280,10 +368,35 @@ impl RouteState {
     /// table is a late or repeated one: its changes are each checked by
     /// version, and it reveals nothing.
     pub fn apply_delta(&self, delta: Delta) -> bool {
-        let (contiguous, changed) = {
+        let (contiguous, changed, stale) = {
             let mut t = self.table.lock().expect("routes lock");
             let newer = delta.version > t.version;
             let contiguous = !newer || delta.prev_version == t.version;
+            // The deployments this delta can touch, with their entry now.
+            let mut touched: BTreeSet<Deployment> = BTreeSet::new();
+            let removed = delta
+                .removals
+                .iter()
+                .map(|r| (r.hostname.clone(), r.deployment_hash.clone()));
+            let upserted = delta
+                .upserts
+                .iter()
+                .map(|e| (e.hostname.clone(), e.deployment_hash.clone()));
+            for key in removed.chain(upserted) {
+                if let Some(e) = t.entries.get(&key) {
+                    touched.insert((e.tenant_id.clone(), e.deployment_hash.clone()));
+                }
+            }
+            for e in &delta.upserts {
+                touched.insert((e.tenant_id.clone(), e.deployment_hash.clone()));
+            }
+            let before: Vec<(Deployment, Option<ControlEntry>)> = touched
+                .into_iter()
+                .map(|(tenant, hash)| {
+                    let old = effective(&t.entries, &tenant, &hash).cloned();
+                    ((tenant, hash), old)
+                })
+                .collect();
             let mut changed = false;
             for r in delta.removals {
                 let key = (r.hostname, r.deployment_hash);
@@ -304,12 +417,35 @@ impl RouteState {
             if newer {
                 t.version = delta.version;
             }
-            (contiguous, changed || newer)
+            let stale = if changed {
+                stale(before, &t.entries)
+            } else {
+                Vec::new()
+            };
+            (contiguous, changed || newer, stale)
         };
         if changed {
             self.publish();
         }
+        self.recycle(stale);
         contiguous
+    }
+
+    /// Recycles each deployment whose entry changed what its cell is built
+    /// from (module doc, "Recycling"). After [`Self::publish`], so the new
+    /// entry is what the fresh cell reads.
+    fn recycle(&self, stale: Vec<Deployment>) {
+        for (tenant, hash) in stale {
+            tracing::info!(tenant_id = %tenant, deployment_hash = %hash, "route entry changed what its cell is built from; recycling the cell");
+            if let Some(m) = self.manager.get() {
+                m.recycle(&tenant, &hash);
+            }
+            #[cfg(test)]
+            self.recycled
+                .lock()
+                .expect("routes lock")
+                .push((tenant, hash));
+        }
     }
 
     /// The entries of this node, as the gateway's route table file.
@@ -374,18 +510,8 @@ impl ProcessLookup for RouteState {
 impl DeploymentLookup for RouteState {
     fn lookup(&self, tenant_id: &str, deployment_hash: &str) -> DeploymentMeta {
         let t = self.table.lock().expect("routes lock");
-        let found = t
-            .entries
-            .values()
-            .filter(|e| e.tenant_id == tenant_id && e.deployment_hash == deployment_hash)
-            .max_by_key(|e| e.version);
-        match found {
-            Some(e) => DeploymentMeta {
-                tier: e.tier,
-                app: Some(e.app.clone()),
-                secrets_version: e.secrets_version,
-                database: e.database.clone(),
-            },
+        match effective(&t.entries, tenant_id, deployment_hash) {
+            Some(e) => meta(e),
             // Being prepared (#96): what the prepare message said.
             None if self.is_expected(tenant_id, deployment_hash) => self
                 .expected
@@ -401,6 +527,7 @@ impl DeploymentLookup for RouteState {
                 app: None,
                 secrets_version: 0,
                 database: None,
+                module_config: ModuleConfig::new(),
             },
         }
     }
@@ -453,6 +580,7 @@ pub(crate) mod tests {
             process: ProcessKind::Shared,
             database: None,
             display_name: None,
+            module_config: ModuleConfig::new(),
         }
     }
 
@@ -576,6 +704,191 @@ pub(crate) mod tests {
         assert!(s.own_process_ignored().is_empty());
     }
 
+    fn app_url(url: &str) -> ModuleConfig {
+        BTreeMap::from([(
+            "email".to_string(),
+            BTreeMap::from([("app_url".to_string(), url.to_string())]),
+        )])
+    }
+
+    fn recycled(s: &RouteState) -> Vec<Deployment> {
+        s.recycled.lock().unwrap().clone()
+    }
+
+    /// #825 (deploy-api.md 0.12): a delta that changes only the
+    /// `module_config` of an active entry recycles that deployment's cell,
+    /// and `lookup` answers the new value; a delta that changes only
+    /// `updated_at`, a new entry and a removal recycle nothing.
+    #[test]
+    fn a_module_config_change_recycles_the_deployment() {
+        let gw = Arc::new(RouteTable::new());
+        let s = RouteState::new("node-1", gw);
+        let mut a = entry("a.renox.app", 'a', RouteStatus::Active, "node-1", 1);
+        a.module_config = app_url("https://a.renox.app");
+        s.apply_snapshot(Snapshot {
+            version: 1,
+            entries: vec![a.clone()],
+        });
+        assert!(recycled(&s).is_empty(), "a first entry is not a change");
+        let hash_a = "a".repeat(64);
+        assert_eq!(
+            s.lookup("t_hello", &hash_a).module_config,
+            app_url("https://a.renox.app")
+        );
+        // A custom domain: the platform computes a new app_url.
+        let mut changed = a.clone();
+        changed.version = 2;
+        changed.module_config = app_url("https://shop.example");
+        assert!(s.apply_delta(Delta {
+            prev_version: 1,
+            version: 2,
+            upserts: vec![changed.clone()],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s), vec![("t_hello".to_string(), hash_a.clone())]);
+        assert_eq!(
+            s.lookup("t_hello", &hash_a).module_config,
+            app_url("https://shop.example")
+        );
+        // `updated_at` only: nothing the cell is built from.
+        let mut touched = changed.clone();
+        touched.version = 3;
+        touched.updated_at = 99;
+        assert!(s.apply_delta(Delta {
+            prev_version: 2,
+            version: 3,
+            upserts: vec![touched],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s).len(), 1);
+        // A new deployment, then the removal of a draining one: no recycle.
+        let mut b = entry("a.renox.app", 'b', RouteStatus::Active, "node-1", 5);
+        b.module_config = app_url("https://other.example");
+        let mut drained = changed.clone();
+        drained.status = RouteStatus::Draining;
+        drained.version = 4;
+        assert!(s.apply_delta(Delta {
+            prev_version: 3,
+            version: 5,
+            upserts: vec![drained, b],
+            removals: vec![],
+        }));
+        assert!(s.apply_delta(Delta {
+            prev_version: 5,
+            version: 6,
+            upserts: vec![],
+            removals: vec![Removal {
+                hostname: "a.renox.app".into(),
+                deployment_hash: hash_a.clone(),
+                version: 6,
+            }],
+        }));
+        assert_eq!(recycled(&s).len(), 1);
+        // A late, older delta changes nothing, so it recycles nothing.
+        let mut late = entry("a.renox.app", 'b', RouteStatus::Active, "node-1", 5);
+        late.module_config = app_url("https://late.example");
+        assert!(s.apply_delta(Delta {
+            prev_version: 4,
+            version: 5,
+            upserts: vec![late],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s).len(), 1);
+        // A snapshot that changes the value recycles as well.
+        let mut snap = entry("a.renox.app", 'b', RouteStatus::Active, "node-1", 7);
+        snap.module_config = app_url("https://snap.example");
+        s.apply_snapshot(Snapshot {
+            version: 7,
+            entries: vec![snap.clone()],
+        });
+        assert_eq!(
+            recycled(&s).last(),
+            Some(&("t_hello".to_string(), "b".repeat(64)))
+        );
+        assert_eq!(recycled(&s).len(), 2);
+        // The same snapshot again: no change.
+        s.apply_snapshot(Snapshot {
+            version: 7,
+            entries: vec![snap],
+        });
+        assert_eq!(recycled(&s).len(), 2);
+    }
+
+    /// #830 (deploy-api.md sections 8 and 9): a delta that raises the active
+    /// entry's `secrets_version` recycles the deployment's cell and `lookup`
+    /// answers the new version; the same version again recycles nothing.
+    #[test]
+    fn a_secrets_version_bump_recycles_the_deployment() {
+        let gw = Arc::new(RouteTable::new());
+        let s = RouteState::new("node-1", gw);
+        let hash = "a".repeat(64);
+        s.apply_snapshot(Snapshot {
+            version: 1,
+            entries: vec![entry("a.renox.app", 'a', RouteStatus::Active, "node-1", 1)],
+        });
+        assert_eq!(s.lookup("t_hello", &hash).secrets_version, 3);
+        let mut bumped = entry("a.renox.app", 'a', RouteStatus::Active, "node-1", 2);
+        bumped.secrets_version = 4;
+        assert!(s.apply_delta(Delta {
+            prev_version: 1,
+            version: 2,
+            upserts: vec![bumped.clone()],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s), vec![("t_hello".to_string(), hash.clone())]);
+        assert_eq!(s.lookup("t_hello", &hash).secrets_version, 4);
+        // Unchanged version (another field moved): no recycle.
+        let mut same = bumped.clone();
+        same.version = 3;
+        same.updated_at = 7;
+        assert!(s.apply_delta(Delta {
+            prev_version: 2,
+            version: 3,
+            upserts: vec![same],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s).len(), 1);
+        // A second hostname of the same deployment (a custom domain) with
+        // a newer version: what `lookup` answers changed, so it recycles.
+        let mut custom = entry("shop.example", 'a', RouteStatus::Active, "node-1", 4);
+        custom.secrets_version = 5;
+        assert!(s.apply_delta(Delta {
+            prev_version: 3,
+            version: 4,
+            upserts: vec![custom],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s).len(), 2);
+        assert_eq!(s.lookup("t_hello", &hash).secrets_version, 5);
+    }
+
+    /// #825: a snapshot from a control plane older than deploy-api 0.12 has
+    /// no `module_config`; it parses as none, and is not serialized back.
+    #[test]
+    fn a_snapshot_without_module_config_still_parses() {
+        let json = serde_json::json!({
+            "version": 2,
+            "entries": [{
+                "hostname": "a.renox.app", "tenant_id": "t_hello", "app": "hello",
+                "deployment_hash": "a".repeat(64), "status": "active", "updated_at": 1,
+                "version": 2, "tier": "free", "node_id": "node-1", "secrets_version": 0
+            }]
+        });
+        let snap: Snapshot = serde_json::from_value(json).unwrap();
+        assert!(snap.entries[0].module_config.is_empty());
+        let back = serde_json::to_value(&snap.entries[0]).unwrap();
+        assert!(back.get("module_config").is_none(), "{back}");
+        let mut with = snap.entries[0].clone();
+        with.module_config = app_url("https://a.renox.app");
+        let v = serde_json::to_value(&with).unwrap();
+        assert_eq!(
+            v["module_config"]["email"]["app_url"],
+            "https://a.renox.app"
+        );
+        let again: ControlEntry = serde_json::from_value(v).unwrap();
+        assert_eq!(again, with);
+    }
+
     #[test]
     fn deltas_switch_and_report_gaps() {
         let gw = Arc::new(RouteTable::new());
@@ -664,6 +977,7 @@ mod convergence {
                 process: ProcessKind::Shared,
                 database: None,
                 display_name: None,
+                module_config: ModuleConfig::new(),
             }
         }
 

@@ -70,7 +70,7 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
       );
       return { before: d, after: toDomain(rows[0] as Record<string, unknown>) };
     });
-    if (before.state === "verified") await stopServing(deps, hostname);
+    if (before.state === "verified") await stopServing(deps, before);
     // Released: the custom hostname is deleted at Cloudflare (retried by the job on failure).
     if (after.state === "released") await deleteHostname(deps, after);
     return c.json(domainView(after, cnameTarget(deps)));

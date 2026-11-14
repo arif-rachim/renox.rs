@@ -8,17 +8,30 @@
 //! the control plane gets `{ enabled: false, own_ignored: [<tenant>] }`, never
 //! silence. Each heartbeat is validated against
 //! `docs/contracts/schemas/control-messages.schema.json`.
+//!
+//! Issue #825 (deploy API 0.12 sections 8 to 10): a route delta that changes
+//! only an active entry's `module_config` reaches a warm tenant, in the
+//! shared process and in a child of its own: the next request is served by
+//! a cell built from the new entry, without a new deployment.
+//!
+//! Issue #830 (deploy API sections 8 and 9): a `secrets_version` bump on the
+//! active entry reaches a warm tenant the same way: after the bump, a
+//! request reads the new secret value, in the shared process and in a child
+//! of its own. Proves `docs/24-threat-model.md` "Rotated secret still served
+//! by a warm cell".
 #![cfg(target_os = "linux")]
 
 #[path = "support/fake_control.rs"]
 mod fake;
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use renox_cell::{Worker, WorkerConfig};
 use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const HASH: &str = "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a";
 
@@ -145,4 +158,308 @@ async fn with_process_on_the_heartbeat_ignores_nobody() {
     );
     let errors: Vec<String> = schema().iter_errors(&beat).map(|e| e.to_string()).collect();
     assert!(errors.is_empty(), "{beat}: {errors:?}");
+}
+
+/// The app: its `email` module's `ctx.config`, and its own `APP_KEY` secret
+/// when the manifest declares it.
+const APP: &str = r#"
+import { email } from "renox:modules";
+export async function GET(ctx) {
+  return Response.json({ config: await email.info(), secret: ctx.secrets.APP_KEY ?? null });
+}
+"#;
+
+const EMAIL: &str = r#"
+export async function info(ctx) { return ctx.config; }
+"#;
+
+/// An artifact with the `email` module (`app_url = ""` in its resolved
+/// config) under `root/artifacts`, declaring `secrets`; its hash.
+fn artifact(root: &Path, secrets: &[&str]) -> String {
+    let tmp = root.join("artifact-src");
+    let perms =
+        json!({ "tables": "email__*", "network": [], "secrets": [], "slots": [], "hooks": [] });
+    let manifest = json!({
+        "artifact": { "version": 1 },
+        "app": { "name": "shop", "timezone": "Asia/Dubai" },
+        "code": { "format": "esm-dir", "entry": {
+            "functions/f": "functions/f.js",
+            "modules/email/services": "modules/email/services.js",
+        } },
+        "routes": [
+            { "kind": "function", "method": "GET", "path": "/", "module": "functions/f", "export": "GET" },
+        ],
+        "permissions": { "network": [], "secrets": secrets },
+        "modules": [{
+            "name": "email", "version": "1.0.0", "hash": "0".repeat(64), "source": "path:modules/email",
+            "mount": "/email", "isolation": "shared", "dependencies": [],
+            "config": { "app_url": "", "greeting": "hi" },
+            "permissions": perms, "approved": perms,
+            "exports": { "services": ["info"] },
+        }],
+    });
+    for (p, src) in [
+        (
+            "manifest.json",
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        ),
+        ("code/functions/f.js", APP.to_string()),
+        ("code/modules/email/services.js", EMAIL.to_string()),
+    ] {
+        let path = tmp.join(p);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, src).unwrap();
+    }
+    let hash = renox_cell::artifact::canonical_hash(&tmp).unwrap();
+    std::fs::create_dir_all(root.join("artifacts")).unwrap();
+    std::fs::rename(&tmp, root.join("artifacts").join(&hash)).unwrap();
+    hash
+}
+
+/// `GET /` on `host`, retried until it answers 200 (a child starting, a
+/// cell being created); the JSON body.
+async fn get_json(addr: SocketAddr, host: &str) -> Value {
+    let start = Instant::now();
+    loop {
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let req = format!("GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+        s.write_all(req.as_bytes()).await.unwrap();
+        let mut buf = Vec::new();
+        s.read_to_end(&mut buf).await.unwrap();
+        let text = String::from_utf8_lossy(&buf).to_string();
+        let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+        if head.split(' ').nth(1) == Some("200") {
+            return serde_json::from_str(body).unwrap_or_else(|e| panic!("{e}: {body}"));
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "GET / on {host}: {text}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn eventually(what: &str, mut f: impl FnMut() -> bool) {
+    let start = Instant::now();
+    while !f() {
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "timed out waiting for {what}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+const HOST: &str = "warm.renox.test";
+
+/// A warm tenant on this node, in the shared process or in its own (`own`).
+struct Warm {
+    root: PathBuf,
+    control: fake::FakeControl,
+    worker: Worker,
+    hash: String,
+    own: bool,
+}
+
+impl Warm {
+    /// Starts the worker with one entry (version 1, edited by `first`) as
+    /// the table, once the artifact declaring `secrets` is on disk.
+    async fn start(
+        name: &str,
+        own: bool,
+        secrets: &[&str],
+        first: impl FnOnce(&mut Value),
+    ) -> Warm {
+        let root = scratch(name);
+        let control = fake::FakeControl::start().await;
+        let hash = artifact(&root, secrets);
+        let mut e = fake::entry(HOST, "t_warm", "shop", &hash, "node-pi-1", 1);
+        if own {
+            e["process"] = json!("own");
+        }
+        first(&mut e);
+        {
+            let mut st = control.state.lock().unwrap();
+            st.route_version = 1;
+            st.entries = vec![e];
+        }
+        let worker = worker(&root, &control, own).await;
+        // Not about the disk watermark: a full CI or dev disk must not
+        // turn the first request away (`disk.rs`, `stop_scheduling`).
+        worker.disk.set_enforcing(false);
+        let w = Warm {
+            root,
+            control,
+            worker,
+            hash,
+            own,
+        };
+        let routes = w.worker.controller.as_ref().unwrap().routes.clone();
+        eventually("route version 1", || routes.version() == 1).await;
+        // Deltas go out on the stream: wait until the worker reads it.
+        eventually("the stream", || {
+            w.control.requests().iter().any(|r| r.ends_with("/stream"))
+        })
+        .await;
+        w
+    }
+
+    /// The deployment's entry at `version`, edited by `edit`.
+    fn entry(&self, version: u64, edit: impl FnOnce(&mut Value)) -> Value {
+        let mut e = fake::entry(HOST, "t_warm", "shop", &self.hash, "node-pi-1", version);
+        if self.own {
+            e["process"] = json!("own");
+        }
+        edit(&mut e);
+        e
+    }
+
+    async fn get(&self) -> Value {
+        get_json(self.worker.addr, HOST).await
+    }
+
+    /// Publishes `entry` as version `version` of the table, sends it as a
+    /// delta on the stream, and waits until the worker applied it.
+    async fn change(&self, entry: Value, version: u64) {
+        {
+            let mut st = self.control.state.lock().unwrap();
+            st.route_version = version;
+            st.entries = vec![entry.clone()];
+        }
+        self.control.send(json!({
+            "type": "route_delta", "schema_version": 0, "prev_version": version - 1,
+            "version": version, "upserts": [entry], "removals": [],
+        }));
+        let routes = self.worker.controller.as_ref().unwrap().routes.clone();
+        eventually("the delta", || routes.version() == version).await;
+    }
+
+    fn child_pid(&self) -> Option<u32> {
+        self.worker.supervisor.as_ref()?.child("t_warm")?.pid
+    }
+
+    /// Stops the tenant's child, if any: an orphan would hold the test
+    /// harness's output open until its idle timeout.
+    async fn stop(self) {
+        if let Some(sv) = &self.worker.supervisor {
+            sv.shutdown().await;
+        }
+    }
+}
+
+impl Drop for Warm {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+async fn module_config_change_reaches_a_warm_tenant(own: bool) {
+    let app_url = |url: &str| json!({ "email": { "app_url": url } });
+    let w = Warm::start(if own { "mc-own" } else { "mc-shared" }, own, &[], |e| {
+        e["module_config"] = app_url("https://warm.renox.test")
+    })
+    .await;
+    let v = w.get().await;
+    assert_eq!(v["config"]["app_url"], "https://warm.renox.test", "{v}");
+    assert_eq!(v["config"]["greeting"], "hi", "{v}");
+    let pid = w.child_pid();
+    assert_eq!(pid.is_some(), own, "served by a child only when own");
+    let created = w.worker.manager.cells_created();
+    // A custom domain: the platform computes a new app_url; same deployment.
+    w.change(
+        w.entry(2, |e| e["module_config"] = app_url("https://shop.example")),
+        2,
+    )
+    .await;
+    let v = w.get().await;
+    assert_eq!(v["config"]["app_url"], "https://shop.example", "{v}");
+    assert_eq!(v["config"]["greeting"], "hi", "{v}");
+    if own {
+        // The child took the new entry in place: not restarted.
+        assert_eq!(w.child_pid(), pid);
+    } else {
+        assert_eq!(w.worker.manager.cells_created(), created + 1);
+    }
+    // No module_config any more: the artifact's own value ("") again.
+    w.change(w.entry(3, |_| {}), 3).await;
+    let v = w.get().await;
+    assert_eq!(v["config"]["app_url"], "", "{v}");
+    w.stop().await;
+}
+
+async fn secrets_bump_reaches_a_warm_tenant(own: bool) {
+    let w = Warm::start(
+        if own { "sv-own" } else { "sv-shared" },
+        own,
+        &["APP_KEY"],
+        |_| {},
+    )
+    .await;
+    {
+        let mut st = w.control.state.lock().unwrap();
+        st.secrets.insert(
+            (w.hash.clone(), 0),
+            (
+                "t_warm".into(),
+                json!({ "APP_KEY": "first-secret-value-0" }),
+            ),
+        );
+        st.secrets.insert(
+            (w.hash.clone(), 1),
+            (
+                "t_warm".into(),
+                json!({ "APP_KEY": "rotated-secret-value-1" }),
+            ),
+        );
+    }
+    let v = w.get().await;
+    assert_eq!(v["secret"], "first-secret-value-0", "{v}");
+    // Warm: a second request is served by the same cell, same value.
+    assert_eq!(w.get().await["secret"], "first-secret-value-0");
+    let pid = w.child_pid();
+    assert_eq!(pid.is_some(), own, "served by a child only when own");
+    let created = w.worker.manager.cells_created();
+    // The tenant rotates the secret: the control plane bumps the version.
+    w.change(w.entry(2, |e| e["secrets_version"] = json!(1)), 2)
+        .await;
+    let v = w.get().await;
+    assert_eq!(v["secret"], "rotated-secret-value-1", "{v}");
+    if own {
+        assert_eq!(w.child_pid(), pid, "the child took the new set in place");
+    } else {
+        assert_eq!(w.worker.manager.cells_created(), created + 1);
+    }
+    // The same version again (another field moved): the warm cell stays.
+    let created = w.worker.manager.cells_created();
+    w.change(
+        w.entry(3, |e| {
+            e["secrets_version"] = json!(1);
+            e["updated_at"] = json!(2);
+        }),
+        3,
+    )
+    .await;
+    assert_eq!(w.get().await["secret"], "rotated-secret-value-1");
+    assert_eq!(w.worker.manager.cells_created(), created);
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_secrets_bump_reaches_a_warm_shared_tenant() {
+    secrets_bump_reaches_a_warm_tenant(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_secrets_bump_reaches_a_warm_tenant_in_its_own_process() {
+    secrets_bump_reaches_a_warm_tenant(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_module_config_change_reaches_a_warm_shared_tenant() {
+    module_config_change_reaches_a_warm_tenant(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_module_config_change_reaches_a_warm_tenant_in_its_own_process() {
+    module_config_change_reaches_a_warm_tenant(true).await;
 }

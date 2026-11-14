@@ -14,12 +14,16 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **SDK**
 
+- `HookRunResult` carries `results` (`readonly { module, result }[]`) in both variants, `HookFillerResult` accepts `{ result }`, and the generated `ModuleCtx`'s `ctx.hooks.run` types `results[].result` as the hook point's declared `result` (`TypedHookRunResult`; `ops.md` 1.26.0; #820, #828).
 - `@renoxium/sdk/test`: `t.deliver(event, payload, { module, to?, timeoutMs? })` writes one durable delivery of a module event to the app (or a module) as the outbox worker writes it, and waits until the handler ran. It rejects when the target has no `on` handler for the event, or when the handler fails (#787).
 **Worker**
 
 - The principal's `has_password` is a platform attribute of `Renox::User` in the Cedar schema (`false` when the principal carries none, `false` for an agent), so a policy can read `principal.has_password`; and an app may declare its own boolean attributes (`renox.toml [authz] user_attrs`), which the merged schema adds to `Renox::User` and entity building sets to `false` when the principal has none, so `forbid ... when { principal.portal }` is never skipped for want of the attribute (`ops.md` 1.23.0, `artifact.md` 1.12; #791).
 - The shell of a streamed page now waits for the locale: a full-page `GET` whose loader is slower than the 50 ms shell delay no longer gets its shell at once, but when the loader calls `ctx.setLocale`, returns, or 250 ms later, whichever comes first, and the shell carries the `lang` and `dir` set by then (a slow Arabic page was sent as `lang="en" dir="ltr"`). A loader that never calls `setLocale` gets its shell at 300 ms instead of 50 ms; a loader that finishes within the delay is unchanged; the wall-clock limit applies as before (`ops.md` 1.22.0, section 14, "The shell delay"). (#790)
 - A page `guard` may carry `deny_redirect`, a same-origin path (one leading `/`, no `//`, no backslash, no whitespace, at most 200 characters, not the page's own path): a signed-in principal the guard denies gets `303` with `Location: <deny_redirect>` instead of `403 RENOX_FORBIDDEN`, so a portal customer who opens a staff page lands on `/my`. An anonymous principal still gets the 403. The deny is still a deny: logged as `guard denied` with `redirected: true`, metered `status: forbidden`, counted as a decision. The cell refuses at load an artifact with a bad path, or with `deny_redirect` on a function, `ws` or `sse` route (`ops.md` 1.24.0, section 17, "`guard`"; `artifact.md` 1.13; #795).
+- A route entry's optional `module_config` (deploy API 0.12) reaches the modules: each value fills that module's `ctx.config` key where the deployment's resolved config leaves it absent or `""` (a value the manifest sets is kept; a module the app does not install is ignored). When the value changes on an active entry, the deployment's cell is recycled: the next request is served by a fresh cell built from the new entry, in the shared process and in a tenant's own process (whose child takes the new entry in place, without a restart), so the email module's `app_url` follows a custom domain without a new deployment. A control plane without `module_config` is read as before (#818, #825).
+- A `secrets_version` bump on a deployment's active entry now recycles its warm cell, as `deploy-api.md` sections 8 and 9 promise: the next request is served by a fresh cell that fetches the new secret set, so a rotated secret reaches a warm tenant at once. Before, a warm cell kept the secrets it was created with until it went idle; in a tenant's own process the child was handed the new set but kept serving the old one. A request already in flight finishes on the old cell; a cell still being created from the old entry serves nothing (#830).
+- A hook filler may hand data back by returning `{ result: <JSON value> }`: `ctx.hooks.run` resolves with `results`, a frozen list of `{ module, result }` in the order the fillers ran (a halt keeps the results recorded before it), the same in `shared` and `isolate` mode. The result is a JSON copy of at most 64 KiB; a function, a symbol or a larger value fails the run with `RENOX_MODULE_SERVICE`, as any other return shape does. An `isolate` filler's `{ result }` now crosses back (before, only a halt did, and a change to `args` was lost), and a hook point filled by an `isolate` module runs at all: the cross-isolate call now names the module that runs the hook as its caller, where the filler's own name was refused by the host and the run failed with `RENOX_MODULE_SERVICE`; changes to `args` still reach the caller in `shared` mode only (`ops.md` 1.26.0, section 15.3; #820, #828).
 
 **CLI**
 
@@ -29,6 +33,14 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **Modules**
 
 - `auth` 1.4.0: `principal.attrs.has_password` (true when the account has a password; always false for an agent principal and for a phone-only account), and the app's declared boolean attributes: auth keeps one that the app's own `auth.principal` filler set to a boolean and ignores a module filler's value for it (#791).
+
+**CI**
+
+- The `renox-worker` that the `ts` job tests the examples with is built with the new optimised `ci-worker` Cargo profile instead of `dev`, so CPU budgets (a 2,000 ms job attempt) behave as on the release build. (#821)
+
+**Control plane**
+
+- Route entries carry the optional `module_config` (`deploy-api.md` 0.12, migration `0038_route_module_config.sql`): when the active deployment's `email` module leaves `app_url` empty, the control plane writes `module_config.email.app_url`, the app's only verified custom domain or else `https://<app>.<platform domain>`, on the platform and custom-domain entries, and re-publishes it with no new deployment when a custom domain is verified, detached, verified again or released (#818, #826).
 
 ## 0.1.15 (2026-11-13)
 

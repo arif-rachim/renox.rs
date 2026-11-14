@@ -20,6 +20,19 @@ opt-level = 1
 [profile.dev.package.rav1e]
 opt-level = 3
 
+# The renox-worker CI's ts job tests the examples with (#821): optimised, so
+# CPU budgets (a 2,000 ms job attempt) behave as on the release build.
+[profile.ci-worker]
+inherits = "dev"
+opt-level = 2
+debug = 0
+debug-assertions = false
+overflow-checks = false
+incremental = false
+
+[profile.ci-worker.package."*"]
+opt-level = 2
+
 # renox-worker release build (.github/workflows/release-worker.yml, B20):
 # smaller and faster binary at the cost of a longer, CI-only build.
 [profile.release]

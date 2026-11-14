@@ -14,6 +14,7 @@ import { ulid } from "../ids.ts";
 import { invalid, notFound } from "../errors.ts";
 import type { Deps } from "../context.ts";
 import { entriesWhere, lockRoutes, removeEntry, upsertEntry, type RouteEntry } from "../routes/table.ts";
+import { refreshModuleConfig } from "../routes/activation.ts";
 import { routeService } from "../routes/service.ts";
 import { crossTenant } from "../tenancy/scope.ts";
 import type { CustomHostname, VerificationRecord } from "./cloudflare.ts";
@@ -133,7 +134,8 @@ export function domainView(d: DomainRow, cnameTarget: string): Record<string, un
 }
 
 const same = (a: RouteEntry, b: Omit<RouteEntry, "version" | "updated_at">): boolean =>
-  a.tenant_id === b.tenant_id && a.app === b.app && a.status === b.status && a.tier === b.tier && a.node_id === b.node_id && a.secrets_version === b.secrets_version;
+  a.tenant_id === b.tenant_id && a.app === b.app && a.status === b.status && a.tier === b.tier && a.node_id === b.node_id && a.secrets_version === b.secrets_version &&
+  JSON.stringify(a.module_config ?? null) === JSON.stringify(b.module_config ?? null);
 
 /**
  * Makes the route entries of `hostname` mirror the platform hostname of the
@@ -173,15 +175,27 @@ async function customHostnames(tx: Db, platformDomain: string): Promise<string[]
   return rows.map((r) => r.hostname).sort();
 }
 
-/** Re-mirrors `hostnames` (all custom hostnames when omitted) and publishes the delta. */
-export async function syncRoutes(deps: Deps, hostnames?: string[]): Promise<boolean> {
+/**
+ * Re-mirrors `hostnames` (all custom hostnames when omitted) and publishes the delta. `apps` are
+ * apps whose verified domains changed (0.12, #826): their platform entries get a fresh
+ * `module_config` first, in the same transaction, and every verified custom hostname of those apps
+ * is re-mirrored too.
+ */
+export async function syncRoutes(deps: Deps, hostnames?: string[], apps: { tenant_id: string; app: string }[] = []): Promise<boolean> {
   const now = deps.now();
   const platform = deps.config.platformDomain;
   const db = crossTenant(deps.db, "a custom hostname mirrors the route entries of whichever tenant holds it verified");
   const changed = await db.transaction(async (tx) => {
     await lockRoutes(tx);
     let any = false;
-    for (const h of hostnames ?? (await customHostnames(tx, platform))) any = (await syncHostnameRoutes(tx, platform, h, now)) || any;
+    let targets = hostnames;
+    if (apps.length > 0) {
+      for (const a of apps) any = (await refreshModuleConfig(deps, tx, a.tenant_id, a.app, now)) || any;
+      const verifiedOf: { hostname: string }[] = [];
+      for (const a of apps) verifiedOf.push(...(await tx.query<{ hostname: string }>("select hostname from domains where tenant_id = $1 and app = $2 and state = 'verified'", [a.tenant_id, a.app])));
+      targets = [...new Set([...(hostnames ?? (await customHostnames(tx, platform))), ...verifiedOf.map((r) => r.hostname)])];
+    }
+    for (const h of targets ?? (await customHostnames(tx, platform))) any = (await syncHostnameRoutes(tx, platform, h, now)) || any;
     return any;
   });
   if (changed) await routeService(deps).publisher.publish();

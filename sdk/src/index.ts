@@ -63,6 +63,7 @@ export type {
   Handler,
   HookFiller,
   HookFillerResult,
+  HookResult,
   HookRunResult,
   Hooks,
   HooksModule,
@@ -104,6 +105,8 @@ export type {
   ServiceProxy,
   ServicesOf,
   TypedEvents,
+  TypedHookResult,
+  TypedHookRunResult,
   TypedHooks,
 } from "./modules.ts";
 export { defineHooks, defineServices, on } from "./modules.ts";

@@ -100,6 +100,10 @@ pub struct IsolateSpec {
     /// (`ctx.render` answers `r-can` from it, ops.md section 25). `None`:
     /// the isolate makes its own.
     pub authz: Option<SharedAuthz>,
+    /// deploy-api.md 0.12: the route entry's `module_config`, per module,
+    /// merged into `ctx.config` where the artifact leaves a key absent or
+    /// `""` ([`ModuleRegistry::with_config_overlay`]). Empty: none.
+    pub module_config: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 /// An [`AuthzSlot`] the cell shares with the isolate (`IsolateSpec::authz`).
@@ -934,7 +938,8 @@ impl IsolateHandle {
         // ops.md 1.3.0 section 15: the installed modules (fail closed).
         let modules = ModuleRegistry::from_manifest(artifact.manifest.modules.as_ref())
             .map_err(CreateError::Manifest)?
-            .with_app_authz(artifact.manifest.authz.as_ref());
+            .with_app_authz(artifact.manifest.authz.as_ref())
+            .with_config_overlay(&spec.module_config);
         // ops.md section 3: only declared secrets, per module; short values
         // refused by name.
         let mut by_module = BTreeMap::new();

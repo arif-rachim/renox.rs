@@ -28,6 +28,7 @@ import { conflict, invalid, notFound } from "../errors.ts";
 import { isUniqueViolation } from "../domains/ownership.ts";
 import { logIngest } from "../ingest/logs.ts";
 import { routeService } from "../routes/service.ts";
+import { manifestOf, moduleConfigFor } from "../routes/module-config.ts";
 import { entriesWhere, lockRoutes, upsertEntry, type RouteEntry } from "../routes/table.ts";
 import type { TenantDb } from "../tenancy/scope.ts";
 import { assertAppIdle } from "./busy.ts";
@@ -86,8 +87,10 @@ export async function renameApp(deps: Deps, db: TenantDb, from: string, to: stri
     for (const sql of UNKEYED_UPDATES) await tx.query(sql, [tenant, from, to]);
     // The same entries under the new name; draining first, for the one-active-per-hostname index.
     const sorted = [...before].sort((a, b) => (a.status === b.status ? 0 : a.status === "draining" ? -1 : 1));
-    for (const { version: _v, ...e } of sorted) {
-      await upsertEntry(tx, { ...e, hostname: e.hostname === oldHost ? newHost : e.hostname, app: to, updated_at: now });
+    for (const { version: _v, module_config: _m, ...e } of sorted) {
+      // 0.12 (#826): the email `app_url` is recomputed, since it may name the old platform host.
+      const module_config = await moduleConfigFor(tx, deps, tenant, to, await manifestOf(tx, tenant, to, e.deployment_hash));
+      await upsertEntry(tx, { ...e, hostname: e.hostname === oldHost ? newHost : e.hostname, app: to, updated_at: now, ...(module_config === undefined ? {} : { module_config }) });
     }
     await quarantineSlug(tx, from, tenant, now);
     // The hint: `from` now means `to`; earlier names of the app follow it; `to` is a live name again.

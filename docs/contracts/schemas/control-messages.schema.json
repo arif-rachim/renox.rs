@@ -74,7 +74,7 @@
         "node_id",
         "secrets_version"
       ],
-      "description": "artifact.md section 5 route-table entry plus the F3 fields: version (#97), app, tier, node_id (tenant assignment), secrets_version; and from 0.3 the optional process (#254) and database (section 14).",
+      "description": "artifact.md section 5 route-table entry plus the F3 fields: version (#97), app, tier, node_id (tenant assignment), secrets_version; from 0.3 the optional process (#254) and database (section 14); from 0.12 the optional module_config (sections 8, 10).",
       "properties": {
         "hostname": { "$ref": "#/$defs/hostname" },
         "tenant_id": { "$ref": "#/$defs/tenant_id" },
@@ -98,6 +98,22 @@
         "database": {
           "$ref": "#/$defs/database_id",
           "description": "0.3: the tenant file the entry's cells open. Missing means the tenant's own file (database = tenant_id)."
+        },
+        "module_config": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,31}$": {
+              "type": "object",
+              "maxProperties": 16,
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]{0,63}$": { "type": "string", "maxLength": 2048 }
+              }
+            }
+          },
+          "description": "0.12: per module, config values the platform computes (deploy-api.md sections 8 and 10). A node merges a value into that module's ctx.config only where the deployment's resolved config has the key absent or \"\"; a change on an active entry recycles the cell. Missing means none."
         }
       }
     },
