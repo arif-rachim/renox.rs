@@ -977,6 +977,37 @@ describe("owner connector tools (#700)", () => {
     for (const value of [token, "app-conf-", "#EE4400", "b@coolair.ae", "Gas refill", PNG.slice(0, 32), "rnxconf_"]) expect(audit).not.toContain(value);
   });
 
+  test("#801: the portal settings pass through update_settings with a plain plan; a wrong value is refused before the app", async () => {
+    const h = await harness();
+    const owner = await signup(h, "owner@coolair.ae", "t-portal");
+    const stub = stubBridge();
+    setBridge(h.deps, stub.bridge);
+    const { token } = await grant(h, owner, "owner");
+    const args = { app: "coolair", settings: { portal: { auto_confirm: true, cutoff_hours: 24, max_reschedules: 0 } } };
+    const first = await call(h, token, "update_settings", args);
+    expect(first.error).toMatchObject({ code: "confirmation_required" });
+    expect(first.plan).toBe("Change CoolAir's settings: confirm online bookings automatically: (not set) → on; customers may change a visit until (hours before): (not set) → 24; reschedules allowed per visit: (not set) → 0.");
+    stub.calls.length = 0;
+    const done = await call(h, token, "update_settings", { ...args, confirmation_token: first.confirmation_token });
+    expect(done.isError).toBe(false);
+    expect(stub.calls.filter((c) => c.tool === "update_settings").at(-1)?.args).toEqual({ settings: args.settings });
+    stub.calls.length = 0;
+    for (const [portal, message] of [
+      [{ cutoff_hours: 169 }, "settings.portal.cutoff_hours: a whole number from 0 to 168"],
+      [{ cutoff_hours: -1 }, "settings.portal.cutoff_hours: a whole number from 0 to 168"],
+      [{ cutoff_hours: 1.5 }, "settings.portal.cutoff_hours: a whole number from 0 to 168"],
+      [{ max_reschedules: 6 }, "settings.portal.max_reschedules: a whole number from 0 to 5"],
+      [{ auto_confirm: "yes" }, "settings.portal.auto_confirm: true or false"],
+      [{}, "settings.portal: name at least one key"],
+      [{ colour: 1 }, "unknown key colour"],
+    ] as const) {
+      const r = await call(h, token, "update_settings", { app: "coolair", settings: { portal } });
+      expect(r.error).toMatchObject({ code: "invalid_input" });
+      expect(JSON.stringify(r.error)).toContain(message);
+    }
+    expect(stub.calls).toEqual([]);
+  });
+
   test("bad input never reaches the app: a wrong colour, an empty change, a logo over 512 KiB or not the declared type, a wrong role", async () => {
     const h = await harness();
     const owner = await signup(h, "owner@coolair.ae", "t-input");
