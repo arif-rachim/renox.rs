@@ -53,6 +53,8 @@ export async function load(ctx) {
 
 i18n takes the user and the organisation default as arguments; it does not look them up itself. `auth` and `org` call i18n from their own pages, so i18n cannot depend on them: the dependency graph has no cycles (`docs/10-modules.md`, rule 1), and a manifest has no optional dependencies.
 
+A loader should call `detectLocale` and `ctx.setLocale` before its first slow `await`: a streamed page's shell (`<html lang dir>`) waits for `ctx.setLocale` for at most 250 ms after the 50 ms shell delay, and a later call no longer reaches the shell (`ops.md` section 14, "The shell delay").
+
 `setLocale(locale, { user_id? })` stores a choice without a `?lang=` link, for example from an account page.
 
 The hook `i18n.detect` runs before the choice. A module may fill it and halt with its own response, such as a redirect to a canonical address. Apps cannot fill hooks (`docs/contracts/manifest.md`).

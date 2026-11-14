@@ -7,6 +7,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **Worker**
 
 - The principal's `has_password` is a platform attribute of `Renox::User` in the Cedar schema (`false` when the principal carries none, `false` for an agent), so a policy can read `principal.has_password`; and an app may declare its own boolean attributes (`renox.toml [authz] user_attrs`), which the merged schema adds to `Renox::User` and entity building sets to `false` when the principal has none, so `forbid ... when { principal.portal }` is never skipped for want of the attribute (`ops.md` 1.23.0, `artifact.md` 1.12; #791).
+- The shell of a streamed page now waits for the locale: a full-page `GET` whose loader is slower than the 50 ms shell delay no longer gets its shell at once, but when the loader calls `ctx.setLocale`, returns, or 250 ms later, whichever comes first, and the shell carries the `lang` and `dir` set by then (a slow Arabic page was sent as `lang="en" dir="ltr"`). A loader that never calls `setLocale` gets its shell at 300 ms instead of 50 ms; a loader that finishes within the delay is unchanged; the wall-clock limit applies as before (`ops.md` 1.22.0, section 14, "The shell delay"). (#790)
 
 **CLI**
 
