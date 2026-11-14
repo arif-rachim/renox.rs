@@ -456,6 +456,18 @@ describe("module_config.email.app_url (0.12, #826)", () => {
     expect(await urlOf(e, PLATFORM_HOST)).toEqual({ email: { app_url: `https://${HOST}` } });
   });
 
+  test("a rename recomputes it: the platform host follows the new name; a verified custom domain stays", async () => {
+    const e = await setup();
+    await activateWith(e, email({}));
+    const since = await lastVersion(e);
+    const res = await e.h.request("POST", "/v1/apps/hello/rename", { token: e.token, json: { name: "hola" } });
+    expect(res.status).toBe(200);
+    const renamed = { email: { app_url: "https://hola.renox.app" } };
+    const delta = await deltaAfter(e, since);
+    expect(delta.upserts.find((u) => u.hostname === "hola.renox.app" && u.status === "active")?.module_config).toEqual(renamed);
+    expect(await urlOf(e, "hola.renox.app")).toEqual(renamed);
+  });
+
   test("an explicit app_url, or no email module, gets no module_config", async () => {
     const e = await setup();
     await activateWith(e, email({ app_url: "https://x.example" }));
