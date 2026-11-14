@@ -1059,6 +1059,13 @@
         "action": {
           "$ref": "#/$defs/actionName"
         },
+        "deny_redirect": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^/([^/\\\\\\s\\u0000-\\u001f\\u007f-\\u009f]+/)*[^/\\\\\\s\\u0000-\\u001f\\u007f-\\u009f]*$",
+          "description": "Version 1.13 (#795): a same-origin path a signed-in principal the guard denies is sent to (303) instead of the 403; page routes only (V25); never the page's own path. Starts with one /, no //, no backslash, no whitespace or control character, at most 200 characters."
+        },
         "resource": {
           "type": "object",
           "additionalProperties": false,

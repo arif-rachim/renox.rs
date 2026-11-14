@@ -33,6 +33,26 @@ export interface AuthzBlock {
 export interface Guard {
   action: string;
   resource?: { type: string; id: string };
+  /** Artifact 1.13 (#795): a same-origin path a signed-in principal the guard denies is sent to (303); page routes only. */
+  deny_redirect?: string;
+}
+
+/** The longest `guard.deny_redirect` (artifact.md 1.13). */
+export const MAX_DENY_REDIRECT = 200;
+
+/**
+ * Why `path` is not a valid `guard.deny_redirect` (artifact.md 1.13, V25), or
+ * `null`: a same-origin path starts with one `/` and has no `//`, no
+ * backslash, no control character or whitespace, and at most 200 characters,
+ * so it can never name another origin. The cell checks the same rule at load.
+ */
+export function denyRedirectProblem(path: string): string | null {
+  if (path.length > MAX_DENY_REDIRECT) return `is longer than ${MAX_DENY_REDIRECT} characters`;
+  if (!path.startsWith("/")) return "must start with /";
+  if (path.includes("//")) return "must not contain //";
+  if (path.includes("\\")) return "must not contain a backslash";
+  if (/[\u0000-\u0020\u007f-\u009f\u2028\u2029]/u.test(path)) return "must not contain a control character or whitespace";
+  return null;
 }
 
 /** The platform's own action every app may use without declaring it. */
@@ -139,9 +159,17 @@ export function readGuard(source: string, file: string): Guard | null {
   if (g.resource !== undefined && (typeof g.resource?.type !== "string" || typeof g.resource?.id !== "string" || g.resource.id === "")) {
     throw new GuardError(`${file}: guard.resource is { type, id } with id a literal or ":<param>"`, { file });
   }
-  const keys = Object.keys(g).filter((k) => k !== "action" && k !== "resource");
+  const keys = Object.keys(g).filter((k) => k !== "action" && k !== "resource" && k !== "deny_redirect");
   if (keys.length) throw new GuardError(`${file}: guard has unknown keys ${keys.join(", ")}`, { file });
-  return g.resource ? { action: g.action, resource: { type: g.resource.type, id: g.resource.id } } : { action: g.action };
+  if (g.deny_redirect !== undefined) {
+    if (typeof g.deny_redirect !== "string") throw new GuardError(`${file}: guard.deny_redirect must be a same-origin path such as "/my"`, { file });
+    const why = denyRedirectProblem(g.deny_redirect);
+    if (why) throw new GuardError(`${file}: V25: guard.deny_redirect ${why}`, { file });
+  }
+  const out: Guard = { action: g.action };
+  if (g.resource) out.resource = { type: g.resource.type, id: g.resource.id };
+  if (g.deny_redirect !== undefined) out.deny_redirect = g.deny_redirect;
+  return out;
 }
 
 /** The merged action set: the app's and every module's `authz.actions`, plus the platform's. */
@@ -173,6 +201,14 @@ export function v25Problems(routes: readonly RouteLike[], app: AuthzBlock | unde
     if (id?.startsWith(":")) {
       const params = new Set([...(r.path ?? "").matchAll(/[:*]([a-z_][a-z0-9_]*)/gu)].map((m) => m[1]));
       if (!params.has(id.slice(1))) out.push(`V25: ${at}: guard resource id ${id} is not a parameter of ${r.path}`);
+    }
+    // Artifact 1.13 (#795): `deny_redirect` is a same-origin path of a page guard, never the page's own path.
+    const to = r.guard.deny_redirect;
+    if (to !== undefined) {
+      const why = denyRedirectProblem(to);
+      if (r.kind !== "page") out.push(`V25: ${at}: guard.deny_redirect is for page routes only`);
+      else if (why) out.push(`V25: ${at}: guard.deny_redirect ${why}`);
+      else if (to === r.path) out.push(`V25: ${at}: guard.deny_redirect is the page's own path ${to} (a redirect loop)`);
     }
   }
   const owners: [string, AuthzBlock | undefined][] = [["app", app], ...modules.map((m): [string, AuthzBlock | undefined] => [m.name, m.authz])];

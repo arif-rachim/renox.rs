@@ -76,6 +76,15 @@ The contracts: `manifest.md` 1.8.0 (`[authz] user_attrs`, MF19), `artifact.md` 1
 | UI | `r-can="invoice.refund" :resource="inv"` | Hides elements only; **not a safeguard** |
 | Realtime | `Origin` check at upgrade; topics as Cedar resources, deny when no policy permits | Prevents cross-site sockets and subscribing to other users' topics |
 
+**Sending a denied signed-in user elsewhere (`deny_redirect`).** A page guard may name a same-origin path: a signed-in user the guard denies gets `303` to it instead of the 403 page, and an anonymous visitor still gets the 403 (or the app's own sign-in redirect). It is for an app that has two kinds of signed-in users and one set of pages, such as a portal customer who opens a staff page and belongs on `/my`:
+
+```ts
+// pages/jobs/index.ts
+export const guard = { action: "job.read", deny_redirect: "/my" };
+```
+
+The value is a path of the app, never another site: one leading `/`, no `//`, no backslash, no whitespace, at most 200 characters, and not the page's own path (a loop). `renox build` and `renox check` refuse anything else (V25), and the cell refuses an artifact that carries one. The deny is still a deny: it is counted, audited when the action is sensitive, metered with `status: forbidden`, and logged as `guard denied` with `redirected: true`. `renox check --security` lists the guards that redirect. Function, `ws` and `sse` routes keep the 403.
+
 `renox check` reports `missing-guard` (error) for a page or function that calls `ctx.authz.require`, `can` or `canBatch` with a literal action a policy names but exports no `guard`; files under `functions/tools/` are skipped, because the tool's `action` is its guard and the cell checks it before `run`.
 
 Fail-closed rules (#118): every decision defaults to deny. No permitting policy, `forbid` matching, an unknown or anonymous principal, a missing entity or attribute, and an evaluation error each deny, and an error is logged with its reason (`authz_explain` shows it). A policy that does not validate against the merged schema (an unknown action or entity type) refuses `renox check` and the build (V24, V25), so it never reaches a cell. A realtime topic is a resource like any other: a subscribe no policy permits is refused. Tests: `crates/renox-authz/tests/fail_closed.rs`, `tests/schema_errors.rs`, `cli/tests/build-authz.test.ts`.

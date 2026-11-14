@@ -2069,7 +2069,7 @@ async function prelude(token, url, headers) {
   const g = await op_authz_guard(token);
   if (!g.allow) {
     const who = principal === null || principal === undefined ? { kind: "anonymous" } : { id: String(principal.id ?? ""), kind: String(principal.kind ?? "user"), roles: ArrayIsArray(principal.roles) ? ArrayPrototypeMap(principal.roles, (r) => (typeof r === "string" ? r : String(r?.role ?? ""))) : [] };
-    return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined, details_json: JSONStringify({ principal: who }) } };
+    return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined, redirect: g.redirect ?? undefined, details_json: JSONStringify({ principal: who }) } };
   }
   return { principal: freezePrincipal(principal) };
 }

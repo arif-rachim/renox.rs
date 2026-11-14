@@ -25,6 +25,8 @@ export interface FunctionRoute {
 export interface Guard {
   action: string;
   resource?: { type: string; id: string };
+  /** Artifact 1.13 (#795): a same-origin path a signed-in principal the guard denies is sent to (303), on a page route. */
+  deny_redirect?: string;
 }
 
 /** A page route (artifact version 1): one of the three `.ts`/`.html` pair shapes. */

@@ -491,6 +491,13 @@ export interface Authz {
 export interface Guard {
   readonly action: string;
   readonly resource?: { readonly type: string; readonly id: string };
+  /**
+   * Page routes only (1.24.0): a same-origin path (one leading `/`, no `//`,
+   * no backslash, at most 200 characters, not the page's own path). A
+   * signed-in principal the guard denies gets `303` to it instead of the 403;
+   * an anonymous one keeps the 403.
+   */
+  readonly deny_redirect?: string;
 }
 
 // ---------------------------------------------------------------------------
