@@ -147,13 +147,15 @@ export async function useModules(ctx: Ctx): Promise<Response> {
   await ctx.events.emit("auth.cart_changed", { cart_id: "c1" }, { durable: false });
   const r = await ctx.hooks.run("auth.after_login", { user_id: "u_1" });
   if (r.halt) return r.response;
+  // 1.26.0: what the fillers handed back with `{ result }`, in run order.
+  const handled = r.results.some((x) => typeof x.module === "string" && (x.result as { handled?: boolean } | null)?.handled === true);
   try {
     await ctx.db.transaction(async () => ctx.services.billing?.charge?.("u_1", 4200));
   } catch (e) {
     const err = e as ModuleServiceError;
     ctx.log.warn("charge failed", { module: err.module, service: err.service, cause: err.details.cause_code });
   }
-  return Response.json({ user: user ?? null, minLength: minLength ?? null, ok, id, module: ctx.module });
+  return Response.json({ user: user ?? null, minLength: minLength ?? null, ok, id, module: ctx.module, handled });
 }
 
 const afterLogin: HookFiller = {
@@ -164,7 +166,11 @@ const onPaid: EventHandler = async (ctx, e: { id: string; name: string; attempt:
   await ctx.db.execute("insert into email__sent (event_id, invoice_id) values (?, ?)", [e.id, e.payload.invoice_id]);
   ctx.log.info("sent", { attempt: ctx.event.attempt });
 };
-export const hooksModule: HooksModule = { hooks: { "auth.after_login": afterLogin }, on: { "billing.invoice_paid": onPaid } };
+/** 1.26.0: a filler that continues and hands data back to the hook's caller. */
+const remind: HookFiller = {
+  handle: (_ctx, _args: { booking_id: string }) => ({ result: { handled: true } }),
+};
+export const hooksModule: HooksModule = { hooks: { "auth.after_login": afterLogin, "booking.remind": remind }, on: { "billing.invoice_paid": onPaid } };
 
 export const localized: Loader = ({ setLocale }) => {
   setLocale("ar-AE");
@@ -296,7 +302,7 @@ export async function moduleNegatives(ctx: Ctx, lctx: LoaderContext, ops: Ops): 
   ctx.setLocale("ar");
   // @ts-expect-error verify needs the stored hash
   await ctx.password.verify("x");
-  // @ts-expect-error a hook filler returns undefined or a halt with a response
+  // @ts-expect-error a hook filler returns undefined, { result } or a halt with a response
   const badFiller: HookFiller = { handle: () => ({ halt: true }) };
   void badFiller;
   // @ts-expect-error savepoint handles are numbers

@@ -130,6 +130,48 @@ export const hooks = {
 };
 "#;
 
+/// #828: `collector` runs its hook point; `fa`, `fb` and `fc` fill it.
+const COLLECTOR: &str = r#"
+export async function gather(ctx, mode) {
+  const r = await ctx.hooks.run("collector.gather", { mode });
+  return {
+    halt: r.halt,
+    module: r.module ?? null,
+    status: r.response?.status ?? null,
+    results: r.results,
+    frozen: Object.isFrozen(r.results) && r.results.every((x) => Object.isFrozen(x)),
+  };
+}
+"#;
+
+const FA_HOOKS: &str = r#"
+export const hooks = { "collector.gather": { priority: 10, handle() { return { result: 1 }; } } };
+"#;
+
+const FB_HOOKS: &str = r#"
+export const hooks = {
+  "collector.gather": {
+    priority: 20,
+    handle(ctx, args) {
+      if (args.mode === "fn") return { result: () => 1 };
+      if (args.mode === "big") return { result: "x".repeat(70 * 1024) };
+      return { result: { a: 2 } };
+    },
+  },
+};
+"#;
+
+const FC_HOOKS: &str = r#"
+export const hooks = {
+  "collector.gather": {
+    priority: 30,
+    handle(ctx, args) {
+      if (args.mode === "halt") return { halt: true, response: new Response("stop", { status: 409 }) };
+    },
+  },
+};
+"#;
+
 const APP: &str = r#"
 import { auth, billing } from "renox:modules";
 const err = (e) => ({ name: e.name, code: e.code, details: e.details, module: e.module, service: e.service, message: e.message });
@@ -215,6 +257,11 @@ export async function GET(ctx) {
     }
     case "globals":
       return Response.json(await auth.register("g" + Math.random() + "@example.com"));
+    case "results": {
+      const out = {};
+      for (const mode of ["plain", "fn", "big", "halt"]) out[mode] = await attempt(() => ctx.services.collector.gather(mode));
+      return Response.json(out);
+    }
     default:
       return new Response("unknown", { status: 400 });
   }
@@ -574,6 +621,78 @@ async fn hook_fillers_run_in_priority_order_and_halt_stops_the_chain() {
         v["order"],
         serde_json::json!(["audit:u1", "billing:billing"])
     );
+}
+
+/// ops.md 1.26.0 section 15.3 (#828): fillers hand data back with
+/// `{ result }`: `run` collects them in priority order with their module;
+/// a result that does not survive JSON, or is over 64 KiB, fails the run
+/// with RENOX_MODULE_SERVICE; a halt keeps the results recorded before it.
+#[tokio::test]
+async fn hook_fillers_hand_results_back_in_priority_order() {
+    let (rt, sink) = runtime();
+    let filler = |name: &str| {
+        module(
+            name,
+            &[],
+            &[],
+            &[],
+            &["collector.gather"],
+            serde_json::json!({}),
+        )
+    };
+    let (dir, hash) = artifact(
+        vec![
+            module(
+                "collector",
+                &[],
+                &[],
+                &[],
+                &[],
+                serde_json::json!({ "services": ["gather"], "hooks": ["collector.gather"] }),
+            ),
+            filler("fa"),
+            filler("fb"),
+            filler("fc"),
+        ],
+        &[
+            ("code/modules/collector/services.js", COLLECTOR),
+            ("code/modules/fa/hooks.js", FA_HOOKS),
+            ("code/modules/fb/hooks.js", FB_HOOKS),
+            ("code/modules/fc/hooks.js", FC_HOOKS),
+        ],
+    );
+    let mut s = spec(&dir, &hash, Limits::FREE);
+    s.secrets = BTreeMap::from([
+        ("APP_SECRET".to_string(), "app-secret-value-123".to_string()),
+        (
+            "AUTH_SECRET".to_string(),
+            "auth-secret-value-123".to_string(),
+        ),
+        (
+            "BILLING_KEY".to_string(),
+            "billing-secret-value-1".to_string(),
+        ),
+    ]);
+    s.db = Some(tenant_db());
+    let iso = rt.create_isolate(s).await.unwrap();
+    let v = case(&iso, &sink, "results").await;
+    let two = serde_json::json!([
+        { "module": "fa", "result": 1 },
+        { "module": "fb", "result": { "a": 2 } },
+    ]);
+    let plain = &v["plain"]["ok"];
+    assert_eq!(plain["halt"], false, "{v}");
+    assert_eq!(plain["results"], two, "{v}");
+    assert_eq!(plain["frozen"], true, "{v}");
+    for mode in ["fn", "big"] {
+        let e = &v[mode]["error"];
+        assert_eq!(e["code"], "RENOX_MODULE_SERVICE", "{mode}: {v}");
+    }
+    let halt = &v["halt"]["ok"];
+    assert_eq!(halt["halt"], true, "{v}");
+    assert_eq!(halt["module"], "fc", "{v}");
+    assert_eq!(halt["status"], 409, "{v}");
+    assert_eq!(halt["results"], two, "{v}");
 }
 
 /// Module globals are per module and shared across requests

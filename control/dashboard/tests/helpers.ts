@@ -109,7 +109,7 @@ function base(d: Dash, method: string, path: string, params: Ctx["params"], head
     config: Object.freeze({}),
     services: Object.freeze({}),
     events: { emit: () => Promise.reject(new Error("no events in unit tests")) },
-    hooks: { run: () => Promise.resolve({ halt: false }) },
+    hooks: { run: () => Promise.resolve({ halt: false, results: [] }) },
     password: { hash: () => Promise.reject(new Error("no password op in unit tests")), verify: () => Promise.resolve(false) },
     principal: null,
     authz: {

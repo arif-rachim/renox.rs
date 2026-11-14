@@ -350,7 +350,16 @@ export interface Events {
   emit(name: string, payload: Readonly<Record<string, unknown>>, options?: EmitOptions): Promise<string>;
 }
 
-export type HookRunResult = { readonly halt: false } | { readonly halt: true; readonly response: Response; readonly module: string };
+/** What one filler handed back with `{ result }` (section 15.3): a JSON copy. */
+export interface HookResult {
+  readonly module: string;
+  readonly result: unknown;
+}
+
+/** `results`: the fillers that returned `{ result }`, in the order they ran. */
+export type HookRunResult =
+  | { readonly halt: false; readonly results: readonly HookResult[] }
+  | { readonly halt: true; readonly response: Response; readonly module: string; readonly results: readonly HookResult[] };
 
 export interface Hooks {
   /** Runs the fillers of a hook point this module exports, in priority order (section 15.3). */
@@ -368,8 +377,11 @@ export interface Password {
 export type ServiceImplementation = (ctx: Ctx, ...args: never[]) => unknown;
 export type ServicesModule = Readonly<Record<string, ServiceImplementation>>;
 
-/** A filler continues with `undefined`, or stops the run with a response. */
-export type HookFillerResult = void | { readonly halt: true; readonly response: Response };
+/**
+ * A filler continues with `undefined`, continues and hands data back with
+ * `{ result }` (JSON, at most 64 KiB), or stops the run with a response.
+ */
+export type HookFillerResult = void | { readonly result: unknown } | { readonly halt: true; readonly response: Response };
 
 export interface HookFiller {
   /** 0–1000, default 100; lower runs first, ties by module name. */

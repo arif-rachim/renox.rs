@@ -943,9 +943,11 @@ function isLocal(module) {
  * A call into the isolate of another module (`isolate` mode): the
  * structured clone (JSON) of the arguments and the result, at most
  * MAX_CROSS each way, with this request's transaction and principal.
+ * `caller` is the code this isolate runs that makes the call (the host
+ * checks it, #763): the current module, or for a hook the module that
+ * runs the hook point.
  */
-async function crossCall(kind, target, name, args) {
-  const caller = currentModule();
+async function crossCall(kind, target, name, args, caller = currentModule()) {
   const json = JSONStringify(args ?? null, dataReplacer) ?? "null";
   if (json.length > MAX_CROSS) {
     throw new ModuleServiceError(`${target}.${name} failed: the arguments are over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
@@ -1331,7 +1333,44 @@ async function callService(target, service, args) {
   return result;
 }
 
-/** `ctx.hooks` of `module` (ops.md 1.3.0 section 15.3). */
+/** A hook filler's `{ result }` is at most this long as JSON (ops.md 1.26.0 section 15.3). */
+const MAX_HOOK_RESULT = 64 * 1024;
+
+const FILLER_RETURNS = "a hook filler returns undefined, { result } or { halt: true, response }";
+
+/** A filler's `{ halt: true, response }`. */
+function isHalt(r) {
+  return r !== null && typeof r === "object" && r.halt === true && isResponse(r.response);
+}
+
+/** A filler's `{ result }`: an object whose only own key is `result`. */
+function isResult(r) {
+  if (r === null || typeof r !== "object" || ArrayIsArray(r)) return false;
+  const keys = ObjectGetOwnPropertyNames(r);
+  return keys.length === 1 && keys[0] === "result";
+}
+
+/** JSON only: a function, a symbol or a Uint8Array anywhere is refused. */
+function hookResultReplacer(_key, value) {
+  if (typeof value === "function" || typeof value === "symbol") {
+    throw new TypeError("a hook filler's result must survive JSON");
+  }
+  return dataReplacer(_key, value);
+}
+
+/**
+ * The copy of a filler's `result` that reaches the caller (ops.md 1.26.0
+ * section 15.3): a JSON round trip, the same in `shared` and `isolate`
+ * mode, at most MAX_HOOK_RESULT long.
+ */
+function hookResultCopy(value) {
+  const json = JSONStringify(value, hookResultReplacer);
+  if (typeof json !== "string") throw new TypeError("a hook filler's result must survive JSON");
+  if (json.length > MAX_HOOK_RESULT) throw new TypeError("a hook filler's result is over 64 KiB as JSON");
+  return JSONParse(json);
+}
+
+/** `ctx.hooks` of `module` (ops.md 1.3.0 section 15.3; `results` since 1.26.0). */
 function makeHooks(module) {
   return ObjectFreeze({
     async run(name, args) {
@@ -1339,34 +1378,54 @@ function makeHooks(module) {
       if (!ArrayPrototypeIncludes(infoOf(module)?.exports?.hooks ?? [], name)) {
         throw new ModuleUndeclaredError(`module ${module} does not export hook ${name}`, { module, target: name });
       }
+      const results = [];
       for (const f of new SafeArrayIterator(await fillersOf(name))) {
         const fillerCtx = f.remote === true ? null : st.ctxOf(f.module);
         let r;
+        let recorded = false;
+        let result;
         try {
           r = await within(
             [
               [moduleVar, f.module],
               [callerVar, ownCaller(f.module)],
             ],
-            () => f.handle(fillerCtx, args),
+            // A remote filler is called in the name of the module that runs the hook.
+            () => (f.remote === true ? f.handle(null, args, module) : f.handle(fillerCtx, args)),
           );
-          if (r !== undefined && !(r !== null && typeof r === "object" && r.halt === true && isResponse(r.response))) {
-            throw new TypeError("a hook filler returns undefined or { halt: true, response }");
+          if (isResult(r)) {
+            result = hookResultCopy(r.result);
+            recorded = true;
+          } else if (r !== undefined && !isHalt(r)) {
+            throw new TypeError(FILLER_RETURNS);
           }
         } catch (e) {
           throw await calleeFailed(e, { module: f.module, hook: name }, `${f.module} filler of ${name}`);
         }
-        if (r !== undefined) return ObjectFreeze({ halt: true, response: r.response, module: f.module });
+        if (recorded) {
+          ArrayPrototypePush(results, ObjectFreeze({ module: f.module, result }));
+          continue;
+        }
+        if (r !== undefined) {
+          return ObjectFreeze({ halt: true, response: r.response, module: f.module, results: ObjectFreeze(results) });
+        }
       }
-      return ObjectFreeze({ halt: false });
+      return ObjectFreeze({ halt: false, results: ObjectFreeze(results) });
     },
   });
 }
 
-/** A hook filler of another isolate's module: its `{ halt, response }` crosses as status, headers and body. */
-async function remoteFiller(module, hook, args) {
-  const r = await crossCall("hook", module, hook, args);
-  if (r === null || r === undefined || r.halt !== true) return undefined;
+/**
+ * A hook filler of another isolate's module: its `{ halt, response }`
+ * crosses as status, headers and body, its `{ result }` as JSON.
+ */
+async function remoteFiller(module, hook, args, runner) {
+  // The call is made by the module that runs the hook point, code of this
+  // isolate (the filler's isolate gets its own name as `ctx.caller`); the
+  // filler's name would be refused by the host as a caller (#828).
+  const r = await crossCall("hook", module, hook, args, runner);
+  if (r === null || r === undefined) return undefined;
+  if (r.halt !== true) return r.result !== undefined ? { result: r.result } : undefined;
   const res = r.response ?? {};
   return { halt: true, response: new Response(res.body ?? null, { status: res.status ?? 200, headers: res.headers ?? [] }) };
 }
@@ -1462,7 +1521,7 @@ function register(namespaces) {
       // another isolate, from its manifest, run there (priority 100).
       for (const hook of new SafeArrayIterator(info.permissions?.hooks ?? [])) {
         const list = hookFillers.get(hook) ?? [];
-        ArrayPrototypePush(list, { module: name, priority: 100, remote: true, handle: (_ctx, args) => remoteFiller(name, hook, args) });
+        ArrayPrototypePush(list, { module: name, priority: 100, remote: true, handle: (_ctx, args, runner) => remoteFiller(name, hook, args, runner) });
         hookFillers.set(hook, list);
       }
       continue;
@@ -2778,11 +2837,12 @@ async function crossServe(st, env) {
     if (f === undefined) return { kind: KIND_INVOKE, result: "no_handler" };
     const r = await within(vars, () => f.handle(st.ctxOf(env.module), args));
     if (r === undefined) value = { halt: false };
-    else if (r !== null && typeof r === "object" && r.halt === true && isResponse(r.response)) {
+    else if (isResult(r)) value = { halt: false, result: hookResultCopy(r.result) };
+    else if (isHalt(r)) {
       const headers = [];
       for (const [k, v] of r.response.headers) ArrayPrototypePush(headers, [k, v]);
       value = { halt: true, response: { status: r.response.status, headers, body: await r.response.text() } };
-    } else throw new TypeError("a hook filler returns undefined or { halt: true, response }");
+    } else throw new TypeError(FILLER_RETURNS);
   } else {
     if (!hasService(env.module, env.name)) return { kind: KIND_INVOKE, result: "no_handler" };
     const fn = serviceModules.get(env.module)?.[env.name] ?? (await within(vars, () => entryOf(env.module, "services", { module: env.module, service: env.name })))?.[env.name];

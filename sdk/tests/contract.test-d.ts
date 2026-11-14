@@ -67,6 +67,7 @@ export type Checks = [
   Expect<Equal<S.Services, C.Services>>,
   Expect<Equal<S.EmitOptions, C.EmitOptions>>,
   Expect<Equal<S.Events, C.Events>>,
+  Expect<Equal<S.HookResult, C.HookResult>>,
   Expect<Equal<S.HookRunResult, C.HookRunResult>>,
   Expect<Equal<S.Hooks, C.Hooks>>,
   Expect<Equal<S.Password, C.Password>>,
