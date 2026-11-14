@@ -2610,6 +2610,29 @@ Modules ship default policies under `modules/<module>/policies/`. The app adds p
 
 **Contract.** The runtime side of this document is `docs/contracts/ops.md` section 17 (1.5.0, #272): the principal reaches Rust through the `auth` module's exported service `auth.principal` (never by the cell reading `auth__sessions`), cached per cell by session id and invalidated by `authz.roles_changed`, `auth.login`, and `auth.logout`; `op_authz_*` and `ctx.authz` (`require`, `can`, `canBatch`, `explain`, `roles`), the `guard` export, `db.scoped()` with `[authz.ownership]`, the append-only `renox__authz_audit` row for sensitive actions, and the evaluation count `authz_evals`. The Cedar schema qualifies the platform types this document writes bare: `Role::"finance"` is `Renox::Role::"finance"`, `Action::"invoice.read"` is `Renox::Action::"invoice.read"`, and a module's `Invoice` is `Billing::Invoice`. The `realtime.authorize` hook of the table below is a policy on `Renox::Topic`, not a hook (`docs/09-htmx-realtime.md`).
 
+## The principal's attributes, and the app's own
+
+`principal` in a policy is a `Renox::User` with the platform's attributes: `id`, `created_at`, `email_verified`, `phone_verified`, `has_password` (true when the account has a password; false for a phone-only account and for an agent), `mfa_verified` and `org`. They come from the `auth` module and its `auth.principal` fillers (2fa, org); a policy may name only these.
+
+An **app attribute** is a boolean the app adds to `Renox::User` for its own rules, such as "this user is a customer of the portal, never staff". The app declares its names in `renox.toml` and sets them from its own `hooks.ts` filler of `auth.principal`:
+
+```toml
+[authz]
+user_attrs = ["portal"]   # ^[a-z][a-z0-9_]{1,31}$, at most 8, never a platform name
+```
+
+```cedar
+forbid (principal is Renox::User, action in [Renox::Action::"job.edit"], resource)
+when { principal.portal };
+```
+
+- Only the **app's own** filler may set one; a module's filler (`auth.principal` is open to modules) cannot, and its write is ignored. A module's `module.toml` cannot declare them.
+- Only booleans. A missing value, or any other type, is `false`: a `forbid ... when { principal.portal }` is never skipped for want of the attribute.
+- An app attribute cannot widen or overwrite a platform one: a name that is one of the platform's (`has_password` and `id` included) is refused at `renox check` (MF19) and by the worker when it builds the schema, and the platform's own values (`id`, `has_password`) are not taken from a filler.
+- A name the app did not declare is not in the schema, so a policy cannot read it (a policy that names it fails validation, `RENOX_POLICY_INVALID`) and the value is inert.
+
+The contracts: `manifest.md` 1.8.0 (`[authz] user_attrs`, MF19), `artifact.md` 1.12 (the app's `authz.user_attrs`), `ops.md` 1.23.0 section 17.
+
 ## Enforcement points
 
 | Layer | How | Role |
@@ -2619,6 +2642,15 @@ Modules ship default policies under `modules/<module>/policies/`. The app adds p
 | Data | `db.scoped({ user_id })` + owner columns declared in the manifest | Replacement for RLS: ownership filter applied to every statement |
 | UI | `r-can="invoice.refund" :resource="inv"` | Hides elements only; **not a safeguard** |
 | Realtime | `Origin` check at upgrade; topics as Cedar resources, deny when no policy permits | Prevents cross-site sockets and subscribing to other users' topics |
+
+**Sending a denied signed-in user elsewhere (`deny_redirect`).** A page guard may name a same-origin path: a signed-in user the guard denies gets `303` to it instead of the 403 page, and an anonymous visitor still gets the 403 (or the app's own sign-in redirect). It is for an app that has two kinds of signed-in users and one set of pages, such as a portal customer who opens a staff page and belongs on `/my`:
+
+```ts
+// pages/jobs/index.ts
+export const guard = { action: "job.read", deny_redirect: "/my" };
+```
+
+The value is a path of the app, never another site: one leading `/`, no `//`, no backslash, no whitespace, at most 200 characters, and not the page's own path (a loop). `renox build` and `renox check` refuse anything else (V25), and the cell refuses an artifact that carries one. The deny is still a deny: it is counted, audited when the action is sensitive, metered with `status: forbidden`, and logged as `guard denied` with `redirected: true`. `renox check --security` lists the guards that redirect. Function, `ws` and `sse` routes keep the 403.
 
 `renox check` reports `missing-guard` (error) for a page or function that calls `ctx.authz.require`, `can` or `canBatch` with a literal action a policy names but exports no `guard`; files under `functions/tools/` are skipped, because the tool's `action` is its guard and the cell checks it before `run`.
 
@@ -4246,12 +4278,12 @@ Source: docs/contracts/manifest.md (https://github.com/arif-rachim/renox.rs/blob
 
 | | |
 | --- | --- |
-| Version | **1.7.0** (F7, #769: minor; `[exports.errors]` in `module.toml`, code → description; rule MF18: a code matches `^[A-Z][A-Z0-9_]{2,63}$`, never `RENOX_*`, at most 32; for `ops.md` 1.21.0 section 15.2 and `artifact.md` 1.11). 1.6.2 (F7, #679: patch, MF17 is the one CSP source grammar of app and modules: no `;` or `,`). 1.6.1 (F7, #658: patch, `mcp` a reserved name, MF1). 1.6 (F7, #660: `permissions.csp` and the lock's `approved.csp`; rule MF17; the build merges the approved sources into `security.csp.*`, `artifact.md` 1.9.1). 1.5 (F2, #640: minor; `[module] eager`, ADR D32, for `ops.md` 1.14.0 and `artifact.md` 1.9). 1.4.1 (F7, #629: patch, wording; the app declares events and slot fillers in `renox.toml`, Open 5, `artifact.md` 1.8). 1.4 (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Version | **1.8.0** (F7, #791: minor; `renox.toml [authz] user_attrs`, the app's own boolean attributes of `Renox::User`; rule MF19: each name matches `^[a-z][a-z0-9_]{1,31}$`, at most 8, never a platform attribute; for `ops.md` 1.23.0 section 17 and `artifact.md` 1.12). 1.7.0 (F7, #769: minor; `[exports.errors]` in `module.toml`, code → description; rule MF18: a code matches `^[A-Z][A-Z0-9_]{2,63}$`, never `RENOX_*`, at most 32; for `ops.md` 1.21.0 section 15.2 and `artifact.md` 1.11). 1.6.2 (F7, #679: patch, MF17 is the one CSP source grammar of app and modules: no `;` or `,`). 1.6.1 (F7, #658: patch, `mcp` a reserved name, MF1). 1.6 (F7, #660: `permissions.csp` and the lock's `approved.csp`; rule MF17; the build merges the approved sources into `security.csp.*`, `artifact.md` 1.9.1). 1.5 (F2, #640: minor; `[module] eager`, ADR D32, for `ops.md` 1.14.0 and `artifact.md` 1.9). 1.4.1 (F7, #629: patch, wording; the app declares events and slot fillers in `renox.toml`, Open 5, `artifact.md` 1.8). 1.4 (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
 | Examples | [`examples/manifest/`](examples/manifest/): single files and whole projects (section 8) |
-| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF18) |
+| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF19) |
 | Sources | `docs/10-modules.md` (the module system), `docs/18-build-plan.md` (catalog, definition of done for a module), `docs/13-decisions.md` D12 (isolation modes), D14 (outbox), D17 (forward-only migrations, versioned views), `docs/06-data.md` (authorizer and prefixes), `docs/24-threat-model.md` (module publisher boundary) |
 
 A module is a mini app with the same folder structure as an app (`docs/10-modules.md`). Its `module.toml` says what it is, what it needs, and what it offers. A tenant installs modules in `renox.toml [modules]`; the CLI resolves them, asks the tenant to approve their permissions, and records the result in `renox.lock`. The lock is the only input the artifact takes from this contract: what the runtime enforces is what the tenant approved, never what a manifest asks for later.
@@ -4489,6 +4521,8 @@ acme    = { version = "^0.4", source = "git:https://github.com/acme/renox-acme#v
 
 The key is the module's name and must equal the manifest's `[module].name` (MF3).
 
+**`[authz] user_attrs` of the app (1.8.0).** `user_attrs = ["portal"]` declares boolean attributes the app adds to `Renox::User` (MF19); only `renox.toml` may (a `module.toml` carrying it is refused). The app's own `hooks.ts` filler of `auth.principal` sets them; the cell reads a missing one as `false` (`docs/11-authorization.md`, "The principal's attributes, and the app's own"; `ops.md` 1.23.0 section 17).
+
 **`[authz]` and `[realtime]` of the app (1.1).** `renox.toml` may carry the same `[authz]` (`actions`, `sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`) and `[realtime.feeds]` tables as a module manifest, for the app's own `app__*` tables and resources (`App::<Type>` in Cedar); the CLI resolves them into the artifact's `authz` and `realtime` blocks (`artifact.md` 1.3) and `renox check` applies MF13 and MF14 to them with the prefix `app__`. The app's policies are `policies/*.cedar` in the app root, built into `policies/app/`, with the schema `policies/schema.cedarschema`.
 
 | Key | Type | Required | Meaning |
@@ -4579,6 +4613,7 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 | MF16 | **App tables** (1.3). Every `renox.toml` `app_tables` entry and every lock `approved.app_tables` entry starts with `app__`; the lock's `app_tables` is sorted and, when not empty, has `app_access`; the lock's `app_tables` is the `renox.toml` grant; a module granted `app_tables` asks for `permissions.app_access` | single file, project |
 | MF17 | **CSP sources** (1.6). Every value under `permissions.csp.<directive>` (in the manifest and in the lock's `approved`) is an `https://` origin with an optional `*.` host wildcard and path (no `;` or `,`, which separate directives and policies in the header), `data:`, or `blob:`; the directive is one of `script_src`, `style_src`, `img_src`, `connect_src`, `frame_src`, `font_src`; `'unsafe-inline'` and `'unsafe-eval'` are never accepted, whatever `allow_unsafe` says in `renox.toml`. The merged policy of an app stays within 32 sources per directive (`artifact.md`, "Security"); a build that exceeds it names the module | single file |
 | MF18 | **Error codes** (1.7.0, #769). Every `[exports.errors]` key matches `^[A-Z][A-Z0-9_]{2,63}$` and does not start with `RENOX_`; a manifest declares at most 32 codes | single file |
+| MF19 | **App user attributes** (1.8.0). `renox.toml [authz] user_attrs` is an array of at most 8 distinct names, each matching `^[a-z][a-z0-9_]{1,31}$` and none of `created_at`, `email_verified`, `has_password`, `id`, `mfa_verified`, `org`, `phone_verified`; a `module.toml [authz]` has no `user_attrs` | single file (`renox.toml`), project |
 
 Every rejection names the rule (`MF1`–`MF18`), the file and key, and a one-line reason, and never a filesystem path outside the app.
 
@@ -4636,6 +4671,7 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | 1.6.1 | #658 | Patch (one more reserved name, no key changes). MF1: `mcp` is reserved, the namespace of the platform event `mcp.tool_called` (`ops.md` section 15.4), so a module cannot emit it and forge an App MCP audit row |
 | 1.6.2 | #679 | Patch (no key, rule or lock change). MF17 is now the single grammar of every CSP source, the app's `renox.toml [security].csp.*` included (`artifact.md` 1.9.2): no `;` or `,`. `renox check` refuses an app source with the MF17 message; the gateway drops one at load with a platform warning |
 | 1.7.0 | #769 | Minor (no lock version bump; the new key is optional). `[exports.errors]` in `module.toml`: the codes a module's services throw to callers, which reach them as `cause_code` with filtered `cause_details` (`ops.md` 1.21.0 section 15.2); rule MF18; `renox build` copies the codes into the artifact's `exports.errors` (`artifact.md` 1.11) |
+| 1.8.0 | #791 | Minor (no lock version bump; the new key is optional). `renox.toml [authz] user_attrs` (at most 8 boolean attribute names for `Renox::User`); rule MF19; not allowed in `module.toml`. For `ops.md` 1.23.0 section 17 and `artifact.md` 1.12 |
 
 ---
 
@@ -5029,7 +5065,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
 | `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, method, next?, resume }`; `method` is `password`, `magic`, `oauth` (UAE PASS too), `phone` or `passkey`, #794) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
-| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
+| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped, except the app's own boolean attributes set by the app's filler (below) |
 | `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
 | `auth.send_sms` | Declared for F7 (`{ to, text }`) | Nothing fills it yet |
@@ -5058,11 +5094,12 @@ Override a template, never the code: put a copy at `overrides/auth/pages/login.h
 The cell asks `auth.principal` once per request, before any guard (`ops.md` 1.5.0 section 17). Signed out, the answer is `null`, the anonymous principal. Signed in, it is:
 
 ```json
-{ "id": "<user id>", "attrs": { "email_verified": true, "phone_verified": false, "created_at": 1793310868, "org": "o_1", "mfa_verified": true } }
+{ "id": "<user id>", "attrs": { "email_verified": true, "phone_verified": false, "has_password": true, "created_at": 1793310868, "org": "o_1", "mfa_verified": true } }
 ```
 
-- `email_verified`, `phone_verified` and `created_at` come from auth itself.
-- Fillers of the hook `auth.principal` add the rest: `org` from org, `mfa_verified` from 2fa (#287). Only the platform's user attributes are kept (`created_at`, `email_verified`, `mfa_verified`, `org`, `phone_verified`).
+- `email_verified`, `phone_verified`, `has_password` and `created_at` come from auth itself. `has_password` (1.4.0, #791) is true when the account has a password, false for a phone-only account and always false for an agent principal; no filler can change it.
+- Fillers of the hook `auth.principal` add the rest: `org` from org, `mfa_verified` from 2fa (#287). Only the platform's user attributes are kept (`created_at`, `email_verified`, `has_password`, `mfa_verified`, `org`, `phone_verified`), plus the app's own boolean attributes (below).
+- **App attributes (1.4.0, #791).** The app declares boolean attributes in `renox.toml` (`[authz] user_attrs = ["portal"]`, `docs/11-authorization.md`) and its own `hooks.ts` filler of `auth.principal` sets them (`principal.attrs.portal = true`); a policy reads `principal.portal`. Auth keeps a key outside the platform's list only when the app's own filler set it, its value is a boolean, and its name matches `^[a-z][a-z0-9_]{1,31}$` (at most 8); a module filler's write of such a key is ignored (it is told apart by `ctx.caller`), and anything else is dropped. The cell and the Cedar schema use only the names the app declared; an undeclared one is inert. A missing value is `false`.
 - The cell adds the user's role assignments as `roles`.
 - The cell caches the principal and drops it on `auth.login`, `auth.logout` and `authz.roles_changed`.
 - Code reads it as `ctx.principal`; policies read it as `principal`.
@@ -5090,7 +5127,7 @@ Every method ends the same way as the password flow. The hook `auth.after_login`
   - *Same answer.* A known and an unknown number get the same answer, the same buckets, one argon2 run and one `auth.send_otp` call each. The pending code of a new number is kept in `auth__phone_signups` (argon2id, no user id), never in `auth__public_users_v1`; five wrong attempts lock it.
   - *Account cap.* At most 3 accounts an hour and 20 a day per IP address. Past it a request for a new number answers the generic message and sends nothing; the cap is checked again where the account would be created (a correct code past it creates nothing and answers the generic error, counted as `auth.login_failed` with `reason: "locked"`).
   - *No password.* The account has a placeholder email (no `@`, shown as `""` by `currentUser` and the public view) and a placeholder password hash: `login`, magic link and password reset never match it, and nothing is mailed. `auth.user_registered` has `source: "phone"`.
-  - *Two services.* `setDisplayName(name)` sets the signed-in user's name (1 to 80 characters, trimmed), so an app can ask a phone-only user for it once. `hasPassword()` tells a phone-only account from one with a password. (`has_password` is not a `principal` attribute: the platform's Cedar schema fixes the attributes, so adding one needs a change in `renox-authz`.)
+  - *Two services.* `setDisplayName(name)` sets the signed-in user's name (1 to 80 characters, trimmed), so an app can ask a phone-only user for it once. `hasPassword()` tells a phone-only account from one with a password. (Since 1.4.0 the principal also carries `has_password`, #791.)
 - **Delivery.** Codes go out through the hook `auth.send_otp`. Install `whatsapp` (#290), which fills it. auth cannot call an optional module, and a hook needs no dependency.
 
 ### Passkeys (`passkeys = true`)
@@ -5640,6 +5677,8 @@ export async function load(ctx) {
 ```
 
 i18n takes the user and the organisation default as arguments; it does not look them up itself. `auth` and `org` call i18n from their own pages, so i18n cannot depend on them: the dependency graph has no cycles (`docs/10-modules.md`, rule 1), and a manifest has no optional dependencies.
+
+A loader should call `detectLocale` and `ctx.setLocale` before its first slow `await`: a streamed page's shell (`<html lang dir>`) waits for `ctx.setLocale` for at most 250 ms after the 50 ms shell delay, and a later call no longer reaches the shell (`ops.md` section 14, "The shell delay").
 
 `setLocale(locale, { user_id? })` stores a choice without a `?lang=` link, for example from an account page.
 
