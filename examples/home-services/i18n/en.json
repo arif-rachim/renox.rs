@@ -685,6 +685,7 @@
       "label": "Back office",
       "whatsapp": "WhatsApp",
       "parts": "Parts",
+      "stock": "Stock",
       "suppliers": "Suppliers"
     },
     "tiles": {
@@ -942,6 +943,10 @@
     }
   },
   "fields": {
+    "to_branch": "To branch",
+    "counted": "Counted quantity",
+    "unit_cost": "Unit cost (AED)",
+    "part": "Part",
     "kind": "Type",
     "name": "Name",
     "phone": "Phone",
@@ -1069,6 +1074,93 @@
       "sell": "Enter the selling price in AED, for example 20 or 19.90.",
       "vat_rate": "Choose 0% or 5%.",
       "min_stock": "Enter the minimum stock as a number of at most 3 decimals, for example 5 or 2.5."
+    }
+  },
+  "stock": {
+    "title": "Stock",
+    "branches": "Branches",
+    "search": "Search by SKU or name",
+    "search_submit": "Search",
+    "low_only": "Low stock only",
+    "none": "No parts held or with a minimum in this branch.",
+    "totals": "Value of the stock by branch (average cost)",
+    "note": "The quantity on hand changes only through moves: receive, count, transfer, a visit or a purchase order. Open a SKU to see its moves.",
+    "low": "Low",
+    "negative": "Negative",
+    "saved": {
+      "received": "The stock was received.",
+      "adjusted": "The count was recorded.",
+      "transferred": "The stock was transferred."
+    },
+    "f": {
+      "sku": "SKU",
+      "name": "Name",
+      "unit": "Unit",
+      "on_hand": "On hand",
+      "min": "Minimum",
+      "avg": "Average cost",
+      "value": "Value",
+      "status": "Status",
+      "part": "Part",
+      "qty": "Quantity",
+      "unit_cost": "Unit cost (AED)",
+      "reason": "Reason",
+      "counted": "Counted quantity",
+      "to_branch": "To branch"
+    },
+    "receive": {
+      "title": "Receive stock",
+      "submit": "Receive"
+    },
+    "adjust": {
+      "title": "Count and adjust",
+      "note": "Enter what you counted on the shelf: the difference is recorded as a move. Asks for your second factor.",
+      "submit": "Record the count"
+    },
+    "transfer": {
+      "title": "Transfer to another branch",
+      "submit": "Transfer",
+      "none": "You hold no other branch to transfer to."
+    },
+    "history": {
+      "title": "Moves of {sku}",
+      "back": "Back to the stock",
+      "caption": "Stock moves, newest first",
+      "none": "No moves yet.",
+      "pages": "Pages of moves"
+    },
+    "h": {
+      "when": "When",
+      "kind": "Move",
+      "qty": "Quantity",
+      "balance": "Balance after",
+      "cost": "Cost (AED)",
+      "reason": "Reason",
+      "ref": "Reference",
+      "who": "By"
+    },
+    "kind": {
+      "in": "Received",
+      "out": "Used",
+      "adjust": "Count adjustment",
+      "transfer_out": "Transferred out",
+      "transfer_in": "Transferred in"
+    },
+    "ref": {
+      "visit": "Visit",
+      "purchase": "Purchase order",
+      "transfer": "Transfer",
+      "manual": "Entered by hand"
+    },
+    "err": {
+      "part": "Choose a part.",
+      "qty": "Enter a quantity above zero with at most 3 decimals, for example 5 or 2.5.",
+      "unit_cost": "Enter the unit cost in AED, for example 12 or 12.50.",
+      "reason": "Give a reason of 3 to 200 characters.",
+      "counted": "Enter the counted quantity, zero or more, with at most 3 decimals.",
+      "to_branch": "Choose another branch you hold.",
+      "short": "The branch holds less than this quantity, so it cannot be transferred.",
+      "no_change": "The count equals what the books say. Nothing to record."
     }
   },
   "suppliers": {

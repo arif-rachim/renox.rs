@@ -120,6 +120,9 @@ rw((db) => {
   db.run("insert into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values ('INV-000950', 'invoice', null, ?, 12000, 0, 0, 600, ?)", [body, now * 1000]);
   db.run("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_02', 'INV-000950', 12600, ?, null, 'u_dxb_accountant', ?)", [now + 30 * 86_400, now]);
 });
+// Stock (#813): Dubai receives some of the active part through the page, as the owner would (the tables are written by
+// lib/stock.ts only), so /admin/stock and its history have a row and a move; the part is under its minimum.
+expect((await owner.action("/admin/stock", "receive", { branch: "br_dubai", part: "pt_00000000000a11a1", qty: "8", unit_cost: "8.50", reason: "delivery for the audit" })).status).toBe(303);
 
 // Two self-bookings of Peter's waiting for the dispatcher (#779): one at a time the technicians are free (the
 // confirm form) and one on a Sunday, when the branch is closed (no technician free: Confirm disabled).
@@ -309,6 +312,12 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/admin/parts?edit=pt_00000000000a11a1", as: () => owner, note: "editing a part (#812)" },
   { path: "/admin/parts?q=pipe", as: () => owner, note: "a search" },
   { path: "/admin/parts", as: () => dispatcher, note: "read-only, no form" },
+  { path: "/admin/stock", as: () => owner, note: "stock per branch, with the three forms (#813)" },
+  { path: "/admin/stock?branch=br_sharjah&low=1", as: () => owner, note: "another branch, low stock only" },
+  { path: "/admin/stock?q=pipe", as: () => owner, note: "a search" },
+  { path: "/admin/stock", as: () => dispatcher, note: "read-only, no form" },
+  { path: "/admin/stock/pt_00000000000a11a1", as: () => owner, note: "the moves of a part" },
+  { path: "/admin/stock/pt_00000000000a11a1", as: () => dispatcher, note: "the moves of a part, read-only" },
   { path: "/admin/suppliers", as: () => owner },
   { path: "/admin/suppliers?edit=su_00000000000a11a1", as: () => owner, note: "editing a supplier (#812)" },
   { path: "/admin/suppliers", as: () => accountant, note: "read-only, no form" },

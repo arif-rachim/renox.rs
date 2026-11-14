@@ -113,6 +113,10 @@ app__contract_jobs = { owner = "branch_id" }
 # Staff invitations (F7-128): the app role chosen for an invited person, the same way.
 app__staff_invites = { owner = "branch_id" }
 
+# Stock per branch and its moves (#813), the same way (lib/stock.ts is the only writer).
+app__stock = { owner = "branch_id" }
+app__stock_moves = { owner = "branch_id" }
+
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }
 Site = { table = "app__sites", attrs = ["branch_id", "customer_id"] }

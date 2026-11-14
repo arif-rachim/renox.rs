@@ -8,6 +8,7 @@ exports[`/admin per role normal case: the owner sees the module's dashboard with
     <a href="/billing/invoices" class="renox-admin-link">All invoices</a><a href="/jobs" class="renox-admin-link">Jobs</a><a href="/notifications/prefs" class="renox-admin-link">Notifications</a><a class="renox-org-admin" href="/org/members">Members and invitations</a><a href="/files" class="renox-admin-link">Files</a><a href="/admin/branches" id="nav-branches">Branches</a>
 <a href="/admin/import" id="nav-import">Import</a>
 <a href="/admin/parts" id="nav-parts">Parts</a>
+<a href="/admin/stock" id="nav-stock">Stock</a>
 <a href="/admin/suppliers" id="nav-suppliers">Suppliers</a>
 <a href="/admin/whatsapp" id="nav-whatsapp">WhatsApp</a>
 <a href="/admin/people" id="nav-people">People</a>
@@ -38,6 +39,7 @@ exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin 
     <a href="/billing/invoices" class="renox-admin-link">كل الفواتير</a><a href="/jobs" class="renox-admin-link">المهام</a><a href="/notifications/prefs" class="renox-admin-link">الإشعارات</a><a class="renox-org-admin" href="/org/members">الأعضاء والدعوات</a><a href="/files" class="renox-admin-link">الملفات</a><a href="/admin/branches" id="nav-branches">الفروع</a>
 <a href="/admin/import" id="nav-import">الاستيراد</a>
 <a href="/admin/parts" id="nav-parts">قطع الغيار</a>
+<a href="/admin/stock" id="nav-stock">المخزون</a>
 <a href="/admin/suppliers" id="nav-suppliers">الموردون</a>
 <a href="/admin/whatsapp" id="nav-whatsapp">واتساب</a>
 <a href="/admin/people" id="nav-people">الأشخاص</a>

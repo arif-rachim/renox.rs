@@ -1,0 +1,531 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the pages snapshots: the page and the history, in English and in Arabic: role: stock, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Stock · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/stock">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/stock?branch=br_dubai&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>Stock</h1>
+  
+  <nav class="pager" id="branch-picker" aria-label="Branches">
+    <strong id="branch-br_dubai" aria-current="page" dir="auto">Dubai</strong> <a href="/admin/stock?branch=br_sharjah" id="branch-br_sharjah" dir="auto">Sharjah</a> 
+  </nav>
+  <h2 id="branch-name" dir="auto">Dubai</h2>
+  <form class="search" role="search" action="/admin/stock" method="get">
+    <input type="hidden" name="branch" value="br_dubai">
+    <input type="search" name="q" value="" placeholder="Search by SKU or name" aria-label="Search by SKU or name" autocomplete="off" dir="auto">
+    <label><input type="checkbox" name="low" value="1"> Low stock only</label>
+    <button type="submit">Search</button>
+  </form>
+  <div class="table-scroll" tabindex="0"><table id="stock">
+    <caption class="visually-hidden">Stock</caption>
+    <thead>
+      <tr><th scope="col">SKU</th><th scope="col">Name</th><th scope="col">Unit</th><th scope="col">On hand</th><th scope="col">Minimum</th><th scope="col">Average cost</th><th scope="col">Value</th><th scope="col">Status</th></tr>
+    </thead>
+    <tbody>
+      <tr id="stock-pt_0000000000813a01">
+        <td dir="ltr"><a href="/admin/stock/pt_0000000000813a01?branch=br_dubai" dir="auto">AC-FILTER</a></td>
+        <td dir="auto">AC filter</td>
+        <td dir="auto">piece</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">5</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="ltr">AED 102.00</td>
+        <td></td>
+      </tr><tr id="stock-pt_0000000000813a02">
+        <td dir="ltr"><a href="/admin/stock/pt_0000000000813a02?branch=br_dubai" dir="auto">PIPE-15</a></td>
+        <td dir="auto">Copper pipe 15 mm</td>
+        <td dir="auto">metre</td>
+        <td dir="ltr">0</td>
+        <td dir="ltr">0</td>
+        <td dir="ltr">AED 1.00</td>
+        <td dir="ltr">AED 0.00</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table></div>
+  <h2>Value of the stock by branch (average cost)</h2>
+  <ul id="totals">
+    <li id="total-br_dubai" dir="auto">Dubai: <span dir="ltr">AED 102.00</span></li><li id="total-br_sharjah" dir="auto">Sharjah: <span dir="ltr">AED 18.00</span></li>
+  </ul>
+  <p><small class="muted">The quantity on hand changes only through moves: receive, count, transfer, a visit or a purchase order. Open a SKU to see its moves.</small></p>
+
+  <section id="stock-forms">
+    <h2>Receive stock</h2>
+    <form method="post" action="?/receive" hx-post="?/receive" class="stack narrow" id="receive-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch" value="br_dubai">
+      <p><label>Part <select name="part" id="f-receive-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option></select></label></p>
+      <p><label>Quantity <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-qty" value=""></label></p>
+      <p><label>Unit cost (AED) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-unit_cost" value=""></label></p>
+      <p><label>Reason <input name="reason" maxlength="200" required aria-required="true" id="f-receive-reason" value="" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand" id="receive-submit">Receive</button></p>
+    </form>
+
+    <h2>Count and adjust</h2>
+    <p><small class="muted">Enter what you counted on the shelf: the difference is recorded as a move. Asks for your second factor.</small></p>
+    <form method="post" action="?/adjust" hx-post="?/adjust" class="stack narrow" id="adjust-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch" value="br_dubai">
+      <p><label>Part <select name="part" id="f-adjust-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option></select></label></p>
+      <p><label>Counted quantity <input name="counted" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-adjust-counted" value=""></label></p>
+      <p><label>Reason <input name="reason" maxlength="200" required aria-required="true" id="f-adjust-reason" value="" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand" id="adjust-submit">Record the count</button></p>
+    </form>
+
+    <h2>Transfer to another branch</h2>
+    
+    <form method="post" action="?/transfer" hx-post="?/transfer" class="stack narrow" id="transfer-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch" value="br_dubai">
+      <p><label>Part <select name="part" id="f-transfer-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: AC filter</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: Copper pipe 15 mm</option></select></label></p>
+      <p><label>Quantity <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-transfer-qty" value=""></label></p>
+      <p><label>To branch <select name="to_branch" id="f-transfer-to_branch" required aria-required="true"><option value="br_sharjah" dir="auto">Sharjah</option></select></label></p>
+      <p><label>Reason <input name="reason" maxlength="200" required aria-required="true" id="f-transfer-reason" value="" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand" id="transfer-submit">Transfer</button></p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the pages snapshots: the page and the history, in English and in Arabic: role: stock, owner, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>المخزون · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/stock">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مالك</option><option value="org_sharjah" dir="auto">Sharjah · مالك</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/stock?branch=br_dubai&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>المخزون</h1>
+  
+  <nav class="pager" id="branch-picker" aria-label="الفروع">
+    <strong id="branch-br_dubai" aria-current="page" dir="auto">دبي</strong> <a href="/admin/stock?branch=br_sharjah" id="branch-br_sharjah" dir="auto">الشارقة</a> 
+  </nav>
+  <h2 id="branch-name" dir="auto">دبي</h2>
+  <form class="search" role="search" action="/admin/stock" method="get">
+    <input type="hidden" name="branch" value="br_dubai">
+    <input type="search" name="q" value="" placeholder="ابحث برمز الصنف أو الاسم" aria-label="ابحث برمز الصنف أو الاسم" autocomplete="off" dir="auto">
+    <label><input type="checkbox" name="low" value="1"> المخزون المنخفض فقط</label>
+    <button type="submit">بحث</button>
+  </form>
+  <div class="table-scroll" tabindex="0"><table id="stock">
+    <caption class="visually-hidden">المخزون</caption>
+    <thead>
+      <tr><th scope="col">رمز الصنف (SKU)</th><th scope="col">الاسم</th><th scope="col">الوحدة</th><th scope="col">المتوفر</th><th scope="col">الحد الأدنى</th><th scope="col">متوسط التكلفة</th><th scope="col">القيمة</th><th scope="col">الحالة</th></tr>
+    </thead>
+    <tbody>
+      <tr id="stock-pt_0000000000813a01">
+        <td dir="ltr"><a href="/admin/stock/pt_0000000000813a01?branch=br_dubai" dir="auto">AC-FILTER</a></td>
+        <td dir="auto">فلتر مكيف</td>
+        <td dir="auto">قطعة</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">5</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="ltr">102.00 د.إ.</td>
+        <td></td>
+      </tr><tr id="stock-pt_0000000000813a02">
+        <td dir="ltr"><a href="/admin/stock/pt_0000000000813a02?branch=br_dubai" dir="auto">PIPE-15</a></td>
+        <td dir="auto">أنبوب نحاسي 15 مم</td>
+        <td dir="auto">متر</td>
+        <td dir="ltr">0</td>
+        <td dir="ltr">0</td>
+        <td dir="ltr">1.00 د.إ.</td>
+        <td dir="ltr">0.00 د.إ.</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table></div>
+  <h2>قيمة المخزون حسب الفرع (متوسط التكلفة)</h2>
+  <ul id="totals">
+    <li id="total-br_dubai" dir="auto">دبي: <span dir="ltr">102.00 د.إ.</span></li><li id="total-br_sharjah" dir="auto">الشارقة: <span dir="ltr">18.00 د.إ.</span></li>
+  </ul>
+  <p><small class="muted">لا تتغير الكمية المتوفرة إلا بحركات: استلام أو جرد أو تحويل أو زيارة أو أمر شراء. افتح رمز الصنف لترى حركاته.</small></p>
+
+  <section id="stock-forms">
+    <h2>استلام مخزون</h2>
+    <form method="post" action="?/receive" hx-post="?/receive" class="stack narrow" id="receive-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch" value="br_dubai">
+      <p><label>القطعة <select name="part" id="f-receive-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option></select></label></p>
+      <p><label>الكمية <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-qty" value=""></label></p>
+      <p><label>تكلفة الوحدة (درهم) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-receive-unit_cost" value=""></label></p>
+      <p><label>السبب <input name="reason" maxlength="200" required aria-required="true" id="f-receive-reason" value="" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand" id="receive-submit">استلام</button></p>
+    </form>
+
+    <h2>الجرد والتعديل</h2>
+    <p><small class="muted">أدخل ما عددته على الرف: يُسجَّل الفرق كحركة. يطلب العامل الثاني للتحقق.</small></p>
+    <form method="post" action="?/adjust" hx-post="?/adjust" class="stack narrow" id="adjust-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch" value="br_dubai">
+      <p><label>القطعة <select name="part" id="f-adjust-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option></select></label></p>
+      <p><label>الكمية المجرودة <input name="counted" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-adjust-counted" value=""></label></p>
+      <p><label>السبب <input name="reason" maxlength="200" required aria-required="true" id="f-adjust-reason" value="" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand" id="adjust-submit">سجّل الجرد</button></p>
+    </form>
+
+    <h2>تحويل إلى فرع آخر</h2>
+    
+    <form method="post" action="?/transfer" hx-post="?/transfer" class="stack narrow" id="transfer-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="branch" value="br_dubai">
+      <p><label>القطعة <select name="part" id="f-transfer-part" required aria-required="true"><option value=""></option><option value="pt_0000000000813a01" dir="auto">AC-FILTER: فلتر مكيف</option><option value="pt_0000000000813a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم</option></select></label></p>
+      <p><label>الكمية <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-transfer-qty" value=""></label></p>
+      <p><label>إلى الفرع <select name="to_branch" id="f-transfer-to_branch" required aria-required="true"><option value="br_sharjah" dir="auto">الشارقة</option></select></label></p>
+      <p><label>السبب <input name="reason" maxlength="200" required aria-required="true" id="f-transfer-reason" value="" dir="auto"></label></p>
+      <p><button type="submit" class="btn-brand" id="transfer-submit">تحويل</button></p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the pages snapshots: the page and the history, in English and in Arabic: role: stock history, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Moves of AC-FILTER · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/stock/pt_0000000000813a01">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/stock/pt_0000000000813a01?branch=br_dubai&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <p><a href="/admin/stock?branch=br_dubai" id="back-to-stock">Back to the stock</a></p>
+  <h1>Moves of AC-FILTER</h1>
+  <p id="part-name" dir="auto">AC filter · piece · <span id="history-branch" dir="auto">Dubai</span></p>
+  <div class="table-scroll" tabindex="0"><table id="moves">
+    <caption class="visually-hidden">Stock moves, newest first</caption>
+    <thead>
+      <tr><th scope="col">When</th><th scope="col">Move</th><th scope="col">Quantity</th><th scope="col">Balance after</th><th scope="col">Cost (AED)</th><th scope="col">Reason</th><th scope="col">Reference</th><th scope="col">By</th></tr>
+    </thead>
+    <tbody>
+      <tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Count adjustment</td>
+        <td dir="ltr">+2</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="auto">count: was 15, is 17: shelf count</td>
+        <td dir="auto">Entered by hand</td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Count adjustment</td>
+        <td dir="ltr">-2</td>
+        <td dir="ltr">15</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="auto">count: was 17, is 15: two filters broken</td>
+        <td dir="auto">Entered by hand</td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Transferred out</td>
+        <td dir="ltr">-3</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="auto">balance the branches</td>
+        <td dir="auto">Transfer <span dir="ltr">tr_<id></span></td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Transferred in</td>
+        <td dir="ltr">+3</td>
+        <td dir="ltr">20</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="auto">balance the branches</td>
+        <td dir="auto">Transfer <span dir="ltr">tr_<id></span></td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Transferred out</td>
+        <td dir="ltr">-3</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="auto">balance the branches</td>
+        <td dir="auto">Transfer <span dir="ltr">tr_<id></span></td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Received</td>
+        <td dir="ltr">+10</td>
+        <td dir="ltr">20</td>
+        <td dir="ltr">AED 7.00</td>
+        <td dir="auto">delivery from the supplier</td>
+        <td dir="auto">Entered by hand</td>
+        <td dir="auto">Mona Manager</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">Received</td>
+        <td dir="ltr">+10</td>
+        <td dir="ltr">10</td>
+        <td dir="ltr">AED 5.00</td>
+        <td dir="auto">delivery from the supplier</td>
+        <td dir="auto">Entered by hand</td>
+        <td dir="auto">Mona Manager</td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the pages snapshots: the page and the history, in English and in Arabic: role: stock history, owner, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>حركات ⁨AC-FILTER⁩ · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/stock/pt_0000000000813a01">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مالك</option><option value="org_sharjah" dir="auto">Sharjah · مالك</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/stock/pt_0000000000813a01?branch=br_dubai&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <p><a href="/admin/stock?branch=br_dubai" id="back-to-stock">العودة إلى المخزون</a></p>
+  <h1>حركات ⁨AC-FILTER⁩</h1>
+  <p id="part-name" dir="auto">فلتر مكيف · قطعة · <span id="history-branch" dir="auto">دبي</span></p>
+  <div class="table-scroll" tabindex="0"><table id="moves">
+    <caption class="visually-hidden">حركات المخزون، الأحدث أولاً</caption>
+    <thead>
+      <tr><th scope="col">الوقت</th><th scope="col">الحركة</th><th scope="col">الكمية</th><th scope="col">الرصيد بعدها</th><th scope="col">التكلفة (درهم)</th><th scope="col">السبب</th><th scope="col">المرجع</th><th scope="col">بواسطة</th></tr>
+    </thead>
+    <tbody>
+      <tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">تعديل بالجرد</td>
+        <td dir="ltr">+2</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="auto">count: was 15, is 17: shelf count</td>
+        <td dir="auto">إدخال يدوي</td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">تعديل بالجرد</td>
+        <td dir="ltr">-2</td>
+        <td dir="ltr">15</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="auto">count: was 17, is 15: two filters broken</td>
+        <td dir="auto">إدخال يدوي</td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">تحويل صادر</td>
+        <td dir="ltr">-3</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="auto">balance the branches</td>
+        <td dir="auto">تحويل <span dir="ltr">tr_<id></span></td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">تحويل وارد</td>
+        <td dir="ltr">+3</td>
+        <td dir="ltr">20</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="auto">balance the branches</td>
+        <td dir="auto">تحويل <span dir="ltr">tr_<id></span></td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">تحويل صادر</td>
+        <td dir="ltr">-3</td>
+        <td dir="ltr">17</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="auto">balance the branches</td>
+        <td dir="auto">تحويل <span dir="ltr">tr_<id></span></td>
+        <td dir="auto">Omar Owner</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">استلام</td>
+        <td dir="ltr">+10</td>
+        <td dir="ltr">20</td>
+        <td dir="ltr">7.00 د.إ.</td>
+        <td dir="auto">delivery from the supplier</td>
+        <td dir="auto">إدخال يدوي</td>
+        <td dir="auto">Mona Manager</td>
+      </tr><tr id="move-<id>">
+        <td dir="ltr"><when></td>
+        <td dir="auto">استلام</td>
+        <td dir="ltr">+10</td>
+        <td dir="ltr">10</td>
+        <td dir="ltr">5.00 د.إ.</td>
+        <td dir="auto">delivery from the supplier</td>
+        <td dir="auto">إدخال يدوي</td>
+        <td dir="auto">Mona Manager</td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
