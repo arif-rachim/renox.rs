@@ -135,6 +135,12 @@ export async function updatePart(ctx: Writer, id: string, input: PartInput): Pro
   return { ok: true };
 }
 
+/** Sets a part's cost to the last cost paid (a purchase order's receipt, #815); false when there is no such part. The receipt is what is audited. */
+export async function setPartCost(db: DbStatements, id: string, costFils: number): Promise<boolean> {
+  const won = await db.execute("update app__parts set cost_fils = ? where id = ?", [costFils, id]);
+  return won.changes === 1;
+}
+
 /** Switches a part on or off; false when there is no such part. The history of a deactivated part stays. */
 export async function setPartActive(ctx: Writer, id: string, active: boolean): Promise<boolean> {
   const part = await getPart(ctx.db, id);

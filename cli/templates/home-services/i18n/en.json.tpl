@@ -695,7 +695,8 @@
       "whatsapp": "WhatsApp",
       "parts": "Parts",
       "stock": "Stock",
-      "suppliers": "Suppliers"
+      "suppliers": "Suppliers",
+      "purchasing": "Purchase orders"
     },
     "tiles": {
       "jobs_today": "Jobs today",
@@ -1028,7 +1029,10 @@
     "cost": "Cost (AED)",
     "sell": "Selling price (AED)",
     "min_stock": "Minimum stock",
-    "vat_rate": "VAT"
+    "vat_rate": "VAT",
+    "supplier": "Supplier",
+    "expected_on": "Expected on",
+    "form": "Purchase order"
   },
   "parts": {
     "title": "Parts",
@@ -1457,6 +1461,77 @@
         "moved": "Your visit is moved. We sent you a WhatsApp message.",
         "cancelled": "Your visit is cancelled. We sent you a WhatsApp message."
       }
+    }
+  },
+  "purchasing": {
+    "title": "Purchase orders",
+    "back": "Back to purchase orders",
+    "none": "No purchase orders yet.",
+    "filter": "Filter",
+    "pages": "Pages of purchase orders",
+    "new": "New purchase order",
+    "create": "Create the purchase order",
+    "lines": "Lines of the purchase order",
+    "no_lines": "No lines yet. Add the parts to order.",
+    "remove": "Remove",
+    "add_line": "Add a line",
+    "add_line_submit": "Add the line",
+    "cost_hint": "Leave blank for the part's cost.",
+    "pdf": "PDF",
+    "send": "Send to the supplier",
+    "cancel": "Cancel the order",
+    "send_note": "The order is marked as sent. Download the PDF and send it to the supplier: this app cannot attach a file to an email yet.",
+    "saved": {
+      "created": "The purchase order was created.",
+      "line_added": "The line was added.",
+      "line_removed": "The line was removed.",
+      "sent": "The purchase order was sent.",
+      "received": "The delivery was booked into the stock.",
+      "cancelled": "The purchase order was cancelled."
+    },
+    "status": {
+      "draft": "Draft",
+      "sent": "Sent",
+      "partly_received": "Partly received",
+      "received": "Received",
+      "cancelled": "Cancelled"
+    },
+    "f": {
+      "number": "Number",
+      "supplier": "Supplier",
+      "status": "Status",
+      "created": "Created",
+      "expected_on": "Expected on",
+      "total": "Total",
+      "language": "Language of the document",
+      "notes": "Notes",
+      "branch": "Delivery branch",
+      "sent_at": "Sent on",
+      "closed_at": "Closed on",
+      "sku": "SKU",
+      "part": "Part",
+      "qty": "Quantity",
+      "unit_cost": "Unit cost (AED)",
+      "net": "Net",
+      "vat": "VAT",
+      "received": "Received",
+      "actions": "Actions",
+      "outstanding": "Outstanding",
+      "received_now": "Received now",
+      "paid_cost": "Unit cost paid (AED)"
+    },
+    "receive": {
+      "title": "Receive a delivery",
+      "note": "Enter what arrived, up to the outstanding quantity, and the unit cost on the supplier's invoice. Each line is booked into this branch's stock.",
+      "submit": "Book the delivery"
+    },
+    "err": {
+      "supplier": "Choose an active supplier.",
+      "expected_on": "Enter a date, for example 2026-12-31.",
+      "receive_qty": "Enter a quantity from zero up to the outstanding quantity, with at most 3 decimals.",
+      "receive_none": "Enter a received quantity above zero on at least one line.",
+      "empty": "Add at least one line before sending the order.",
+      "state": "The purchase order is in a state that does not allow this."
     }
   }
 }

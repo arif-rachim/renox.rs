@@ -117,6 +117,11 @@ app__staff_invites = { owner = "branch_id" }
 app__stock = { owner = "branch_id" }
 app__stock_moves = { owner = "branch_id" }
 
+# Purchase orders and their lines (#815), the same way (each line repeats the order's branch_id).
+# app__po_numbers is the company-wide sequence, not owned.
+app__purchase_orders = { owner = "branch_id" }
+app__purchase_order_lines = { owner = "branch_id" }
+
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }
 Site = { table = "app__sites", attrs = ["branch_id", "customer_id"] }
