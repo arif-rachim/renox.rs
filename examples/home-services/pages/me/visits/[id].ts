@@ -12,10 +12,16 @@
 // ?/checkout, ?/summary. A refusal answers with its status and the reason:
 // 409 (twice, closed, check in first), 413 (a photo over 10 MiB, naming the
 // limit), 415 (not an image), 422 (a form that is wrong, naming the field).
+//
+// Every action but `photo_url` goes through `withActionId` (lib/action-log.ts): with an `action_id` it runs
+// once however often it is posted, answers a conflict with the job's state (cancelled, reassigned, already
+// checked out, not checked in) as a 409 with its reason, and, on `Accept: application/json`, answers JSON;
+// without one it is as it always was. `performed_at` (unix ms) is the time a queued action happened.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { storage } from "renox:modules";
 
 import { clock } from "../../../lib/booking-sync";
+import { withActionId } from "../../../lib/action-log";
 import { check } from "../../../lib/forms";
 import { shell } from "../../../lib/page";
 import { invalid } from "../../../lib/invalid";
@@ -23,7 +29,7 @@ import { day } from "../../../lib/quotes";
 import { aed } from "../../../lib/money";
 import { imageOf, partsOf, partTotal, photosOf, type VisitRow } from "../../../lib/visit-data";
 import { checkinSchema, notesSchema, PHASES, partSchema, signatureSchema, summarySchema, type Phase } from "../../../lib/visit-forms";
-import { addPart, addPhoto, photoUploadUrl, checkIn, checkOut, performerOf, removePart, saveNotes, saveSignature, setSummary, type Failure, type Result } from "../../../lib/visits";
+import { addPart, addPhoto, photoUploadUrl, checkIn, checkOut, performerOf, removePart, saveNotes, saveSignature, setSummary, type Failure } from "../../../lib/visits";
 
 export const guard = { action: "visit.perform" };
 
@@ -89,22 +95,18 @@ export async function load(ctx: LoaderContext) {
   };
 }
 
-const back = (id: string | string[] | undefined): string => `/me/visits/${String(id)}`;
-
-/** A success redirects to the page (a reload shows what changed); a refusal is its status with the reason. */
-const answer = <T>(r: Result<T>, to: string): Response => (r.ok ? new Response(null, { status: 303, headers: { location: to, "cache-control": "no-store" } }) : plain((r as Failure).status, (r as Failure).message));
-
 const isPhase = (v: unknown): v is Phase => typeof v === "string" && (PHASES as readonly string[]).includes(v);
 
 export const actions = {
   async checkin(ctx: ActionContext) {
-    const page = await shell(ctx);
-    const input = await check(ctx.form, checkinSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
-    return answer(await checkIn(ctx, ctx.params.id, input.value), back(ctx.params.id));
+    return withActionId(ctx, "checkin", ctx.params.id, async ({ page, at }) => {
+      const input = await check(ctx.form, checkinSchema);
+      if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+      return checkIn(ctx, ctx.params.id, input.value, at);
+    });
   },
 
-  /** Step one of a photo (`upload.js`): a signed URL for the browser's PUT, as JSON `{ url, max_bytes }`; a refusal is JSON `{ message }` with its status. */
+  /** Step one of a photo (`upload.js`): a signed URL for the browser's PUT, as JSON `{ url, max_bytes }`; a refusal is JSON `{ message }` with its status. Changes nothing, so it is not logged. */
   async photo_url(ctx: ActionContext) {
     const size = ctx.form.get("size");
     const r = await photoUploadUrl(storage, ctx, ctx.params.id, {
@@ -118,55 +120,61 @@ export const actions = {
 
   /** Step two: the form posts the key the upload stored, with the phase and the caption. */
   async photo(ctx: ActionContext) {
-    const page = await shell(ctx);
-    const phase = ctx.form.get("phase");
-    if (!isPhase(phase)) return invalid(page.locale, ctx.form, { phase: "visits.err.phase" });
-    const caption = String(ctx.form.get("caption") ?? "").trim().slice(0, 200);
-    return answer(await addPhoto(storage, ctx, ctx.params.id, phase, { key: ctx.form.get("key"), caption }), back(ctx.params.id));
+    return withActionId(ctx, "photo", ctx.params.id, async ({ page }) => {
+      const phase = ctx.form.get("phase");
+      if (!isPhase(phase)) return invalid(page.locale, ctx.form, { phase: "visits.err.phase" });
+      const caption = String(ctx.form.get("caption") ?? "").trim().slice(0, 200);
+      return addPhoto(storage, ctx, ctx.params.id, phase, { key: ctx.form.get("key"), caption });
+    });
   },
 
   async part(ctx: ActionContext) {
-    const page = await shell(ctx);
-    const input = await check(ctx.form, partSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
-    return answer(await addPart(ctx, ctx.params.id, input.value), back(ctx.params.id));
+    return withActionId(ctx, "part", ctx.params.id, async ({ page }) => {
+      const input = await check(ctx.form, partSchema);
+      if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+      return addPart(ctx, ctx.params.id, input.value);
+    });
   },
 
   async removePart(ctx: ActionContext) {
-    const id = Number(ctx.form.get("part"));
-    if (!Number.isSafeInteger(id)) return plain(422, "Choose a part.");
-    return answer(await removePart(ctx, ctx.params.id, id), back(ctx.params.id));
+    return withActionId(ctx, "removePart", ctx.params.id, async () => {
+      const id = Number(ctx.form.get("part"));
+      if (!Number.isSafeInteger(id)) return { ok: false as const, status: 422 as const, message: "Choose a part." };
+      return removePart(ctx, ctx.params.id, id);
+    });
   },
 
   async notes(ctx: ActionContext) {
-    const page = await shell(ctx);
-    const input = await check(ctx.form, notesSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
-    return answer(await saveNotes(ctx, ctx.params.id, input.value.notes), back(ctx.params.id));
+    return withActionId(ctx, "notes", ctx.params.id, async ({ page }) => {
+      const input = await check(ctx.form, notesSchema);
+      if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+      return saveNotes(ctx, ctx.params.id, input.value.notes);
+    });
   },
 
   async signature(ctx: ActionContext) {
-    const page = await shell(ctx);
-    const input = await check(ctx.form, signatureSchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
-    return answer(await saveSignature(ctx, ctx.params.id, input.value), back(ctx.params.id));
+    return withActionId(ctx, "signature", ctx.params.id, async ({ page }) => {
+      const input = await check(ctx.form, signatureSchema);
+      if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+      return saveSignature(ctx, ctx.params.id, input.value);
+    });
   },
 
   async checkout(ctx: ActionContext) {
-    await shell(ctx);
-    return answer(await checkOut(ctx, ctx.params.id), back(ctx.params.id));
+    return withActionId(ctx, "checkout", ctx.params.id, async ({ at }) => checkOut(ctx, ctx.params.id, at));
   },
 
   /** The technician's edit of the summary, before or after the check-out (the report is rebuilt). */
   async summary(ctx: ActionContext) {
-    const page = await shell(ctx);
-    const input = await check(ctx.form, summarySchema);
-    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
-    const got = await performerOf(ctx, ctx.params.id);
-    if (!got.ok) return plain(got.status, got.message);
-    const visit: VisitRow | null = got.value.visit;
-    if (visit === null) return plain(409, "Check in first.");
-    await setSummary(ctx, got.value.sdb, visit, input.value);
-    return answer({ ok: true, value: true }, back(ctx.params.id));
+    return withActionId(ctx, "summary", ctx.params.id, async ({ page }) => {
+      const input = await check(ctx.form, summarySchema);
+      if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+      const got = await performerOf(ctx, ctx.params.id);
+      if (!got.ok) return got;
+      const visit: VisitRow | null = got.value.visit;
+      if (visit === null) return { ok: false as const, status: 409 as const, message: "Check in first." };
+      await setSummary(ctx, got.value.sdb, visit, input.value);
+      return { ok: true as const, value: true };
+    });
   },
 };

@@ -382,7 +382,15 @@
       "summary": "A summary is at most 400 characters.",
       "signature": "Draw the signature first.",
       "signed_by": "Enter the name of the person signing.",
-      "phase": "Choose before or after."
+      "phase": "Choose before or after.",
+      "action_id": "The action id is not valid."
+    },
+    "conflict": {
+      "job_cancelled": "The office cancelled this job. Nothing was saved.",
+      "job_reassigned": "This job was given to another technician. Nothing was saved.",
+      "already_checked_out": "This visit is already checked out. Nothing was saved.",
+      "not_checked_in": "You were not checked in to this visit. Nothing was saved.",
+      "action_id_taken": "This action id belongs to another account. Nothing was saved."
     }
   },
   "report_page": {
