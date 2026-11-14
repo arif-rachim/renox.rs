@@ -56,6 +56,10 @@ plant(
 );
 plant("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_03', 'INV-000960', 12600, ?, null, 'u_dxb_accountant', ?)", [Math.floor(Date.now() / 1000) + 30 * 86_400, Math.floor(Date.now() / 1000)]);
 
+// A part and a supplier (#812) for the back-office lists below.
+plant("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_0000000000007001', 'PIPE-15', 'Copper pipe 15 mm', 'أنبوب نحاسي 15 مم', 'metre', 850, 1400, 5, 20.5, 1, ?)", [Math.floor(Date.now() / 1000)]);
+plant("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_0000000000007001', 'Al Noor Trading', '100123456700003', '+97144110088', 'orders@alnoor.example', 'Dubai', '', 1, ?)", [Math.floor(Date.now() / 1000)]);
+
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 
 describe("the font", () => {
@@ -140,6 +144,8 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/my", who: customer, values: ["+971551110003", "J-000008", "J-000012"] },
     { page: "/my/visits/jb_seed_08", who: customer, values: ["J-000008", "+97140000001"] },
     { page: "/my/visits/jb_seed_12", who: customer, values: ["J-000012", "+97140000001"] },
+    { page: "/admin/parts", who: dispatcher, values: ["PIPE-15", "8.50", "14.00", "20.5"] },
+    { page: "/admin/suppliers", who: accountant, values: ["100123456700003", "+97144110088", "orders@alnoor.example"] },
     { page: "/my/invoices", who: customer, values: ["INV-000960", "126.00"] },
     { page: "/my/invoices/INV-000960", who: customer, values: ["INV-000960", "120.00", "6.00"] },
   ];
