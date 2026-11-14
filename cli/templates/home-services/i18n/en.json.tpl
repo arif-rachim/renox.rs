@@ -956,7 +956,7 @@
       "bad_email": "Not a valid email address.",
       "bad_number": "A contract number is 1 to 32 characters: letters, digits and . _ / -",
       "no_file": "Choose an Excel file and wait until its name appears.",
-      "too_large": "The file is too large to check on the current plan. Split it into files of at most about 900 rows to check and 250 rows to import.",
+      "too_large": "The file is too large to check on the current plan. Split it into smaller files and import them one after another.",
       "data_changed": "The data changed since the check, so nothing was imported. Upload the file again.",
       "check_failed": "The file could not be checked. Upload it again."
     }

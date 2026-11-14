@@ -545,9 +545,9 @@ describe("/admin/import in the background (#733)", () => {
   });
 
   // #768: a job attempt has a CPU budget of its own (free 2,000 ms, paid 10,000 ms), so the check of the largest file
-  // the import takes, 10,000 rows, fits one attempt on the free tier (it used to end failed with too_large). Whether
-  // the commit of all 10,000 rows fits the budget too is measured on the released worker (#768's second step); the
-  // commit is covered by the 2,000-row case below.
+  // the import takes, 10,000 rows, fits one attempt on the free tier (it used to end failed with too_large). The
+  // commit of all 10,000 rows fits it on the released renox-worker 0.10.0 but not on the debug build CI tests the
+  // examples with, so here the commit is covered by the 2,000-row case below (#821).
   test("normal case (#768): a 10,000-row customers file is checked on the free tier in one job attempt and writes nothing", async () => {
     const key = await upload(owner, "bulk.xlsx", plainWorkbook(plainRows(10_000, 1_000_000)));
     const before = count("app__customers");
