@@ -38,7 +38,7 @@ Roles are the `[authz.default_roles]` of `renox.toml`; branches are `org` organi
 
    _Screenshot: the quotation page and the approval link on a phone._
 
-3. **Job and scheduling.** An approved quotation becomes a job (`/jobs/new`); the dispatcher picks a slot of a technician (`booking`) on the job page or on `/dispatch`, the board two dispatchers of a branch share live over a WebSocket. The customer is told the time.
+3. **Job and scheduling.** An approved quotation becomes a job (`/jobs/new`); the dispatcher picks a slot of a technician (`booking`) on the job page or on `/dispatch`, the board two dispatchers of a branch share live over a WebSocket. The customer is told the time, and reminded on WhatsApp, in their language, 24 hours and 2 hours before the visit (the app fills the `booking.remind` hook of `booking`; a cancelled or moved visit sends nothing).
 
    _Screenshot: the dispatch board._
 

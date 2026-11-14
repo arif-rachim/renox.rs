@@ -48,5 +48,15 @@
     "template": "booking_moved",
     "subject": "We moved your booking {job}",
     "body": "Hello {name}, we moved your booking {job} to {when}. Reply if this does not suit you."
+  },
+  "reminder_24h": {
+    "template": "reminder_24h",
+    "subject": "Reminder: {service} tomorrow",
+    "body": "Hello {name}, a reminder of your {service} visit {job} on {when} (Dubai time). Questions? Call {phone}. Reply CANCEL or RESCHEDULE if the time does not suit you."
+  },
+  "reminder_2h": {
+    "template": "reminder_2h",
+    "subject": "Reminder: {service} in two hours",
+    "body": "Hello {name}, your {service} visit {job} starts in about two hours, on {when} (Dubai time). Questions? Call {phone}."
   }
 }

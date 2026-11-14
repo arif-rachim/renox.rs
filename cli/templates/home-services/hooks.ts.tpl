@@ -12,13 +12,17 @@
 //   task for the dispatcher (lib/inbox.ts).
 // - the `reports.nightly_to` hook: the nightly summary goes to the accounts
 //   email of the settings, read when the job runs.
+// - the `booking.remind` hook (#799): the module's 24 h and 2 h reminders of a
+//   booking that belongs to a job of the app go out on WhatsApp in the
+//   customer's language (lib/reminders.ts), and `handled` keeps the module's
+//   own email from also going out.
 // - the `auth.after_login` hook (#774): staff cannot use the customer path. A
 //   phone sign-in by a user with a staff role and no second factor is refused
 //   with a page that sends them to their email and password; no session
 //   starts. A staff user WITH a second factor is halted before this filler by
 //   2fa's (fillers run by ascending priority, and the first halt ends the
 //   hook), so they pass the second factor and land where staff land.
-import type { Authz, DbStatements, DeliveredEvent, EventContext } from "@renoxium/sdk";
+import type { Authz, Db, DbStatements, DeliveredEvent, EventContext } from "@renoxium/sdk";
 import { i18n, notifications, twofa } from "renox:modules";
 
 import ar from "./i18n/ar.json";
@@ -27,6 +31,7 @@ import { markSyncPending } from "./lib/booking-sync";
 import { applyPendingRole, inviteOf } from "./lib/admin";
 import { isStaff } from "./lib/portal";
 import { handleInbound } from "./lib/inbox";
+import { remindCustomer, type RemindArgs } from "./lib/reminders";
 import { findBranch } from "./lib/scope";
 import { getSettings } from "./lib/settings";
 
@@ -75,6 +80,13 @@ async function staffUsePassword(userId: string, next: string | undefined): Promi
 }
 
 export const hooks = {
+  "booking.remind": {
+    /** The module's args are `{ booking_id, kind, customer, service, start_at, handled }`: the filler sets `handled` for a booking of one of the app's jobs (lib/reminders.ts). */
+    async handle(ctx: { readonly db: Db }, args: RemindArgs) {
+      await remindCustomer(ctx, args);
+    },
+  },
+
   "auth.after_login": {
     // After 2fa's filler (a module's, priority 100): set explicitly, so the order does not rest on the app-last tie rule.
     priority: 200,

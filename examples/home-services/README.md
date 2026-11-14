@@ -42,7 +42,7 @@ The demo runs the `whatsapp` module in its own sandbox: `config = { sandbox = tr
 1. In Meta for Developers create a Business app with the WhatsApp product, verify the business number, and note its Phone number ID; create a system user with `whatsapp_business_messaging` and a permanent token; note the App Secret and choose a verify token.
 2. `renox secrets set WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`.
 3. Set the callback URL to `https://<host>/whatsapp/webhook/whatsapp` with the verify token, and subscribe to `messages`.
-4. Submit the ten templates of `i18n/whatsapp.*.json` (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`, `visit_moved`, `visit_cancelled`, `booking_moved`), in English and Arabic, and wait for Meta's approval. The parameters are the placeholders in the order they appear in the body.
+4. Submit the twelve templates of `i18n/whatsapp.*.json` (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`, `booking_received`, `visit_moved`, `visit_cancelled`, `booking_moved`, `reminder_24h`, `reminder_2h`), in English and Arabic, and wait for Meta's approval. The parameters are the placeholders in the order they appear in the body.
 5. Set `sandbox = false` in the `whatsapp` module's config in `renox.toml` (see "Sandbox" above), and `public_url` to the app's address (jobs have no request to take it from). For email, set `from` in the `email` module's config and verify the domain with the provider.
 
 ## What it does

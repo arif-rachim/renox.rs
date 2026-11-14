@@ -48,5 +48,15 @@
     "template": "booking_moved",
     "subject": "نقلنا حجزك {job}",
     "body": "مرحباً {name}، نقلنا حجزك {job} إلى {when}. أرسل لنا رداً إذا لم يناسبك هذا الموعد."
+  },
+  "reminder_24h": {
+    "template": "reminder_24h",
+    "subject": "تذكير: {service} غداً",
+    "body": "مرحباً {name}، تذكير بزيارة {service} رقم {job} في {when} (بتوقيت دبي). للاستفسار اتصل على {phone}. أرسل «إلغاء» أو «تغيير الموعد» إذا لم يناسبك الوقت."
+  },
+  "reminder_2h": {
+    "template": "reminder_2h",
+    "subject": "تذكير: {service} بعد ساعتين",
+    "body": "مرحباً {name}، تبدأ زيارتك {service} رقم {job} بعد ساعتين تقريباً، في {when} (بتوقيت دبي). للاستفسار اتصل على {phone}."
   }
 }
