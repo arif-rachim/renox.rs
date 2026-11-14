@@ -126,7 +126,8 @@
     <ol class="timeline">
       <li r-for="e in events" :id="'event-' ~ e.id">
         <span dir="ltr">{{ e.at }}</span>
-        <strong r-if="e.created"><r-t key="jobs.created_event" /></strong>
+        <strong r-if="e.refused" class="timeline-refused">{{ e.refused }}</strong>
+        <strong r-else-if="e.created"><r-t key="jobs.created_event" /></strong>
         <strong r-else>{{ ('jobs.status.' ~ e.from) | t }} → {{ ('jobs.status.' ~ e.to) | t }}</strong>
         <span r-if="e.by">· {{ e.by }}</span>
         <span r-if="e.note">· {{ e.note }}</span>

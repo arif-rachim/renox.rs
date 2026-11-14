@@ -13,250 +13,269 @@ import f7 from "./functions/invoices/[id]/pdf.ts.tpl" with { type: "text" };
 import f8 from "./functions/l/invoice/[token]/pdf.ts.tpl" with { type: "text" };
 import f9 from "./functions/l/report/[token]/pdf.ts.tpl" with { type: "text" };
 import f10 from "./functions/me/manifest.ts.tpl" with { type: "text" };
-import f11 from "./functions/my/invoices/[id]/pdf.ts.tpl" with { type: "text" };
-import f12 from "./functions/my/visits/[id]/photo/[n].ts.tpl" with { type: "text" };
-import f13 from "./functions/my/visits/[id]/report.ts.tpl" with { type: "text" };
-import f14 from "./functions/quotes/[id]/pdf.ts.tpl" with { type: "text" };
-import f15 from "./functions/theme.ts.tpl" with { type: "text" };
-import f16 from "./functions/tools/add_branch.ts.tpl" with { type: "text" };
-import f17 from "./functions/tools/add_service.ts.tpl" with { type: "text" };
-import f18 from "./functions/tools/create_job.ts.tpl" with { type: "text" };
-import f19 from "./functions/tools/get_settings.ts.tpl" with { type: "text" };
-import f20 from "./functions/tools/invite_staff.ts.tpl" with { type: "text" };
-import f21 from "./functions/tools/job_status.ts.tpl" with { type: "text" };
-import f22 from "./functions/tools/list_branches.ts.tpl" with { type: "text" };
-import f23 from "./functions/tools/list_people.ts.tpl" with { type: "text" };
-import f24 from "./functions/tools/list_services.ts.tpl" with { type: "text" };
-import f25 from "./functions/tools/next_free_slot.ts.tpl" with { type: "text" };
-import f26 from "./functions/tools/update_branch.ts.tpl" with { type: "text" };
-import f27 from "./functions/tools/update_service.ts.tpl" with { type: "text" };
-import f28 from "./functions/tools/update_settings.ts.tpl" with { type: "text" };
-import f29 from "./functions/tools/upload_logo.ts.tpl" with { type: "text" };
-import f30 from "./functions/visits/[id]/report.ts.tpl" with { type: "text" };
-import f31 from "./functions/ws/dispatch/[branch].ts.tpl" with { type: "text" };
-import f32 from "./hooks.ts.tpl" with { type: "text" };
-import f33 from "./i18n/ar.json.tpl" with { type: "text" };
-import f34 from "./i18n/en.json.tpl" with { type: "text" };
-import f35 from "./i18n/whatsapp.ar.json.tpl" with { type: "text" };
-import f36 from "./i18n/whatsapp.en.json.tpl" with { type: "text" };
-import f37 from "./jobs/amc-renewals.ts.tpl" with { type: "text" };
-import f38 from "./jobs/amc-visits.ts.tpl" with { type: "text" };
-import f39 from "./jobs/booking-drafts.ts.tpl" with { type: "text" };
-import f40 from "./jobs/import-check.ts.tpl" with { type: "text" };
-import f41 from "./jobs/import-commit.ts.tpl" with { type: "text" };
-import f42 from "./lib/admin-tile.ts.tpl" with { type: "text" };
-import f43 from "./lib/admin.ts.tpl" with { type: "text" };
-import f44 from "./lib/app-reports.ts.tpl" with { type: "text" };
-import f45 from "./lib/book.ts.tpl" with { type: "text" };
-import f46 from "./lib/booking-sync.ts.tpl" with { type: "text" };
-import f47 from "./lib/contract-dates.ts.tpl" with { type: "text" };
-import f48 from "./lib/contract-forms.ts.tpl" with { type: "text" };
-import f49 from "./lib/contract-view.ts.tpl" with { type: "text" };
-import f50 from "./lib/contracts.ts.tpl" with { type: "text" };
-import f51 from "./lib/contrast.ts.tpl" with { type: "text" };
-import f52 from "./lib/customer-db.ts.tpl" with { type: "text" };
-import f53 from "./lib/customers.ts.tpl" with { type: "text" };
-import f54 from "./lib/draft.ts.tpl" with { type: "text" };
-import f55 from "./lib/forms.ts.tpl" with { type: "text" };
-import f56 from "./lib/import-job.ts.tpl" with { type: "text" };
-import f57 from "./lib/import.ts.tpl" with { type: "text" };
-import f58 from "./lib/inbox.ts.tpl" with { type: "text" };
-import f59 from "./lib/invalid.ts.tpl" with { type: "text" };
-import f60 from "./lib/invoice-forms.ts.tpl" with { type: "text" };
-import f61 from "./lib/invoice-pdf.ts.tpl" with { type: "text" };
-import f62 from "./lib/invoice-view.ts.tpl" with { type: "text" };
-import f63 from "./lib/invoices.ts.tpl" with { type: "text" };
-import f64 from "./lib/job-forms.ts.tpl" with { type: "text" };
-import f65 from "./lib/jobs.ts.tpl" with { type: "text" };
-import f66 from "./lib/links.ts.tpl" with { type: "text" };
-import f67 from "./lib/messages.ts.tpl" with { type: "text" };
-import f68 from "./lib/money.ts.tpl" with { type: "text" };
-import f69 from "./lib/notify.ts.tpl" with { type: "text" };
-import f70 from "./lib/owner-tools.ts.tpl" with { type: "text" };
-import f71 from "./lib/page.ts.tpl" with { type: "text" };
-import f72 from "./lib/placeholder-png.ts.tpl" with { type: "text" };
-import f73 from "./lib/portal-change.ts.tpl" with { type: "text" };
-import f74 from "./lib/portal-view.ts.tpl" with { type: "text" };
-import f75 from "./lib/portal.ts.tpl" with { type: "text" };
-import f76 from "./lib/quotes.ts.tpl" with { type: "text" };
-import f77 from "./lib/reminders.ts.tpl" with { type: "text" };
-import f78 from "./lib/reply.ts.tpl" with { type: "text" };
-import f79 from "./lib/report.ts.tpl" with { type: "text" };
-import f80 from "./lib/scope.ts.tpl" with { type: "text" };
-import f81 from "./lib/settings.ts.tpl" with { type: "text" };
-import f82 from "./lib/setup-token.ts.tpl" with { type: "text" };
-import f83 from "./lib/setup.ts.tpl" with { type: "text" };
-import f84 from "./lib/step-up.ts.tpl" with { type: "text" };
-import f85 from "./lib/summary.ts.tpl" with { type: "text" };
-import f86 from "./lib/technicians.ts.tpl" with { type: "text" };
-import f87 from "./lib/tool-input.ts.tpl" with { type: "text" };
-import f88 from "./lib/tools.ts.tpl" with { type: "text" };
-import f89 from "./lib/visit-data.ts.tpl" with { type: "text" };
-import f90 from "./lib/visit-forms.ts.tpl" with { type: "text" };
-import f91 from "./lib/visits.ts.tpl" with { type: "text" };
-import f92 from "./migrations/001_core.sql.tpl" with { type: "text" };
-import f93 from "./migrations/002_customers.sql.tpl" with { type: "text" };
-import f94 from "./migrations/003_quotes.sql.tpl" with { type: "text" };
-import f95 from "./migrations/004_jobs.sql.tpl" with { type: "text" };
-import f96 from "./migrations/005_visits.sql.tpl" with { type: "text" };
-import f97 from "./migrations/006_notifications.sql.tpl" with { type: "text" };
-import f98 from "./migrations/007_invoicing.sql.tpl" with { type: "text" };
-import f99 from "./migrations/008_contracts.sql.tpl" with { type: "text" };
-import f100 from "./migrations/009_back_office.sql.tpl" with { type: "text" };
-import f101 from "./migrations/010_hooks.sql.tpl" with { type: "text" };
-import f102 from "./migrations/011_imports.sql.tpl" with { type: "text" };
-import f103 from "./migrations/012_import_jobs.sql.tpl" with { type: "text" };
-import f104 from "./migrations/013_customer_users.sql.tpl" with { type: "text" };
-import f105 from "./migrations/014_self_booking.sql.tpl" with { type: "text" };
-import f106 from "./pages/_404.html.tpl" with { type: "text" };
-import f107 from "./pages/_error.html.tpl" with { type: "text" };
-import f108 from "./pages/_layouts/back-office.html.tpl" with { type: "text" };
-import f109 from "./pages/_layouts/main.html.tpl" with { type: "text" };
-import f110 from "./pages/_layouts/portal.html.tpl" with { type: "text" };
-import f111 from "./pages/admin/branches.html.tpl" with { type: "text" };
-import f112 from "./pages/admin/branches.ts.tpl" with { type: "text" };
-import f113 from "./pages/admin/import.html.tpl" with { type: "text" };
-import f114 from "./pages/admin/import.ts.tpl" with { type: "text" };
-import f115 from "./pages/admin/import/[id].html.tpl" with { type: "text" };
-import f116 from "./pages/admin/import/[id].ts.tpl" with { type: "text" };
-import f117 from "./pages/admin/people.html.tpl" with { type: "text" };
-import f118 from "./pages/admin/people.ts.tpl" with { type: "text" };
-import f119 from "./pages/admin/settings.html.tpl" with { type: "text" };
-import f120 from "./pages/admin/settings.ts.tpl" with { type: "text" };
-import f121 from "./pages/admin/tile.html.tpl" with { type: "text" };
-import f122 from "./pages/admin/tile.ts.tpl" with { type: "text" };
-import f123 from "./pages/admin/whatsapp.html.tpl" with { type: "text" };
-import f124 from "./pages/admin/whatsapp.ts.tpl" with { type: "text" };
-import f125 from "./pages/book/confirm/[id].html.tpl" with { type: "text" };
-import f126 from "./pages/book/confirm/[id].ts.tpl" with { type: "text" };
-import f127 from "./pages/book/index.html.tpl" with { type: "text" };
-import f128 from "./pages/book/index.ts.tpl" with { type: "text" };
-import f129 from "./pages/contracts/[id].html.tpl" with { type: "text" };
-import f130 from "./pages/contracts/[id].ts.tpl" with { type: "text" };
-import f131 from "./pages/contracts/index.html.tpl" with { type: "text" };
-import f132 from "./pages/contracts/index.ts.tpl" with { type: "text" };
-import f133 from "./pages/contracts/new.html.tpl" with { type: "text" };
-import f134 from "./pages/contracts/new.ts.tpl" with { type: "text" };
-import f135 from "./pages/customers/[id].html.tpl" with { type: "text" };
-import f136 from "./pages/customers/[id].ts.tpl" with { type: "text" };
-import f137 from "./pages/customers/index.html.tpl" with { type: "text" };
-import f138 from "./pages/customers/index.ts.tpl" with { type: "text" };
-import f139 from "./pages/customers/new.html.tpl" with { type: "text" };
-import f140 from "./pages/customers/new.ts.tpl" with { type: "text" };
-import f141 from "./pages/dispatch/index.html.tpl" with { type: "text" };
-import f142 from "./pages/dispatch/index.ts.tpl" with { type: "text" };
-import f143 from "./pages/index.html.tpl" with { type: "text" };
-import f144 from "./pages/index.ts.tpl" with { type: "text" };
-import f145 from "./pages/invoices/[id].html.tpl" with { type: "text" };
-import f146 from "./pages/invoices/[id].ts.tpl" with { type: "text" };
-import f147 from "./pages/invoices/index.html.tpl" with { type: "text" };
-import f148 from "./pages/invoices/index.ts.tpl" with { type: "text" };
-import f149 from "./pages/jobs/[id].html.tpl" with { type: "text" };
-import f150 from "./pages/jobs/[id].ts.tpl" with { type: "text" };
-import f151 from "./pages/jobs/[id]/invoice.ts.tpl" with { type: "text" };
-import f152 from "./pages/jobs/index.html.tpl" with { type: "text" };
-import f153 from "./pages/jobs/index.ts.tpl" with { type: "text" };
-import f154 from "./pages/jobs/new.html.tpl" with { type: "text" };
-import f155 from "./pages/jobs/new.ts.tpl" with { type: "text" };
-import f156 from "./pages/l/approve/[token].html.tpl" with { type: "text" };
-import f157 from "./pages/l/approve/[token].ts.tpl" with { type: "text" };
-import f158 from "./pages/l/invoice/[token].html.tpl" with { type: "text" };
-import f159 from "./pages/l/invoice/[token].ts.tpl" with { type: "text" };
-import f160 from "./pages/l/report/[token].html.tpl" with { type: "text" };
-import f161 from "./pages/l/report/[token].ts.tpl" with { type: "text" };
-import f162 from "./pages/me/index.html.tpl" with { type: "text" };
-import f163 from "./pages/me/index.ts.tpl" with { type: "text" };
-import f164 from "./pages/me/visits/[id].html.tpl" with { type: "text" };
-import f165 from "./pages/me/visits/[id].ts.tpl" with { type: "text" };
-import f166 from "./pages/my/index.html.tpl" with { type: "text" };
-import f167 from "./pages/my/index.ts.tpl" with { type: "text" };
-import f168 from "./pages/my/invoices/[id].html.tpl" with { type: "text" };
-import f169 from "./pages/my/invoices/[id].ts.tpl" with { type: "text" };
-import f170 from "./pages/my/invoices/index.html.tpl" with { type: "text" };
-import f171 from "./pages/my/invoices/index.ts.tpl" with { type: "text" };
-import f172 from "./pages/my/visits/[id].html.tpl" with { type: "text" };
-import f173 from "./pages/my/visits/[id].ts.tpl" with { type: "text" };
-import f174 from "./pages/quotes/[id].html.tpl" with { type: "text" };
-import f175 from "./pages/quotes/[id].ts.tpl" with { type: "text" };
-import f176 from "./pages/quotes/index.html.tpl" with { type: "text" };
-import f177 from "./pages/quotes/index.ts.tpl" with { type: "text" };
-import f178 from "./pages/quotes/new.html.tpl" with { type: "text" };
-import f179 from "./pages/quotes/new.ts.tpl" with { type: "text" };
-import f180 from "./pages/reports/amc.html.tpl" with { type: "text" };
-import f181 from "./pages/reports/amc.ts.tpl" with { type: "text" };
-import f182 from "./pages/reports/outstanding.html.tpl" with { type: "text" };
-import f183 from "./pages/reports/outstanding.ts.tpl" with { type: "text" };
-import f184 from "./pages/reports/technicians.html.tpl" with { type: "text" };
-import f185 from "./pages/reports/technicians.ts.tpl" with { type: "text" };
-import f186 from "./pages/services/index.html.tpl" with { type: "text" };
-import f187 from "./pages/services/index.ts.tpl" with { type: "text" };
-import f188 from "./partials/admin-sidebar.html.tpl" with { type: "text" };
-import f189 from "./partials/admin-tile.html.tpl" with { type: "text" };
-import f190 from "./partials/form-errors.html.tpl" with { type: "text" };
-import f191 from "./partials/job-card.html.tpl" with { type: "text" };
-import f192 from "./partials/pdf/contract.ar.html.tpl" with { type: "text" };
-import f193 from "./partials/pdf/contract.en.html.tpl" with { type: "text" };
-import f194 from "./partials/pdf/quotation.ar.html.tpl" with { type: "text" };
-import f195 from "./partials/pdf/quotation.en.html.tpl" with { type: "text" };
-import f196 from "./partials/pdf/statement.ar.html.tpl" with { type: "text" };
-import f197 from "./partials/pdf/statement.en.html.tpl" with { type: "text" };
-import f198 from "./partials/pdf/tax-invoice.ar.html.tpl" with { type: "text" };
-import f199 from "./partials/pdf/tax-invoice.en.html.tpl" with { type: "text" };
-import f200 from "./partials/pdf/visit-report.ar.html.tpl" with { type: "text" };
-import f201 from "./partials/pdf/visit-report.en.html.tpl" with { type: "text" };
-import f202 from "./partials/site-fields.html.tpl" with { type: "text" };
-import f203 from "./policies/app/base.cedar.tpl" with { type: "text" };
-import f204 from "./policies/tests/admin.json.tpl" with { type: "text" };
-import f205 from "./policies/tests/contracts.json.tpl" with { type: "text" };
-import f206 from "./policies/tests/invoices.json.tpl" with { type: "text" };
-import f207 from "./policies/tests/jobs.json.tpl" with { type: "text" };
-import f208 from "./policies/tests/portal.json.tpl" with { type: "text" };
-import f209 from "./policies/tests/reports.json.tpl" with { type: "text" };
-import f210 from "./policies/tests/tools.json.tpl" with { type: "text" };
-import f211 from "./policies/tests/visits.json.tpl" with { type: "text" };
-import f212 from "./public/app.css.tpl" with { type: "text" };
-import f213 from "./public/board.js.tpl" with { type: "text" };
-import f214 from "./public/doto-OFL.txt.tpl" with { type: "text" };
-import f215 from "./public/doto-black.woff2.base64.tpl" with { type: "text" };
-import f216 from "./public/fonts/NotoSansArabic-OFL.txt.tpl" with { type: "text" };
-import f217 from "./public/fonts/noto-sans-arabic-arabic-400-normal.woff2.base64.tpl" with { type: "text" };
-import f218 from "./public/fonts/noto-sans-arabic-arabic-700-normal.woff2.base64.tpl" with { type: "text" };
-import f219 from "./public/icons/icon-192.png.base64.tpl" with { type: "text" };
-import f220 from "./public/icons/icon-512.png.base64.tpl" with { type: "text" };
-import f221 from "./public/me.js.tpl" with { type: "text" };
-import f222 from "./public/renox-ui.css.tpl" with { type: "text" };
-import f223 from "./public/sw.js.tpl" with { type: "text" };
-import f224 from "./public/upload.js.tpl" with { type: "text" };
-import f225 from "./public/visit.js.tpl" with { type: "text" };
-import f226 from "./renox.lock.tpl" with { type: "text" };
-import f227 from "./renox.toml.tpl" with { type: "text" };
-import f228 from "./scripts/make-icons.ts.tpl" with { type: "text" };
-import f229 from "./seeds/001_demo.sql.tpl" with { type: "text" };
-import f230 from "./seeds/README.md.tpl" with { type: "text" };
-import f231 from "./tests/a11y.test.ts.tpl" with { type: "text" };
-import f232 from "./tests/admin.test.ts.tpl" with { type: "text" };
-import f233 from "./tests/app.test.ts.tpl" with { type: "text" };
-import f234 from "./tests/book.test.ts.tpl" with { type: "text" };
-import f235 from "./tests/contracts.test.ts.tpl" with { type: "text" };
-import f236 from "./tests/customers.test.ts.tpl" with { type: "text" };
-import f237 from "./tests/dispatch.test.ts.tpl" with { type: "text" };
-import f238 from "./tests/import.test.ts.tpl" with { type: "text" };
-import f239 from "./tests/invoices.test.ts.tpl" with { type: "text" };
-import f240 from "./tests/jobs.test.ts.tpl" with { type: "text" };
-import f241 from "./tests/my-change.test.ts.tpl" with { type: "text" };
-import f242 from "./tests/my-documents.test.ts.tpl" with { type: "text" };
-import f243 from "./tests/my.test.ts.tpl" with { type: "text" };
-import f244 from "./tests/notifications.test.ts.tpl" with { type: "text" };
-import f245 from "./tests/outbox.ts.tpl" with { type: "text" };
-import f246 from "./tests/portal.test.ts.tpl" with { type: "text" };
-import f247 from "./tests/pwa.test.ts.tpl" with { type: "text" };
-import f248 from "./tests/quotes.test.ts.tpl" with { type: "text" };
-import f249 from "./tests/reports.test.ts.tpl" with { type: "text" };
-import f250 from "./tests/setup.test.ts.tpl" with { type: "text" };
-import f251 from "./tests/step-up.test.ts.tpl" with { type: "text" };
-import f252 from "./tests/tools.test.ts.tpl" with { type: "text" };
-import f253 from "./tests/typography.test.ts.tpl" with { type: "text" };
-import f254 from "./tests/visits.test.ts.tpl" with { type: "text" };
+import f11 from "./functions/me/ping.ts.tpl" with { type: "text" };
+import f12 from "./functions/my/invoices/[id]/pdf.ts.tpl" with { type: "text" };
+import f13 from "./functions/my/visits/[id]/photo/[n].ts.tpl" with { type: "text" };
+import f14 from "./functions/my/visits/[id]/report.ts.tpl" with { type: "text" };
+import f15 from "./functions/quotes/[id]/pdf.ts.tpl" with { type: "text" };
+import f16 from "./functions/theme.ts.tpl" with { type: "text" };
+import f17 from "./functions/tools/add_branch.ts.tpl" with { type: "text" };
+import f18 from "./functions/tools/add_service.ts.tpl" with { type: "text" };
+import f19 from "./functions/tools/create_job.ts.tpl" with { type: "text" };
+import f20 from "./functions/tools/get_settings.ts.tpl" with { type: "text" };
+import f21 from "./functions/tools/invite_staff.ts.tpl" with { type: "text" };
+import f22 from "./functions/tools/job_status.ts.tpl" with { type: "text" };
+import f23 from "./functions/tools/list_branches.ts.tpl" with { type: "text" };
+import f24 from "./functions/tools/list_people.ts.tpl" with { type: "text" };
+import f25 from "./functions/tools/list_services.ts.tpl" with { type: "text" };
+import f26 from "./functions/tools/next_free_slot.ts.tpl" with { type: "text" };
+import f27 from "./functions/tools/update_branch.ts.tpl" with { type: "text" };
+import f28 from "./functions/tools/update_service.ts.tpl" with { type: "text" };
+import f29 from "./functions/tools/update_settings.ts.tpl" with { type: "text" };
+import f30 from "./functions/tools/upload_logo.ts.tpl" with { type: "text" };
+import f31 from "./functions/visits/[id]/report.ts.tpl" with { type: "text" };
+import f32 from "./functions/ws/dispatch/[branch].ts.tpl" with { type: "text" };
+import f33 from "./hooks.ts.tpl" with { type: "text" };
+import f34 from "./i18n/ar.json.tpl" with { type: "text" };
+import f35 from "./i18n/en.json.tpl" with { type: "text" };
+import f36 from "./i18n/whatsapp.ar.json.tpl" with { type: "text" };
+import f37 from "./i18n/whatsapp.en.json.tpl" with { type: "text" };
+import f38 from "./jobs/action-log-sweep.ts.tpl" with { type: "text" };
+import f39 from "./jobs/amc-renewals.ts.tpl" with { type: "text" };
+import f40 from "./jobs/amc-visits.ts.tpl" with { type: "text" };
+import f41 from "./jobs/booking-drafts.ts.tpl" with { type: "text" };
+import f42 from "./jobs/import-check.ts.tpl" with { type: "text" };
+import f43 from "./jobs/import-commit.ts.tpl" with { type: "text" };
+import f44 from "./lib/action-log.ts.tpl" with { type: "text" };
+import f45 from "./lib/admin-tile.ts.tpl" with { type: "text" };
+import f46 from "./lib/admin.ts.tpl" with { type: "text" };
+import f47 from "./lib/app-reports.ts.tpl" with { type: "text" };
+import f48 from "./lib/book.ts.tpl" with { type: "text" };
+import f49 from "./lib/booking-sync.ts.tpl" with { type: "text" };
+import f50 from "./lib/contract-dates.ts.tpl" with { type: "text" };
+import f51 from "./lib/contract-forms.ts.tpl" with { type: "text" };
+import f52 from "./lib/contract-view.ts.tpl" with { type: "text" };
+import f53 from "./lib/contracts.ts.tpl" with { type: "text" };
+import f54 from "./lib/contrast.ts.tpl" with { type: "text" };
+import f55 from "./lib/customer-db.ts.tpl" with { type: "text" };
+import f56 from "./lib/customers.ts.tpl" with { type: "text" };
+import f57 from "./lib/draft.ts.tpl" with { type: "text" };
+import f58 from "./lib/forms.ts.tpl" with { type: "text" };
+import f59 from "./lib/import-job.ts.tpl" with { type: "text" };
+import f60 from "./lib/import.ts.tpl" with { type: "text" };
+import f61 from "./lib/inbox.ts.tpl" with { type: "text" };
+import f62 from "./lib/invalid.ts.tpl" with { type: "text" };
+import f63 from "./lib/invoice-forms.ts.tpl" with { type: "text" };
+import f64 from "./lib/invoice-pdf.ts.tpl" with { type: "text" };
+import f65 from "./lib/invoice-view.ts.tpl" with { type: "text" };
+import f66 from "./lib/invoices.ts.tpl" with { type: "text" };
+import f67 from "./lib/job-forms.ts.tpl" with { type: "text" };
+import f68 from "./lib/jobs.ts.tpl" with { type: "text" };
+import f69 from "./lib/links.ts.tpl" with { type: "text" };
+import f70 from "./lib/messages.ts.tpl" with { type: "text" };
+import f71 from "./lib/money.ts.tpl" with { type: "text" };
+import f72 from "./lib/notify.ts.tpl" with { type: "text" };
+import f73 from "./lib/offline.ts.tpl" with { type: "text" };
+import f74 from "./lib/owner-tools.ts.tpl" with { type: "text" };
+import f75 from "./lib/page.ts.tpl" with { type: "text" };
+import f76 from "./lib/placeholder-png.ts.tpl" with { type: "text" };
+import f77 from "./lib/portal-change.ts.tpl" with { type: "text" };
+import f78 from "./lib/portal-view.ts.tpl" with { type: "text" };
+import f79 from "./lib/portal.ts.tpl" with { type: "text" };
+import f80 from "./lib/quotes.ts.tpl" with { type: "text" };
+import f81 from "./lib/refusal.ts.tpl" with { type: "text" };
+import f82 from "./lib/reminders.ts.tpl" with { type: "text" };
+import f83 from "./lib/reply.ts.tpl" with { type: "text" };
+import f84 from "./lib/report.ts.tpl" with { type: "text" };
+import f85 from "./lib/scope.ts.tpl" with { type: "text" };
+import f86 from "./lib/settings.ts.tpl" with { type: "text" };
+import f87 from "./lib/setup-token.ts.tpl" with { type: "text" };
+import f88 from "./lib/setup.ts.tpl" with { type: "text" };
+import f89 from "./lib/step-up.ts.tpl" with { type: "text" };
+import f90 from "./lib/summary.ts.tpl" with { type: "text" };
+import f91 from "./lib/technicians.ts.tpl" with { type: "text" };
+import f92 from "./lib/tool-input.ts.tpl" with { type: "text" };
+import f93 from "./lib/tools.ts.tpl" with { type: "text" };
+import f94 from "./lib/visit-data.ts.tpl" with { type: "text" };
+import f95 from "./lib/visit-forms.ts.tpl" with { type: "text" };
+import f96 from "./lib/visits.ts.tpl" with { type: "text" };
+import f97 from "./migrations/001_core.sql.tpl" with { type: "text" };
+import f98 from "./migrations/002_customers.sql.tpl" with { type: "text" };
+import f99 from "./migrations/003_quotes.sql.tpl" with { type: "text" };
+import f100 from "./migrations/004_jobs.sql.tpl" with { type: "text" };
+import f101 from "./migrations/005_visits.sql.tpl" with { type: "text" };
+import f102 from "./migrations/006_notifications.sql.tpl" with { type: "text" };
+import f103 from "./migrations/007_invoicing.sql.tpl" with { type: "text" };
+import f104 from "./migrations/008_contracts.sql.tpl" with { type: "text" };
+import f105 from "./migrations/009_back_office.sql.tpl" with { type: "text" };
+import f106 from "./migrations/010_hooks.sql.tpl" with { type: "text" };
+import f107 from "./migrations/011_imports.sql.tpl" with { type: "text" };
+import f108 from "./migrations/012_import_jobs.sql.tpl" with { type: "text" };
+import f109 from "./migrations/013_customer_users.sql.tpl" with { type: "text" };
+import f110 from "./migrations/014_self_booking.sql.tpl" with { type: "text" };
+import f111 from "./migrations/015_action_log.sql.tpl" with { type: "text" };
+import f112 from "./offline-queue-core.d.ts.tpl" with { type: "text" };
+import f113 from "./pages/_404.html.tpl" with { type: "text" };
+import f114 from "./pages/_error.html.tpl" with { type: "text" };
+import f115 from "./pages/_layouts/back-office.html.tpl" with { type: "text" };
+import f116 from "./pages/_layouts/main.html.tpl" with { type: "text" };
+import f117 from "./pages/_layouts/portal.html.tpl" with { type: "text" };
+import f118 from "./pages/admin/branches.html.tpl" with { type: "text" };
+import f119 from "./pages/admin/branches.ts.tpl" with { type: "text" };
+import f120 from "./pages/admin/import.html.tpl" with { type: "text" };
+import f121 from "./pages/admin/import.ts.tpl" with { type: "text" };
+import f122 from "./pages/admin/import/[id].html.tpl" with { type: "text" };
+import f123 from "./pages/admin/import/[id].ts.tpl" with { type: "text" };
+import f124 from "./pages/admin/people.html.tpl" with { type: "text" };
+import f125 from "./pages/admin/people.ts.tpl" with { type: "text" };
+import f126 from "./pages/admin/settings.html.tpl" with { type: "text" };
+import f127 from "./pages/admin/settings.ts.tpl" with { type: "text" };
+import f128 from "./pages/admin/tile.html.tpl" with { type: "text" };
+import f129 from "./pages/admin/tile.ts.tpl" with { type: "text" };
+import f130 from "./pages/admin/whatsapp.html.tpl" with { type: "text" };
+import f131 from "./pages/admin/whatsapp.ts.tpl" with { type: "text" };
+import f132 from "./pages/book/confirm/[id].html.tpl" with { type: "text" };
+import f133 from "./pages/book/confirm/[id].ts.tpl" with { type: "text" };
+import f134 from "./pages/book/index.html.tpl" with { type: "text" };
+import f135 from "./pages/book/index.ts.tpl" with { type: "text" };
+import f136 from "./pages/contracts/[id].html.tpl" with { type: "text" };
+import f137 from "./pages/contracts/[id].ts.tpl" with { type: "text" };
+import f138 from "./pages/contracts/index.html.tpl" with { type: "text" };
+import f139 from "./pages/contracts/index.ts.tpl" with { type: "text" };
+import f140 from "./pages/contracts/new.html.tpl" with { type: "text" };
+import f141 from "./pages/contracts/new.ts.tpl" with { type: "text" };
+import f142 from "./pages/customers/[id].html.tpl" with { type: "text" };
+import f143 from "./pages/customers/[id].ts.tpl" with { type: "text" };
+import f144 from "./pages/customers/index.html.tpl" with { type: "text" };
+import f145 from "./pages/customers/index.ts.tpl" with { type: "text" };
+import f146 from "./pages/customers/new.html.tpl" with { type: "text" };
+import f147 from "./pages/customers/new.ts.tpl" with { type: "text" };
+import f148 from "./pages/dispatch/index.html.tpl" with { type: "text" };
+import f149 from "./pages/dispatch/index.ts.tpl" with { type: "text" };
+import f150 from "./pages/index.html.tpl" with { type: "text" };
+import f151 from "./pages/index.ts.tpl" with { type: "text" };
+import f152 from "./pages/invoices/[id].html.tpl" with { type: "text" };
+import f153 from "./pages/invoices/[id].ts.tpl" with { type: "text" };
+import f154 from "./pages/invoices/index.html.tpl" with { type: "text" };
+import f155 from "./pages/invoices/index.ts.tpl" with { type: "text" };
+import f156 from "./pages/jobs/[id].html.tpl" with { type: "text" };
+import f157 from "./pages/jobs/[id].ts.tpl" with { type: "text" };
+import f158 from "./pages/jobs/[id]/invoice.ts.tpl" with { type: "text" };
+import f159 from "./pages/jobs/index.html.tpl" with { type: "text" };
+import f160 from "./pages/jobs/index.ts.tpl" with { type: "text" };
+import f161 from "./pages/jobs/new.html.tpl" with { type: "text" };
+import f162 from "./pages/jobs/new.ts.tpl" with { type: "text" };
+import f163 from "./pages/l/approve/[token].html.tpl" with { type: "text" };
+import f164 from "./pages/l/approve/[token].ts.tpl" with { type: "text" };
+import f165 from "./pages/l/invoice/[token].html.tpl" with { type: "text" };
+import f166 from "./pages/l/invoice/[token].ts.tpl" with { type: "text" };
+import f167 from "./pages/l/report/[token].html.tpl" with { type: "text" };
+import f168 from "./pages/l/report/[token].ts.tpl" with { type: "text" };
+import f169 from "./pages/me/index.html.tpl" with { type: "text" };
+import f170 from "./pages/me/index.ts.tpl" with { type: "text" };
+import f171 from "./pages/me/signout.html.tpl" with { type: "text" };
+import f172 from "./pages/me/signout.ts.tpl" with { type: "text" };
+import f173 from "./pages/me/visits/[id].html.tpl" with { type: "text" };
+import f174 from "./pages/me/visits/[id].ts.tpl" with { type: "text" };
+import f175 from "./pages/my/index.html.tpl" with { type: "text" };
+import f176 from "./pages/my/index.ts.tpl" with { type: "text" };
+import f177 from "./pages/my/invoices/[id].html.tpl" with { type: "text" };
+import f178 from "./pages/my/invoices/[id].ts.tpl" with { type: "text" };
+import f179 from "./pages/my/invoices/index.html.tpl" with { type: "text" };
+import f180 from "./pages/my/invoices/index.ts.tpl" with { type: "text" };
+import f181 from "./pages/my/visits/[id].html.tpl" with { type: "text" };
+import f182 from "./pages/my/visits/[id].ts.tpl" with { type: "text" };
+import f183 from "./pages/quotes/[id].html.tpl" with { type: "text" };
+import f184 from "./pages/quotes/[id].ts.tpl" with { type: "text" };
+import f185 from "./pages/quotes/index.html.tpl" with { type: "text" };
+import f186 from "./pages/quotes/index.ts.tpl" with { type: "text" };
+import f187 from "./pages/quotes/new.html.tpl" with { type: "text" };
+import f188 from "./pages/quotes/new.ts.tpl" with { type: "text" };
+import f189 from "./pages/reports/amc.html.tpl" with { type: "text" };
+import f190 from "./pages/reports/amc.ts.tpl" with { type: "text" };
+import f191 from "./pages/reports/outstanding.html.tpl" with { type: "text" };
+import f192 from "./pages/reports/outstanding.ts.tpl" with { type: "text" };
+import f193 from "./pages/reports/technicians.html.tpl" with { type: "text" };
+import f194 from "./pages/reports/technicians.ts.tpl" with { type: "text" };
+import f195 from "./pages/services/index.html.tpl" with { type: "text" };
+import f196 from "./pages/services/index.ts.tpl" with { type: "text" };
+import f197 from "./partials/admin-sidebar.html.tpl" with { type: "text" };
+import f198 from "./partials/admin-tile.html.tpl" with { type: "text" };
+import f199 from "./partials/form-errors.html.tpl" with { type: "text" };
+import f200 from "./partials/job-card.html.tpl" with { type: "text" };
+import f201 from "./partials/pdf/contract.ar.html.tpl" with { type: "text" };
+import f202 from "./partials/pdf/contract.en.html.tpl" with { type: "text" };
+import f203 from "./partials/pdf/quotation.ar.html.tpl" with { type: "text" };
+import f204 from "./partials/pdf/quotation.en.html.tpl" with { type: "text" };
+import f205 from "./partials/pdf/statement.ar.html.tpl" with { type: "text" };
+import f206 from "./partials/pdf/statement.en.html.tpl" with { type: "text" };
+import f207 from "./partials/pdf/tax-invoice.ar.html.tpl" with { type: "text" };
+import f208 from "./partials/pdf/tax-invoice.en.html.tpl" with { type: "text" };
+import f209 from "./partials/pdf/visit-report.ar.html.tpl" with { type: "text" };
+import f210 from "./partials/pdf/visit-report.en.html.tpl" with { type: "text" };
+import f211 from "./partials/queue-status.html.tpl" with { type: "text" };
+import f212 from "./partials/site-fields.html.tpl" with { type: "text" };
+import f213 from "./policies/app/base.cedar.tpl" with { type: "text" };
+import f214 from "./policies/tests/admin.json.tpl" with { type: "text" };
+import f215 from "./policies/tests/contracts.json.tpl" with { type: "text" };
+import f216 from "./policies/tests/invoices.json.tpl" with { type: "text" };
+import f217 from "./policies/tests/jobs.json.tpl" with { type: "text" };
+import f218 from "./policies/tests/portal.json.tpl" with { type: "text" };
+import f219 from "./policies/tests/reports.json.tpl" with { type: "text" };
+import f220 from "./policies/tests/tools.json.tpl" with { type: "text" };
+import f221 from "./policies/tests/visits.json.tpl" with { type: "text" };
+import f222 from "./public/app.css.tpl" with { type: "text" };
+import f223 from "./public/board.js.tpl" with { type: "text" };
+import f224 from "./public/doto-OFL.txt.tpl" with { type: "text" };
+import f225 from "./public/doto-black.woff2.base64.tpl" with { type: "text" };
+import f226 from "./public/fonts/NotoSansArabic-OFL.txt.tpl" with { type: "text" };
+import f227 from "./public/fonts/noto-sans-arabic-arabic-400-normal.woff2.base64.tpl" with { type: "text" };
+import f228 from "./public/fonts/noto-sans-arabic-arabic-700-normal.woff2.base64.tpl" with { type: "text" };
+import f229 from "./public/icons/icon-192.png.base64.tpl" with { type: "text" };
+import f230 from "./public/icons/icon-512.png.base64.tpl" with { type: "text" };
+import f231 from "./public/me.js.tpl" with { type: "text" };
+import f232 from "./public/offline-queue-core.js.tpl" with { type: "text" };
+import f233 from "./public/offline-queue.js.tpl" with { type: "text" };
+import f234 from "./public/renox-ui.css.tpl" with { type: "text" };
+import f235 from "./public/sw.js.tpl" with { type: "text" };
+import f236 from "./public/upload.js.tpl" with { type: "text" };
+import f237 from "./public/visit.js.tpl" with { type: "text" };
+import f238 from "./renox.lock.tpl" with { type: "text" };
+import f239 from "./renox.toml.tpl" with { type: "text" };
+import f240 from "./scripts/make-icons.ts.tpl" with { type: "text" };
+import f241 from "./seeds/001_demo.sql.tpl" with { type: "text" };
+import f242 from "./seeds/README.md.tpl" with { type: "text" };
+import f243 from "./tests/a11y.test.ts.tpl" with { type: "text" };
+import f244 from "./tests/admin.test.ts.tpl" with { type: "text" };
+import f245 from "./tests/app.test.ts.tpl" with { type: "text" };
+import f246 from "./tests/book.test.ts.tpl" with { type: "text" };
+import f247 from "./tests/browser/offline-photos.test.ts.tpl" with { type: "text" };
+import f248 from "./tests/browser/offline-queue.test.ts.tpl" with { type: "text" };
+import f249 from "./tests/browser/offline-read.test.ts.tpl" with { type: "text" };
+import f250 from "./tests/browser/offline-visit.test.ts.tpl" with { type: "text" };
+import f251 from "./tests/browser/stand-in.ts.tpl" with { type: "text" };
+import f252 from "./tests/contracts.test.ts.tpl" with { type: "text" };
+import f253 from "./tests/customers.test.ts.tpl" with { type: "text" };
+import f254 from "./tests/dispatch.test.ts.tpl" with { type: "text" };
+import f255 from "./tests/import.test.ts.tpl" with { type: "text" };
+import f256 from "./tests/invoices.test.ts.tpl" with { type: "text" };
+import f257 from "./tests/jobs.test.ts.tpl" with { type: "text" };
+import f258 from "./tests/my-change.test.ts.tpl" with { type: "text" };
+import f259 from "./tests/my-documents.test.ts.tpl" with { type: "text" };
+import f260 from "./tests/my.test.ts.tpl" with { type: "text" };
+import f261 from "./tests/notifications.test.ts.tpl" with { type: "text" };
+import f262 from "./tests/offline-queue.test.ts.tpl" with { type: "text" };
+import f263 from "./tests/outbox.ts.tpl" with { type: "text" };
+import f264 from "./tests/portal.test.ts.tpl" with { type: "text" };
+import f265 from "./tests/pwa.test.ts.tpl" with { type: "text" };
+import f266 from "./tests/quotes.test.ts.tpl" with { type: "text" };
+import f267 from "./tests/reports.test.ts.tpl" with { type: "text" };
+import f268 from "./tests/setup.test.ts.tpl" with { type: "text" };
+import f269 from "./tests/step-up.test.ts.tpl" with { type: "text" };
+import f270 from "./tests/tools.test.ts.tpl" with { type: "text" };
+import f271 from "./tests/typography.test.ts.tpl" with { type: "text" };
+import f272 from "./tests/visits-replay.test.ts.tpl" with { type: "text" };
+import f273 from "./tests/visits.test.ts.tpl" with { type: "text" };
 
 export const HOME_SERVICES: Readonly<Record<string, string>> = {
   ".env.test": f0,
@@ -270,250 +289,269 @@ export const HOME_SERVICES: Readonly<Record<string, string>> = {
   "functions/l/invoice/[token]/pdf.ts": f8,
   "functions/l/report/[token]/pdf.ts": f9,
   "functions/me/manifest.ts": f10,
-  "functions/my/invoices/[id]/pdf.ts": f11,
-  "functions/my/visits/[id]/photo/[n].ts": f12,
-  "functions/my/visits/[id]/report.ts": f13,
-  "functions/quotes/[id]/pdf.ts": f14,
-  "functions/theme.ts": f15,
-  "functions/tools/add_branch.ts": f16,
-  "functions/tools/add_service.ts": f17,
-  "functions/tools/create_job.ts": f18,
-  "functions/tools/get_settings.ts": f19,
-  "functions/tools/invite_staff.ts": f20,
-  "functions/tools/job_status.ts": f21,
-  "functions/tools/list_branches.ts": f22,
-  "functions/tools/list_people.ts": f23,
-  "functions/tools/list_services.ts": f24,
-  "functions/tools/next_free_slot.ts": f25,
-  "functions/tools/update_branch.ts": f26,
-  "functions/tools/update_service.ts": f27,
-  "functions/tools/update_settings.ts": f28,
-  "functions/tools/upload_logo.ts": f29,
-  "functions/visits/[id]/report.ts": f30,
-  "functions/ws/dispatch/[branch].ts": f31,
-  "hooks.ts": f32,
-  "i18n/ar.json": f33,
-  "i18n/en.json": f34,
-  "i18n/whatsapp.ar.json": f35,
-  "i18n/whatsapp.en.json": f36,
-  "jobs/amc-renewals.ts": f37,
-  "jobs/amc-visits.ts": f38,
-  "jobs/booking-drafts.ts": f39,
-  "jobs/import-check.ts": f40,
-  "jobs/import-commit.ts": f41,
-  "lib/admin-tile.ts": f42,
-  "lib/admin.ts": f43,
-  "lib/app-reports.ts": f44,
-  "lib/book.ts": f45,
-  "lib/booking-sync.ts": f46,
-  "lib/contract-dates.ts": f47,
-  "lib/contract-forms.ts": f48,
-  "lib/contract-view.ts": f49,
-  "lib/contracts.ts": f50,
-  "lib/contrast.ts": f51,
-  "lib/customer-db.ts": f52,
-  "lib/customers.ts": f53,
-  "lib/draft.ts": f54,
-  "lib/forms.ts": f55,
-  "lib/import-job.ts": f56,
-  "lib/import.ts": f57,
-  "lib/inbox.ts": f58,
-  "lib/invalid.ts": f59,
-  "lib/invoice-forms.ts": f60,
-  "lib/invoice-pdf.ts": f61,
-  "lib/invoice-view.ts": f62,
-  "lib/invoices.ts": f63,
-  "lib/job-forms.ts": f64,
-  "lib/jobs.ts": f65,
-  "lib/links.ts": f66,
-  "lib/messages.ts": f67,
-  "lib/money.ts": f68,
-  "lib/notify.ts": f69,
-  "lib/owner-tools.ts": f70,
-  "lib/page.ts": f71,
-  "lib/placeholder-png.ts": f72,
-  "lib/portal-change.ts": f73,
-  "lib/portal-view.ts": f74,
-  "lib/portal.ts": f75,
-  "lib/quotes.ts": f76,
-  "lib/reminders.ts": f77,
-  "lib/reply.ts": f78,
-  "lib/report.ts": f79,
-  "lib/scope.ts": f80,
-  "lib/settings.ts": f81,
-  "lib/setup-token.ts": f82,
-  "lib/setup.ts": f83,
-  "lib/step-up.ts": f84,
-  "lib/summary.ts": f85,
-  "lib/technicians.ts": f86,
-  "lib/tool-input.ts": f87,
-  "lib/tools.ts": f88,
-  "lib/visit-data.ts": f89,
-  "lib/visit-forms.ts": f90,
-  "lib/visits.ts": f91,
-  "migrations/001_core.sql": f92,
-  "migrations/002_customers.sql": f93,
-  "migrations/003_quotes.sql": f94,
-  "migrations/004_jobs.sql": f95,
-  "migrations/005_visits.sql": f96,
-  "migrations/006_notifications.sql": f97,
-  "migrations/007_invoicing.sql": f98,
-  "migrations/008_contracts.sql": f99,
-  "migrations/009_back_office.sql": f100,
-  "migrations/010_hooks.sql": f101,
-  "migrations/011_imports.sql": f102,
-  "migrations/012_import_jobs.sql": f103,
-  "migrations/013_customer_users.sql": f104,
-  "migrations/014_self_booking.sql": f105,
-  "pages/_404.html": f106,
-  "pages/_error.html": f107,
-  "pages/_layouts/back-office.html": f108,
-  "pages/_layouts/main.html": f109,
-  "pages/_layouts/portal.html": f110,
-  "pages/admin/branches.html": f111,
-  "pages/admin/branches.ts": f112,
-  "pages/admin/import.html": f113,
-  "pages/admin/import.ts": f114,
-  "pages/admin/import/[id].html": f115,
-  "pages/admin/import/[id].ts": f116,
-  "pages/admin/people.html": f117,
-  "pages/admin/people.ts": f118,
-  "pages/admin/settings.html": f119,
-  "pages/admin/settings.ts": f120,
-  "pages/admin/tile.html": f121,
-  "pages/admin/tile.ts": f122,
-  "pages/admin/whatsapp.html": f123,
-  "pages/admin/whatsapp.ts": f124,
-  "pages/book/confirm/[id].html": f125,
-  "pages/book/confirm/[id].ts": f126,
-  "pages/book/index.html": f127,
-  "pages/book/index.ts": f128,
-  "pages/contracts/[id].html": f129,
-  "pages/contracts/[id].ts": f130,
-  "pages/contracts/index.html": f131,
-  "pages/contracts/index.ts": f132,
-  "pages/contracts/new.html": f133,
-  "pages/contracts/new.ts": f134,
-  "pages/customers/[id].html": f135,
-  "pages/customers/[id].ts": f136,
-  "pages/customers/index.html": f137,
-  "pages/customers/index.ts": f138,
-  "pages/customers/new.html": f139,
-  "pages/customers/new.ts": f140,
-  "pages/dispatch/index.html": f141,
-  "pages/dispatch/index.ts": f142,
-  "pages/index.html": f143,
-  "pages/index.ts": f144,
-  "pages/invoices/[id].html": f145,
-  "pages/invoices/[id].ts": f146,
-  "pages/invoices/index.html": f147,
-  "pages/invoices/index.ts": f148,
-  "pages/jobs/[id].html": f149,
-  "pages/jobs/[id].ts": f150,
-  "pages/jobs/[id]/invoice.ts": f151,
-  "pages/jobs/index.html": f152,
-  "pages/jobs/index.ts": f153,
-  "pages/jobs/new.html": f154,
-  "pages/jobs/new.ts": f155,
-  "pages/l/approve/[token].html": f156,
-  "pages/l/approve/[token].ts": f157,
-  "pages/l/invoice/[token].html": f158,
-  "pages/l/invoice/[token].ts": f159,
-  "pages/l/report/[token].html": f160,
-  "pages/l/report/[token].ts": f161,
-  "pages/me/index.html": f162,
-  "pages/me/index.ts": f163,
-  "pages/me/visits/[id].html": f164,
-  "pages/me/visits/[id].ts": f165,
-  "pages/my/index.html": f166,
-  "pages/my/index.ts": f167,
-  "pages/my/invoices/[id].html": f168,
-  "pages/my/invoices/[id].ts": f169,
-  "pages/my/invoices/index.html": f170,
-  "pages/my/invoices/index.ts": f171,
-  "pages/my/visits/[id].html": f172,
-  "pages/my/visits/[id].ts": f173,
-  "pages/quotes/[id].html": f174,
-  "pages/quotes/[id].ts": f175,
-  "pages/quotes/index.html": f176,
-  "pages/quotes/index.ts": f177,
-  "pages/quotes/new.html": f178,
-  "pages/quotes/new.ts": f179,
-  "pages/reports/amc.html": f180,
-  "pages/reports/amc.ts": f181,
-  "pages/reports/outstanding.html": f182,
-  "pages/reports/outstanding.ts": f183,
-  "pages/reports/technicians.html": f184,
-  "pages/reports/technicians.ts": f185,
-  "pages/services/index.html": f186,
-  "pages/services/index.ts": f187,
-  "partials/admin-sidebar.html": f188,
-  "partials/admin-tile.html": f189,
-  "partials/form-errors.html": f190,
-  "partials/job-card.html": f191,
-  "partials/pdf/contract.ar.html": f192,
-  "partials/pdf/contract.en.html": f193,
-  "partials/pdf/quotation.ar.html": f194,
-  "partials/pdf/quotation.en.html": f195,
-  "partials/pdf/statement.ar.html": f196,
-  "partials/pdf/statement.en.html": f197,
-  "partials/pdf/tax-invoice.ar.html": f198,
-  "partials/pdf/tax-invoice.en.html": f199,
-  "partials/pdf/visit-report.ar.html": f200,
-  "partials/pdf/visit-report.en.html": f201,
-  "partials/site-fields.html": f202,
-  "policies/app/base.cedar": f203,
-  "policies/tests/admin.json": f204,
-  "policies/tests/contracts.json": f205,
-  "policies/tests/invoices.json": f206,
-  "policies/tests/jobs.json": f207,
-  "policies/tests/portal.json": f208,
-  "policies/tests/reports.json": f209,
-  "policies/tests/tools.json": f210,
-  "policies/tests/visits.json": f211,
-  "public/app.css": f212,
-  "public/board.js": f213,
-  "public/doto-OFL.txt": f214,
-  "public/doto-black.woff2": f215,
-  "public/fonts/NotoSansArabic-OFL.txt": f216,
-  "public/fonts/noto-sans-arabic-arabic-400-normal.woff2": f217,
-  "public/fonts/noto-sans-arabic-arabic-700-normal.woff2": f218,
-  "public/icons/icon-192.png": f219,
-  "public/icons/icon-512.png": f220,
-  "public/me.js": f221,
-  "public/renox-ui.css": f222,
-  "public/sw.js": f223,
-  "public/upload.js": f224,
-  "public/visit.js": f225,
-  "renox.lock": f226,
-  "renox.toml": f227,
-  "scripts/make-icons.ts": f228,
-  "seeds/001_demo.sql": f229,
-  "seeds/README.md": f230,
-  "tests/a11y.test.ts": f231,
-  "tests/admin.test.ts": f232,
-  "tests/app.test.ts": f233,
-  "tests/book.test.ts": f234,
-  "tests/contracts.test.ts": f235,
-  "tests/customers.test.ts": f236,
-  "tests/dispatch.test.ts": f237,
-  "tests/import.test.ts": f238,
-  "tests/invoices.test.ts": f239,
-  "tests/jobs.test.ts": f240,
-  "tests/my-change.test.ts": f241,
-  "tests/my-documents.test.ts": f242,
-  "tests/my.test.ts": f243,
-  "tests/notifications.test.ts": f244,
-  "tests/outbox.ts": f245,
-  "tests/portal.test.ts": f246,
-  "tests/pwa.test.ts": f247,
-  "tests/quotes.test.ts": f248,
-  "tests/reports.test.ts": f249,
-  "tests/setup.test.ts": f250,
-  "tests/step-up.test.ts": f251,
-  "tests/tools.test.ts": f252,
-  "tests/typography.test.ts": f253,
-  "tests/visits.test.ts": f254,
+  "functions/me/ping.ts": f11,
+  "functions/my/invoices/[id]/pdf.ts": f12,
+  "functions/my/visits/[id]/photo/[n].ts": f13,
+  "functions/my/visits/[id]/report.ts": f14,
+  "functions/quotes/[id]/pdf.ts": f15,
+  "functions/theme.ts": f16,
+  "functions/tools/add_branch.ts": f17,
+  "functions/tools/add_service.ts": f18,
+  "functions/tools/create_job.ts": f19,
+  "functions/tools/get_settings.ts": f20,
+  "functions/tools/invite_staff.ts": f21,
+  "functions/tools/job_status.ts": f22,
+  "functions/tools/list_branches.ts": f23,
+  "functions/tools/list_people.ts": f24,
+  "functions/tools/list_services.ts": f25,
+  "functions/tools/next_free_slot.ts": f26,
+  "functions/tools/update_branch.ts": f27,
+  "functions/tools/update_service.ts": f28,
+  "functions/tools/update_settings.ts": f29,
+  "functions/tools/upload_logo.ts": f30,
+  "functions/visits/[id]/report.ts": f31,
+  "functions/ws/dispatch/[branch].ts": f32,
+  "hooks.ts": f33,
+  "i18n/ar.json": f34,
+  "i18n/en.json": f35,
+  "i18n/whatsapp.ar.json": f36,
+  "i18n/whatsapp.en.json": f37,
+  "jobs/action-log-sweep.ts": f38,
+  "jobs/amc-renewals.ts": f39,
+  "jobs/amc-visits.ts": f40,
+  "jobs/booking-drafts.ts": f41,
+  "jobs/import-check.ts": f42,
+  "jobs/import-commit.ts": f43,
+  "lib/action-log.ts": f44,
+  "lib/admin-tile.ts": f45,
+  "lib/admin.ts": f46,
+  "lib/app-reports.ts": f47,
+  "lib/book.ts": f48,
+  "lib/booking-sync.ts": f49,
+  "lib/contract-dates.ts": f50,
+  "lib/contract-forms.ts": f51,
+  "lib/contract-view.ts": f52,
+  "lib/contracts.ts": f53,
+  "lib/contrast.ts": f54,
+  "lib/customer-db.ts": f55,
+  "lib/customers.ts": f56,
+  "lib/draft.ts": f57,
+  "lib/forms.ts": f58,
+  "lib/import-job.ts": f59,
+  "lib/import.ts": f60,
+  "lib/inbox.ts": f61,
+  "lib/invalid.ts": f62,
+  "lib/invoice-forms.ts": f63,
+  "lib/invoice-pdf.ts": f64,
+  "lib/invoice-view.ts": f65,
+  "lib/invoices.ts": f66,
+  "lib/job-forms.ts": f67,
+  "lib/jobs.ts": f68,
+  "lib/links.ts": f69,
+  "lib/messages.ts": f70,
+  "lib/money.ts": f71,
+  "lib/notify.ts": f72,
+  "lib/offline.ts": f73,
+  "lib/owner-tools.ts": f74,
+  "lib/page.ts": f75,
+  "lib/placeholder-png.ts": f76,
+  "lib/portal-change.ts": f77,
+  "lib/portal-view.ts": f78,
+  "lib/portal.ts": f79,
+  "lib/quotes.ts": f80,
+  "lib/refusal.ts": f81,
+  "lib/reminders.ts": f82,
+  "lib/reply.ts": f83,
+  "lib/report.ts": f84,
+  "lib/scope.ts": f85,
+  "lib/settings.ts": f86,
+  "lib/setup-token.ts": f87,
+  "lib/setup.ts": f88,
+  "lib/step-up.ts": f89,
+  "lib/summary.ts": f90,
+  "lib/technicians.ts": f91,
+  "lib/tool-input.ts": f92,
+  "lib/tools.ts": f93,
+  "lib/visit-data.ts": f94,
+  "lib/visit-forms.ts": f95,
+  "lib/visits.ts": f96,
+  "migrations/001_core.sql": f97,
+  "migrations/002_customers.sql": f98,
+  "migrations/003_quotes.sql": f99,
+  "migrations/004_jobs.sql": f100,
+  "migrations/005_visits.sql": f101,
+  "migrations/006_notifications.sql": f102,
+  "migrations/007_invoicing.sql": f103,
+  "migrations/008_contracts.sql": f104,
+  "migrations/009_back_office.sql": f105,
+  "migrations/010_hooks.sql": f106,
+  "migrations/011_imports.sql": f107,
+  "migrations/012_import_jobs.sql": f108,
+  "migrations/013_customer_users.sql": f109,
+  "migrations/014_self_booking.sql": f110,
+  "migrations/015_action_log.sql": f111,
+  "offline-queue-core.d.ts": f112,
+  "pages/_404.html": f113,
+  "pages/_error.html": f114,
+  "pages/_layouts/back-office.html": f115,
+  "pages/_layouts/main.html": f116,
+  "pages/_layouts/portal.html": f117,
+  "pages/admin/branches.html": f118,
+  "pages/admin/branches.ts": f119,
+  "pages/admin/import.html": f120,
+  "pages/admin/import.ts": f121,
+  "pages/admin/import/[id].html": f122,
+  "pages/admin/import/[id].ts": f123,
+  "pages/admin/people.html": f124,
+  "pages/admin/people.ts": f125,
+  "pages/admin/settings.html": f126,
+  "pages/admin/settings.ts": f127,
+  "pages/admin/tile.html": f128,
+  "pages/admin/tile.ts": f129,
+  "pages/admin/whatsapp.html": f130,
+  "pages/admin/whatsapp.ts": f131,
+  "pages/book/confirm/[id].html": f132,
+  "pages/book/confirm/[id].ts": f133,
+  "pages/book/index.html": f134,
+  "pages/book/index.ts": f135,
+  "pages/contracts/[id].html": f136,
+  "pages/contracts/[id].ts": f137,
+  "pages/contracts/index.html": f138,
+  "pages/contracts/index.ts": f139,
+  "pages/contracts/new.html": f140,
+  "pages/contracts/new.ts": f141,
+  "pages/customers/[id].html": f142,
+  "pages/customers/[id].ts": f143,
+  "pages/customers/index.html": f144,
+  "pages/customers/index.ts": f145,
+  "pages/customers/new.html": f146,
+  "pages/customers/new.ts": f147,
+  "pages/dispatch/index.html": f148,
+  "pages/dispatch/index.ts": f149,
+  "pages/index.html": f150,
+  "pages/index.ts": f151,
+  "pages/invoices/[id].html": f152,
+  "pages/invoices/[id].ts": f153,
+  "pages/invoices/index.html": f154,
+  "pages/invoices/index.ts": f155,
+  "pages/jobs/[id].html": f156,
+  "pages/jobs/[id].ts": f157,
+  "pages/jobs/[id]/invoice.ts": f158,
+  "pages/jobs/index.html": f159,
+  "pages/jobs/index.ts": f160,
+  "pages/jobs/new.html": f161,
+  "pages/jobs/new.ts": f162,
+  "pages/l/approve/[token].html": f163,
+  "pages/l/approve/[token].ts": f164,
+  "pages/l/invoice/[token].html": f165,
+  "pages/l/invoice/[token].ts": f166,
+  "pages/l/report/[token].html": f167,
+  "pages/l/report/[token].ts": f168,
+  "pages/me/index.html": f169,
+  "pages/me/index.ts": f170,
+  "pages/me/signout.html": f171,
+  "pages/me/signout.ts": f172,
+  "pages/me/visits/[id].html": f173,
+  "pages/me/visits/[id].ts": f174,
+  "pages/my/index.html": f175,
+  "pages/my/index.ts": f176,
+  "pages/my/invoices/[id].html": f177,
+  "pages/my/invoices/[id].ts": f178,
+  "pages/my/invoices/index.html": f179,
+  "pages/my/invoices/index.ts": f180,
+  "pages/my/visits/[id].html": f181,
+  "pages/my/visits/[id].ts": f182,
+  "pages/quotes/[id].html": f183,
+  "pages/quotes/[id].ts": f184,
+  "pages/quotes/index.html": f185,
+  "pages/quotes/index.ts": f186,
+  "pages/quotes/new.html": f187,
+  "pages/quotes/new.ts": f188,
+  "pages/reports/amc.html": f189,
+  "pages/reports/amc.ts": f190,
+  "pages/reports/outstanding.html": f191,
+  "pages/reports/outstanding.ts": f192,
+  "pages/reports/technicians.html": f193,
+  "pages/reports/technicians.ts": f194,
+  "pages/services/index.html": f195,
+  "pages/services/index.ts": f196,
+  "partials/admin-sidebar.html": f197,
+  "partials/admin-tile.html": f198,
+  "partials/form-errors.html": f199,
+  "partials/job-card.html": f200,
+  "partials/pdf/contract.ar.html": f201,
+  "partials/pdf/contract.en.html": f202,
+  "partials/pdf/quotation.ar.html": f203,
+  "partials/pdf/quotation.en.html": f204,
+  "partials/pdf/statement.ar.html": f205,
+  "partials/pdf/statement.en.html": f206,
+  "partials/pdf/tax-invoice.ar.html": f207,
+  "partials/pdf/tax-invoice.en.html": f208,
+  "partials/pdf/visit-report.ar.html": f209,
+  "partials/pdf/visit-report.en.html": f210,
+  "partials/queue-status.html": f211,
+  "partials/site-fields.html": f212,
+  "policies/app/base.cedar": f213,
+  "policies/tests/admin.json": f214,
+  "policies/tests/contracts.json": f215,
+  "policies/tests/invoices.json": f216,
+  "policies/tests/jobs.json": f217,
+  "policies/tests/portal.json": f218,
+  "policies/tests/reports.json": f219,
+  "policies/tests/tools.json": f220,
+  "policies/tests/visits.json": f221,
+  "public/app.css": f222,
+  "public/board.js": f223,
+  "public/doto-OFL.txt": f224,
+  "public/doto-black.woff2": f225,
+  "public/fonts/NotoSansArabic-OFL.txt": f226,
+  "public/fonts/noto-sans-arabic-arabic-400-normal.woff2": f227,
+  "public/fonts/noto-sans-arabic-arabic-700-normal.woff2": f228,
+  "public/icons/icon-192.png": f229,
+  "public/icons/icon-512.png": f230,
+  "public/me.js": f231,
+  "public/offline-queue-core.js": f232,
+  "public/offline-queue.js": f233,
+  "public/renox-ui.css": f234,
+  "public/sw.js": f235,
+  "public/upload.js": f236,
+  "public/visit.js": f237,
+  "renox.lock": f238,
+  "renox.toml": f239,
+  "scripts/make-icons.ts": f240,
+  "seeds/001_demo.sql": f241,
+  "seeds/README.md": f242,
+  "tests/a11y.test.ts": f243,
+  "tests/admin.test.ts": f244,
+  "tests/app.test.ts": f245,
+  "tests/book.test.ts": f246,
+  "tests/browser/offline-photos.test.ts": f247,
+  "tests/browser/offline-queue.test.ts": f248,
+  "tests/browser/offline-read.test.ts": f249,
+  "tests/browser/offline-visit.test.ts": f250,
+  "tests/browser/stand-in.ts": f251,
+  "tests/contracts.test.ts": f252,
+  "tests/customers.test.ts": f253,
+  "tests/dispatch.test.ts": f254,
+  "tests/import.test.ts": f255,
+  "tests/invoices.test.ts": f256,
+  "tests/jobs.test.ts": f257,
+  "tests/my-change.test.ts": f258,
+  "tests/my-documents.test.ts": f259,
+  "tests/my.test.ts": f260,
+  "tests/notifications.test.ts": f261,
+  "tests/offline-queue.test.ts": f262,
+  "tests/outbox.ts": f263,
+  "tests/portal.test.ts": f264,
+  "tests/pwa.test.ts": f265,
+  "tests/quotes.test.ts": f266,
+  "tests/reports.test.ts": f267,
+  "tests/setup.test.ts": f268,
+  "tests/step-up.test.ts": f269,
+  "tests/tools.test.ts": f270,
+  "tests/typography.test.ts": f271,
+  "tests/visits-replay.test.ts": f272,
+  "tests/visits.test.ts": f273,
 };
 
 export const HOME_SERVICES_BINARY: readonly string[] = [

@@ -160,9 +160,9 @@ async function publishCard(ctx: Pick<JobCtx, "db" | "realtime">, branch: Branch,
   await ctx.realtime.publish(topicOf(branch.id), { fragment: "partials/job-card", data: { j: await cardOf(ctx, branch, sdb, job) } });
 }
 
-async function record(ctx: Pick<JobCtx, "principal">, sdb: DbStatements, branch: Branch, job: JobRow, from: JobStatus | null, to: JobStatus, note: string): Promise<void> {
+async function record(ctx: Pick<JobCtx, "principal">, sdb: DbStatements, branch: Branch, job: JobRow, from: JobStatus | null, to: JobStatus, note: string, at: number = now()): Promise<void> {
   const by = ctx.principal?.id ?? null;
-  await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, ?, ?, ?)", [job.id, branch.id, now(), by, from, to, note]);
+  await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, ?, ?, ?)", [job.id, branch.id, at, by, from, to, note]);
   await audit.record({ action: "job.transition", actor: { kind: "user", id: by ?? "unknown" }, resource: { type: "Job", id: job.id }, details: { number: job.number, from, to, note } });
 }
 
@@ -170,15 +170,17 @@ async function record(ctx: Pick<JobCtx, "principal">, sdb: DbStatements, branch:
  * Moves the job to `to` if the table allows it from its current status
  * (otherwise 409), writes the event and the audit record, cancels or releases
  * the booking when the job is cancelled or goes back to `new`, and publishes
- * the card. The job is the active branch's: another branch's is a 404.
+ * the card. The job is the active branch's: another branch's is a 404. `at`
+ * (unix seconds, default now) is the time of the event: the technician's phone
+ * says when a check-in or check-out happened offline (lib/action-log.ts).
  */
-export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unknown, to: JobStatus, note: string): Promise<Outcome> {
+export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unknown, to: JobStatus, note: string, at?: number): Promise<Outcome> {
   const branch = await branchOf(ctx);
   if (branch === null) return fail(403, "No branch is active for this account.");
   const sdb = scopedDb(ctx.db, branch);
   const job = await findJob(sdb, id);
   if (job === null) return fail(404, "Job not found");
-  return transitionJob(ctx, branch, sdb, job, to, note);
+  return transitionJob(ctx, branch, sdb, job, to, note, at);
 }
 
 /**
@@ -188,7 +190,7 @@ export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unkno
  * fenced database for the customer's branch. The update also names the job's
  * customer, so it cannot touch another customer's row.
  */
-export async function transitionJob(ctx: JobCtx & { readonly url?: URL }, branch: Branch, sdb: DbStatements, job: JobRow, to: JobStatus, note: string): Promise<Outcome> {
+export async function transitionJob(ctx: JobCtx & { readonly url?: URL }, branch: Branch, sdb: DbStatements, job: JobRow, to: JobStatus, note: string, at?: number): Promise<Outcome> {
   if (!TRANSITIONS[job.status].includes(to)) return fail(409, `A ${job.status.replace("_", " ")} job cannot become ${to.replace("_", " ")}.`);
   // Back to `new` clears the schedule; a cancelled job keeps it, for the history.
   const won = await sdb.execute(
@@ -200,7 +202,7 @@ export async function transitionJob(ctx: JobCtx & { readonly url?: URL }, branch
   if (won.changes !== 1) return fail(409, "The job changed meanwhile; reload it.");
   if ((to === "cancelled" || to === "new") && job.booking_id !== null) await cancelVisit(job.booking_id);
   const after = (await findJob(sdb, job.id)) as JobRow;
-  await record(ctx, sdb, branch, after, job.status, to, note);
+  await record(ctx, sdb, branch, after, job.status, to, note, at);
   await publishCard(ctx, branch, sdb, after);
   // The customer hears that the technician is on the way (F7-124).
   if (to === "en_route") {

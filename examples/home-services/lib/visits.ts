@@ -11,15 +11,17 @@
 // the visit's folder of the storage module (`storage/<visit id>/`, `storage.uploadUrl`) and the form then posts
 // its key. The rows keep the keys. Photos stay private: the page shows them through short-lived signed URLs.
 import type { Ai, DbStatements, Storage } from "@renoxium/sdk";
+import { dispatchersOf } from "./book";
 import { type JobCtx, type JobRow, findJob, jobResource, transition } from "./jobs";
 import { issueLink } from "./links";
-import { notifyCustomer } from "./notify";
+import { notifyCustomer, notifyOfflineRefusal } from "./notify";
 import { buildReport } from "./report";
 import { branchOf, scopedDb, type Branch } from "./scope";
 import { draftSummary } from "./summary";
 import { memberName } from "./technicians";
 import { type PartRow, type PhotoRow, type StorageModule, type VisitRow, MAX_PHOTO_BYTES, bytesOfDataUrl, partsOf, photoLimitMessage, visitOfJob } from "./visit-data";
 import type { PartInput, Phase } from "./visit-forms";
+import { OFFLINE_REFUSED, type OfflineRefusal } from "./refusal";
 
 export const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const EXTENSION: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
@@ -76,15 +78,77 @@ function open(p: Performer): Result<VisitRow> {
   return { ok: true, value: p.visit };
 }
 
+/** The most a phone's clock may be ahead of the server's, and the oldest time a queued action may claim. */
+const SKEW_MS = 2 * 60 * 1000;
+const STALE_MS = 72 * 3600 * 1000;
+
+/**
+ * The time an action says it happened (`performed_at`, unix milliseconds, a phone that was offline), as unix
+ * seconds. It counts only when it is not in the future (2 minutes of clock skew allowed) and not older than
+ * 72 hours; anything else, a missing value aside, is the server's time and `adjusted` is true.
+ */
+export function performedAt(raw: unknown, nowMs: number = Date.now()): { at: number; adjusted: boolean } {
+  if (raw === null || raw === undefined || raw === "") return { at: Math.floor(nowMs / 1000), adjusted: false };
+  const ms = typeof raw === "string" && /^\d{1,15}$/u.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(ms) || ms > nowMs + SKEW_MS || ms < nowMs - STALE_MS) return { at: Math.floor(nowMs / 1000), adjusted: true };
+  return { at: Math.floor(ms / 1000), adjusted: false };
+}
+
+/** Why an action no longer fits the job's state: the codes of `visits.conflict.<code>` (i18n). */
+export type Conflict = "job_cancelled" | "job_reassigned" | "already_checked_out" | "not_checked_in";
+
+/**
+ * What the job's current state says of an action before it runs (lib/action-log.ts): a `conflict`; `exists`, the
+ * visit, for a second check-in (the intent is met); or null, the action may run. A job that is not found, or of
+ * another branch, is null too: the action itself answers 404 or 403. A visit of another day is no conflict.
+ */
+export async function conflictOf(ctx: VisitCtx, rawJobId: unknown, action: string): Promise<{ conflict: Conflict } | { exists: VisitRow } | null> {
+  const branch = await branchOf(ctx);
+  if (branch === null) return null;
+  const sdb = scopedDb(ctx.db, branch);
+  const job = await findJob(sdb, rawJobId);
+  if (job === null) return null;
+  if (job.status === "cancelled") return { conflict: "job_cancelled" };
+  if (job.technician_user_id !== (ctx.principal?.id ?? null)) return { conflict: "job_reassigned" };
+  const visit = await visitOfJob(sdb, job.id);
+  if (visit !== null && visit.checkout_at !== null && action !== "summary") return { conflict: "already_checked_out" };
+  if (visit === null && action !== "checkin") return { conflict: "not_checked_in" };
+  if (visit !== null && action === "checkin") return { exists: visit };
+  return null;
+}
+
+/**
+ * The office learns that a queued action of a phone was refused (lib/action-log.ts calls this for a request that
+ * carries `x-hs-queued: 1` and is answered with a conflict): a job event `offline_action_refused` on the job's
+ * timeline, and the branch's dispatchers told in the app, once for each job and reason. The same refusal again
+ * (a "Try again" of the phone that is refused again) adds nothing. It runs in the action's own transaction, which
+ * commits because the action answers the 409 instead of throwing.
+ */
+export async function noteOfflineRefusal(ctx: VisitCtx, rawJobId: unknown, action: string, reason: Conflict, performed: number): Promise<void> {
+  const branch = await branchOf(ctx);
+  if (branch === null) return;
+  const sdb = scopedDb(ctx.db, branch);
+  const job = await findJob(sdb, rawJobId);
+  if (job === null) return;
+  const who = ctx.principal?.id ?? "";
+  const refusal: OfflineRefusal = { action, reason, technician: who, performed_at: performed };
+  const note = `${OFFLINE_REFUSED} ${JSON.stringify(refusal)}`;
+  if ((await sdb.queryOne("select id from app__job_events where job_id = ? and note = ?", [job.id, note])) !== null) return;
+  const told = await sdb.queryOne("select id from app__job_events where job_id = ? and instr(note, ?) = 1 and instr(note, ?) > 0", [job.id, `${OFFLINE_REFUSED} `, `"reason":"${reason}"`]);
+  await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, null, null, ?)", [job.id, branch.id, now(), who === "" ? null : who, note]);
+  if (told !== null) return;
+  await notifyOfflineRefusal(await dispatchersOf(ctx, branch), { job_id: job.id, number: job.number, technician: await memberName(ctx.db, branch, who), action, reason, performed_at: performed });
+}
+
 /** Opens the visit and moves the job to `in_progress` (a job that already is stays so). Twice is a 409. */
-export async function checkIn(ctx: VisitCtx, rawJobId: unknown, position: { lat: number | null; lng: number | null }): Promise<Result<VisitRow>> {
+export async function checkIn(ctx: VisitCtx, rawJobId: unknown, position: { lat: number | null; lng: number | null }, at: number = now()): Promise<Result<VisitRow>> {
   const got = await performerOf(ctx, rawJobId);
   if (!got.ok) return got;
   const p = got.value;
   if (p.visit !== null) return fail(409, "You are already checked in to this visit.");
   if (p.job.status !== "scheduled" && p.job.status !== "en_route" && p.job.status !== "in_progress") return fail(409, `A ${p.job.status.replace("_", " ")} job cannot be visited.`);
   if (p.job.status !== "in_progress") {
-    const moved = await transition(ctx, p.job.id, "in_progress", "checked in");
+    const moved = await transition(ctx, p.job.id, "in_progress", "checked in", at);
     if (!moved.ok) return fail(moved.status === 403 ? 403 : moved.status === 404 ? 404 : 409, moved.message);
   }
   const id = `vs_${token()}`;
@@ -95,7 +159,7 @@ export async function checkIn(ctx: VisitCtx, rawJobId: unknown, position: { lat:
     p.job.id,
     who,
     await memberName(ctx.db, p.branch, who),
-    now(),
+    at,
     position.lat,
     position.lng,
   ]);
@@ -252,15 +316,16 @@ export interface CheckedOut {
  * Closes the visit and moves the job to `done`. The summary fields the
  * technician left empty are drafted by `ctx.ai` from the notes and the parts
  * (they stay empty when the AI is off); then the report is built. Photos and a
- * signature are not required.
+ * signature are not required. `at` (unix seconds, default now) is the check-out
+ * time, and the check-in's (above) the same way: the phone's, when it is plausible.
  */
-export async function checkOut(ctx: VisitCtx, rawJobId: unknown): Promise<Result<CheckedOut>> {
+export async function checkOut(ctx: VisitCtx, rawJobId: unknown, at: number = now()): Promise<Result<CheckedOut>> {
   const got = await performerOf(ctx, rawJobId);
   if (!got.ok) return got;
   const p = got.value;
   const visit = open(p);
   if (!visit.ok) return visit;
-  const moved = await transition(ctx, p.job.id, "done", "checked out");
+  const moved = await transition(ctx, p.job.id, "done", "checked out", at);
   if (!moved.ok) return fail(moved.status === 403 ? 403 : moved.status === 404 ? 404 : 409, moved.message);
   const parts = await partsOf(p.sdb, visit.value.id);
   const service = await ctx.db.queryOne<{ name_en: string }>("select name_en from app__services where id = ?", [p.job.service_id]);
@@ -272,7 +337,7 @@ export async function checkOut(ctx: VisitCtx, rawJobId: unknown): Promise<Result
     ar = draft.ar;
     ai = draft.ai;
   }
-  await p.sdb.execute("update app__visits set checkout_at = ?, summary_en = ?, summary_ar = ? where id = ?", [now(), en, ar, visit.value.id]);
+  await p.sdb.execute("update app__visits set checkout_at = ?, summary_en = ?, summary_ar = ? where id = ?", [at, en, ar, visit.value.id]);
   await buildReport(ctx, visit.value.id);
   // The customer gets the link to the report; the dispatcher who made the job is told it is done (F7-124).
   const link = await issueLink(ctx, "report", visit.value.id, REPORT_LINK_SECONDS);

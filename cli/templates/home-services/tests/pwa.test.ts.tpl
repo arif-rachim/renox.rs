@@ -65,3 +65,76 @@ describe("the layout head", () => {
     expect(res.html).toMatch(/<script src="\/me\.[0-9a-f]{16}\.js" defer nonce="[^"]+"><\/script>/u);
   });
 });
+
+describe("offline reading (#807): what the pages and /me/ping give the service worker", () => {
+  const userOf = (html: string): string | null => /<meta name="hs-user" content="([^"]*)"/u.exec(html)?.[1] ?? null;
+
+  test("/me and a visit page carry the user meta, the banner with the saved time, and no-store", async () => {
+    for (const path of ["/me", "/me/visits/jb_seed_10"]) {
+      const res = await ali.page(path);
+      expect(res.status, path).toBe(200);
+      expect(userOf(res.html), path).toMatch(/^[A-Za-z0-9_-]{1,64}$/u);
+      expect(res.html, path).toMatch(/<p id="offline-banner" class="warning" hidden role="status" data-saved-at="\d{4}-\d{2}-\d{2} \d{2}:\d{2}">/u);
+      expect(res.html, path).toContain("You are offline. Showing the copy saved at");
+      expect(res.html, path).toContain('id="offline-time"');
+      expect(res.headers.get("cache-control") ?? "", path).toContain("no-store");
+    }
+  });
+
+  test("the user meta is the signed-in user's id, the one /me/ping answers", async () => {
+    const page = await ali.page("/me");
+    const ping = await ali.request("GET", "/me/ping");
+    expect(userOf(page.html)).toBe(ping.headers.get("x-hs-user"));
+    expect(userOf((await t.as("dina").page("/me")).html)).not.toBe(userOf(page.html));
+  });
+
+  test("the banner is in Arabic too", async () => {
+    // `?lang=` is remembered for the user: put it back.
+    const res = await ali.page("/me?lang=ar");
+    await ali.page("/me?lang=en");
+    expect(res.html).toContain("أنت غير متصل بالإنترنت. تعرض هذه الصفحة النسخة المحفوظة في");
+  });
+
+  test("the links to today's visits carry data-prefetch", async () => {
+    const res = await ali.page("/me");
+    expect(res.html).toMatch(/<a href="\/me\/visits\/[^"/]+" data-prefetch="" dir="ltr">/u);
+  });
+
+  test("an error page, /jobs and a dispatcher's /me never carry x-hs-offline-ok", async () => {
+    const dina = t.as("dina");
+    await dina.action("/auth/login", "default", { email: "dispatcher.dubai@fixit.example", password: PASSWORD, next: "/" });
+    const none = await ali.page("/me/visits/jb_does_not_exist");
+    expect(none.status).toBe(404);
+    expect(none.headers.get("x-hs-offline-ok")).toBeNull();
+    const jobs = await dina.page("/jobs");
+    expect(jobs.status).toBe(200);
+    expect(jobs.headers.get("x-hs-offline-ok")).toBeNull();
+    const refused = await dina.page("/me");
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get("x-hs-offline-ok")).toBeNull();
+    expect(userOf(refused.html)).toBeNull();
+  });
+
+  test("/me/ping is 204 for a technician, with no body and never cached", async () => {
+    const res = await ali.request("GET", "/me/ping");
+    expect(res.status).toBe(204);
+    expect(res.html).toBe("");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  test("/me/ping is refused to a signed-out request and to a dispatcher", async () => {
+    expect((await t.request("GET", "/me/ping")).status).toBe(403);
+    const dina = t.as("dina");
+    await dina.action("/auth/login", "default", { email: "dispatcher.dubai@fixit.example", password: PASSWORD, next: "/" });
+    expect((await dina.request("GET", "/me/ping")).status).toBe(403);
+  });
+
+  test("sw.js: JavaScript, no service-worker-allowed header, and the day cache of the worker", async () => {
+    const sw = await t.request("GET", "/sw.js");
+    expect(sw.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(sw.headers.get("service-worker-allowed")).toBeNull();
+    expect(sw.html).toContain("hs-day-v1-");
+    expect(sw.html).toContain("x-hs-offline-ok");
+    expect(sw.html).toContain("x-hs-from-cache");
+  });
+});
