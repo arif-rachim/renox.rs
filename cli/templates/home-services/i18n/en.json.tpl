@@ -335,7 +335,15 @@
       "add": "Add part",
       "none": "No parts yet.",
       "remove": "Remove",
-      "total": "Total (AED)"
+      "total": "Total (AED)",
+      "pick": "Part from the stock",
+      "other": "Other (type it)",
+      "other_hint": "Only for Other: the name and the unit price. A part from the stock has its name and price from the list.",
+      "search": "Search the parts by SKU or name",
+      "search_submit": "Search",
+      "search_none": "No part matches. Choose Other to type it.",
+      "search_more": "There are many parts: search, then choose from the result.",
+      "negative": "Stock for {part} is now below zero; tell the office."
     },
     "notes": {
       "title": "Notes",
@@ -377,6 +385,7 @@
     "err": {
       "position": "The position is not valid.",
       "part": "Name the part (up to 200 characters).",
+      "part_id": "Choose a part from the list, or Other.",
       "qty": "Enter a quantity above 0 with at most two decimals.",
       "price": "Enter the price in AED, for example 120 or 120.50.",
       "notes": "Notes are at most 2000 characters.",

@@ -375,7 +375,7 @@
     if (kind === "photo") return { key: record.phase === "after" ? "whatPhotoAfter" : "whatPhotoBefore", values: {} };
     const fields = record.fields || {};
     const name = `what${String(record.action).charAt(0).toUpperCase()}${String(record.action).slice(1)}`;
-    return { key: name, values: { description: fields.description || "", qty: fields.qty || "" } };
+    return { key: name, values: { description: fields.part_id ? fields.part_label || "" : fields.description || "", qty: fields.qty || "" } };
   };
 
   /** One line of the list for a record: what it was, when it was done on the phone, and why it is here. */

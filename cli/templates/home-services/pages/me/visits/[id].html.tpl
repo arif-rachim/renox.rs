@@ -75,10 +75,21 @@
         <tfoot><tr><th scope="row" colspan="2"><r-t key="visits.parts.total" /></th><td dir="ltr" id="parts-total">{{ parts_total }}</td><th scope="row"><span class="visually-hidden"><r-t key="app.actions" /></span></th></tr></tfoot>
       </table></div>
       <p r-else class="muted"><r-t key="visits.parts.none" /></p>
+      <p r-for="n in negative" class="notice" role="status"><r-t key="visits.parts.negative" :part="n.part" /></p>
+      <r-group r-if="(open or can_checkin) and picker.search"><form class="search stack narrow" role="search" method="get" action="#part-form">
+        <p><label><r-t key="visits.parts.search" /> <input type="search" name="part_q" :value="picker.q" maxlength="80" autocomplete="off"></label> <button type="submit"><r-t key="visits.parts.search_submit" /></button></p>
+        <p r-if="picker.none" class="muted"><r-t key="visits.parts.search_none" /></p>
+        <p r-if="not picker.searched" class="muted"><r-t key="visits.parts.search_more" /></p>
+      </form></r-group>
       <r-group r-if="open or can_checkin"><x-form action="part" class="stack narrow" id="part-form" data-offline-action data-offline-effect="part">
-        <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" :value="values.description" required id="f-description" :aria-invalid="true if errors.description else false" :aria-describedby="'err-description' if errors.description else none" aria-required="true"></label></p>
+        <p><label><r-t key="visits.parts.pick" /> <select name="part_id" id="f-part_id" :aria-invalid="true if errors.part_id else false" :aria-describedby="'err-part_id' if errors.part_id else none">
+          <option value=""><r-t key="visits.parts.other" /></option>
+          <option r-for="o in picker.options" :value="o.id" :selected="values.part_id == o.id">{{ o.label }}</option>
+        </select></label></p>
+        <p class="muted"><small><r-t key="visits.parts.other_hint" /></small></p>
+        <p><label><r-t key="visits.parts.description" /> <input name="description" maxlength="200" :value="values.description" id="f-description" :aria-invalid="true if errors.description else false" :aria-describedby="'err-description' if errors.description else none"></label></p>
         <p><label><r-t key="visits.parts.qty" /> <input name="qty" :value="values.qty if values.qty is defined else '1'" inputmode="decimal" dir="ltr" required id="f-qty" :aria-invalid="true if errors.qty else false" :aria-describedby="'err-qty' if errors.qty else none" aria-required="true"></label></p>
-        <p><label><r-t key="visits.parts.price" /> <input name="price" :value="values.price if values.price is defined else '0'" inputmode="decimal" dir="ltr" required id="f-price" :aria-invalid="true if errors.price else false" :aria-describedby="'err-price' if errors.price else none" aria-required="true"></label></p>
+        <p><label><r-t key="visits.parts.price" /> <input name="price" :value="values.price if values.price is defined else '0'" inputmode="decimal" dir="ltr" id="f-price" :aria-invalid="true if errors.price else false" :aria-describedby="'err-price' if errors.price else none"></label></p>
         <p><button type="submit"><r-t key="visits.parts.add" /></button></p>
       </x-form></r-group>
     </section>

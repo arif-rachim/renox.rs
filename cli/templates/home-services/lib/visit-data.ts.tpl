@@ -38,7 +38,17 @@ export type PartRow = {
   description: string;
   qty: number;
   unit_price_fils: number;
+  /** The stocked part of the line (#814), or null for free text; with its SKU, both names and VAT rate (0 or 5). */
+  part_id: string | null;
+  sku: string | null;
+  name_en: string | null;
+  name_ar: string | null;
+  vat_rate: number | null;
+  stock_move_id: string | null;
 };
+
+/** What a line is called in a language: a stocked part by its names, free text as typed. */
+export const partName = (p: Pick<PartRow, "description" | "name_en" | "name_ar">, lang: "en" | "ar"): string => (lang === "ar" ? p.name_ar : p.name_en) || p.description;
 
 export const VISIT_COLUMNS = "id, branch_id, job_id, technician_user_id, checkin_at, checkin_lat, checkin_lng, checkout_at, notes, summary_en, summary_ar, signature_key, signed_by_name, report_key";
 
@@ -64,7 +74,7 @@ export async function photosOf(sdb: DbStatements, visitId: string): Promise<Phot
 }
 
 export async function partsOf(sdb: DbStatements, visitId: string): Promise<PartRow[]> {
-  return sdb.query<PartRow>("select id, description, qty, unit_price_fils from app__visit_parts where visit_id = ? order by id", [visitId]);
+  return sdb.query<PartRow>("select p.id, p.description, p.qty, p.unit_price_fils, p.part_id, a.sku, a.name_en, a.name_ar, a.vat_rate, p.stock_move_id from app__visit_parts p left join app__parts a on a.id = p.part_id where p.visit_id = ? order by p.id", [visitId]);
 }
 
 /** A part's price for its quantity, in fils. */
