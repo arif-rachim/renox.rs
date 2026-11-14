@@ -452,18 +452,22 @@ impl PageRenderer {
 
     /// The shell of a full-page render of `template` (`ops.md` section 14,
     /// "Streaming the shell"), or `None` when it is empty: the template
-    /// reads its data before writing a complete tag. Blocking: call on the
-    /// render pool.
+    /// reads its data before writing a complete tag. `locale` and `dir` are
+    /// what the loader's `setLocale` set by then (#790). Blocking: call on
+    /// the render pool.
+    #[allow(clippy::too_many_arguments)]
     pub fn shell_of(
         &self,
         template: &str,
         request_id: &str,
         csp_nonce: Option<&str>,
         csrf_token: Option<&str>,
+        locale: Option<&str>,
+        dir: Option<&str>,
     ) -> Option<PageShell> {
         let cx = RenderContext {
             csrf_token: csrf_token.map(str::to_string),
-            ..self.context(csp_nonce)
+            ..Self::with_locale_tag(self.context(csp_nonce), locale, dir)
         };
         let probe = Arc::new(Probe::default());
         let mut out = UntilRead {

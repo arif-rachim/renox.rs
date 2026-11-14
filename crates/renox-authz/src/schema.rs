@@ -33,10 +33,13 @@ pub const APP_SCHEMA: &str = "policies/schema.cedarschema";
 /// `email_verified`, `phone_verified`, `created_at`; `2fa`: `mfa_verified`;
 /// `org`: `org`). A policy may only name these (strict validation); a
 /// principal that lacks one a policy reads is an evaluation error, hence a
-/// deny.
+/// deny. `has_password` (`ops.md` 1.23.0): whether the user has a password;
+/// `false` when the principal carries none. The app's own boolean attributes
+/// (`[authz] user_attrs`) are added after these and never replace one.
 pub const USER_ATTRS: &[(&str, AttrType)] = &[
     ("created_at", AttrType::Long),
     ("email_verified", AttrType::Bool),
+    ("has_password", AttrType::Bool),
     ("id", AttrType::String),
     ("mfa_verified", AttrType::Bool),
     ("org", AttrType::String),
@@ -55,6 +58,24 @@ pub struct AuthzBlock {
     pub default_roles: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub sensitive: Vec<String>,
+    /// `renox.toml [authz] user_attrs` (`manifest.md` 1.8.0, MF19): the names
+    /// of the boolean attributes the app adds to `Renox::User`. Only the app's
+    /// block may declare them.
+    #[serde(default)]
+    pub user_attrs: Vec<String>,
+}
+
+/// The most boolean user attributes an app may declare (MF19).
+pub const MAX_APP_USER_ATTRS: usize = 8;
+
+/// Whether `name` is a valid declared user attribute: `^[a-z][a-z0-9_]{1,31}$`.
+pub fn valid_user_attr_name(name: &str) -> bool {
+    let b = name.as_bytes();
+    (2..=32).contains(&b.len())
+        && b[0].is_ascii_lowercase()
+        && b[1..]
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
 }
 
 /// One `[authz.entities]` entry.
@@ -162,6 +183,10 @@ pub struct MergedSchema {
     pub entities: BTreeMap<(String, String), EntityType>,
     /// Roles named by any `default_roles`.
     pub roles: BTreeSet<String>,
+    /// The app's declared boolean user attributes (`[authz] user_attrs`),
+    /// sorted: `Bool`s on `Renox::User` (required: entity building always sets them), `false` on a principal that
+    /// carries none.
+    pub user_attrs: Vec<String>,
 }
 
 fn quote(s: &str) -> String {
@@ -289,11 +314,50 @@ impl MergedSchema {
                 }
             }
         }
+        // The app's declared boolean user attributes (MF19): only the app may
+        // declare them, never a platform name.
+        let mut app_user_attrs: BTreeSet<String> = BTreeSet::new();
+        for owner in owners {
+            if owner.authz.user_attrs.is_empty() {
+                continue;
+            }
+            if owner.name != "app" {
+                errors.push(err(format!(
+                    "{}: user_attrs can only be declared by the app",
+                    owner.name
+                )));
+                continue;
+            }
+            if owner.authz.user_attrs.len() > MAX_APP_USER_ATTRS {
+                errors.push(err(format!(
+                    "[authz] user_attrs declares {} names, more than {MAX_APP_USER_ATTRS}",
+                    owner.authz.user_attrs.len()
+                )));
+            }
+            for a in &owner.authz.user_attrs {
+                if !valid_user_attr_name(a) {
+                    errors.push(err(format!(
+                        "[authz] user_attrs {a:?} does not match ^[a-z][a-z0-9_]{{1,31}}$"
+                    )));
+                } else if USER_ATTRS.iter().any(|(k, _)| k == a) {
+                    errors.push(err(format!(
+                        "[authz] user_attrs {a:?} is a platform attribute of Renox::User"
+                    )));
+                } else {
+                    app_user_attrs.insert(a.clone());
+                }
+            }
+        }
         // The generated text: the platform namespace, then one per owner.
         let mut text = String::from("namespace Renox {\n  entity Role;\n");
         let user_attrs: Vec<String> = USER_ATTRS
             .iter()
             .map(|(k, t)| format!("{}: {}", quote(k), t.cedar()))
+            .chain(
+                app_user_attrs
+                    .iter()
+                    .map(|k| format!("{}: {}", quote(k), AttrType::Bool.cedar())),
+            )
             .collect();
         let _ = writeln!(
             text,
@@ -390,6 +454,7 @@ impl MergedSchema {
             sensitive,
             entities,
             roles,
+            user_attrs: app_user_attrs.into_iter().collect(),
         })
     }
 

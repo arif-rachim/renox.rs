@@ -117,8 +117,12 @@ impl Principal {
         }
     }
 
-    /// The principal entity and its role entities.
-    pub(crate) fn entities(&self) -> Vec<Entity> {
+    /// The principal entity and its role entities. `declared` are the app's
+    /// declared boolean attributes (`[authz] user_attrs`): each is `true`
+    /// only when the principal carries the boolean `true`, else `false`, so
+    /// a `forbid ... when { principal.<attr> }` is never skipped for want
+    /// of the attribute. `has_password` is boolean the same way.
+    pub(crate) fn entities(&self, declared: &[String]) -> Vec<Entity> {
         let me = self.uid();
         if self.kind != PrincipalKind::User {
             return vec![Entity::new_no_attrs(me, HashSet::new())];
@@ -130,6 +134,14 @@ impl Principal {
             .iter()
             .filter_map(|(k, v)| to_cedar(v).map(|e| (k.clone(), e)))
             .collect();
+        let flag = |k: &str| self.attrs.get(k) == Some(&serde_json::Value::Bool(true));
+        for k in declared
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once("has_password"))
+        {
+            attrs.insert(k.into(), RestrictedExpression::new_bool(flag(k)));
+        }
         // `principal.id` is the platform's, whatever `attrs` says.
         attrs.insert(
             "id".into(),

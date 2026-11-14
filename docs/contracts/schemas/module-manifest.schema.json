@@ -693,6 +693,16 @@
       "additionalProperties": false,
       "description": "1.1 (manifest.md section 2, [authz]): actions, sensitive actions, owned tables, entity types and default roles of a module (own prefix, MF13-MF14) or, as renox.toml [authz], of the app.",
       "properties": {
+        "user_attrs": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "description": "1.8.0 / artifact 1.12 (MF19): the boolean attributes the app adds to Renox::User; only the app's own authz block (renox.toml), never a module's.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,31}$"
+          }
+        },
         "actions": {
           "type": "array",
           "maxItems": 256,

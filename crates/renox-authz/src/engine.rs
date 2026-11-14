@@ -361,7 +361,7 @@ impl Engine {
             Ok(r) => r,
             Err(e) => return Decision::deny(Reason::EvaluationError(vec![e.to_string()])),
         };
-        let mut entities = principal.entities();
+        let mut entities = principal.entities(&self.schema.user_attrs);
         entities.extend(resource_entity);
         entities.extend(self.action_entities.iter().cloned());
         let entities = match Entities::from_entities(entities, None) {

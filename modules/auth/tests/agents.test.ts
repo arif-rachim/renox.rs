@@ -195,7 +195,7 @@ describe.skipIf(!worker)("an agent token's principal (#590)", () => {
     const tok = await allow(u, clientId, c.fields);
     expect(t.db.query("select org_id from auth__agent_tokens where user_id = ?", [id])).toEqual([{ org_id: null }]);
     const v = (await t.service("auth").verifyAgentToken(tok)) as Verified;
-    expect(v.principal.attrs).toEqual({ email_verified: false, phone_verified: false, created_at: expect.any(Number), mfa_verified: false });
+    expect(v.principal.attrs).toEqual({ email_verified: false, phone_verified: false, created_at: expect.any(Number), mfa_verified: false, has_password: false });
     expect(v.principal.roles).toEqual([{ role: "editor", scope_type: "global", scope_id: null }]);
   });
 

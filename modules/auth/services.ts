@@ -38,26 +38,30 @@ export async function currentUser(ctx: AuthCtx): Promise<User | null> {
   return core.currentUser(ctx);
 }
 
-/** The user attributes the platform's Cedar schema knows (renox-authz USER_ATTRS); a filler's other keys are dropped. */
-const PRINCIPAL_ATTRS = agents.PRINCIPAL_ATTRS;
-
 /**
  * The request's principal (ops.md 1.5.0 section 17, "Principal"): the cell
  * calls it once per request, before any guard. `null` when signed out
  * (the anonymous principal). The hook `auth.principal` lets other modules
  * extend `attrs` in place (2fa sets `mfa_verified`, org sets `org`); only
- * the platform's user attributes are kept. Roles are the platform's role
+ * the platform's user attributes and the app's own booleans (`[authz]
+ * user_attrs`, set by the app's own filler only) are kept. `has_password` is
+ * the platform's: true when the account has a password. Roles are the platform's role
  * assignments, added by the cell.
  */
 export async function principal(ctx: AuthCtx, _sessionId?: string | null): Promise<{ id: string; attrs: Record<string, unknown> } | null> {
   const u = await core.currentUser(ctx);
   if (u === null) return null;
-  const row = await ctx.db.queryOne<{ email_verified_at: number | null; phone_verified_at: number | null; created_at: number }>("select email_verified_at, phone_verified_at, created_at from auth__users where id = ?", [u.id]);
+  const row = await ctx.db.queryOne<{ email_verified_at: number | null; phone_verified_at: number | null; created_at: number; password_hash: string }>(
+    "select email_verified_at, phone_verified_at, created_at, password_hash from auth__users where id = ?",
+    [u.id],
+  );
   if (row === null) return null;
-  const p = { id: u.id, attrs: { email_verified: row.email_verified_at !== null, phone_verified: row.phone_verified_at !== null, created_at: row.created_at } as Record<string, unknown> };
-  await ctx.hooks.run("auth.principal", { principal: p });
-  const attrs: Record<string, unknown> = {};
-  for (const k of PRINCIPAL_ATTRS) if (p.attrs[k] !== undefined) attrs[k] = p.attrs[k];
+  const base = { id: u.id, attrs: { email_verified: row.email_verified_at !== null, phone_verified: row.phone_verified_at !== null, created_at: row.created_at } as Record<string, unknown> };
+  const f = agents.principalForFillers(ctx, base);
+  await ctx.hooks.run("auth.principal", { principal: f.principal });
+  const attrs = agents.keptAttrs(f.read().attrs);
+  // The platform's, whatever a filler set: a phone-only account has no password.
+  attrs.has_password = row.password_hash.startsWith("$");
   return { id: u.id, attrs };
 }
 
@@ -78,8 +82,8 @@ export async function setDisplayName(ctx: AuthCtx, name: unknown): Promise<{ dis
 /**
  * Whether the signed-in user has a password (#773): false for an account
  * made by phone sign-up (or OAuth), so an app can tell a phone-only
- * account. False when signed out. (`principal` attrs cannot carry it: the
- * platform's Cedar schema fixes them.)
+ * account. False when signed out. (`principal.attrs.has_password` carries
+ * the same, for policies, since auth 1.4.0.)
  */
 export async function hasPassword(ctx: AuthCtx): Promise<boolean> {
   const u = await core.currentUser(ctx);

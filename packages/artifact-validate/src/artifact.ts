@@ -516,6 +516,14 @@ function authzRules(manifest: JsonObject): Violation[] {
     const guard = route.guard;
     if (isObject(guard)) {
       if (!actions.has(guard.action as string)) out.push({ rule: "V25", field, reason: `guard.action "${guard.action}" is not in the merged action set` });
+      // 1.13 (#795): a same-origin path of a page guard, never the page's own path.
+      if (typeof guard.deny_redirect === "string") {
+        const to = guard.deny_redirect;
+        if (route.kind !== "page") out.push({ rule: "V25", field, reason: "guard.deny_redirect is for page routes only" });
+        else if (to.length > 200 || !to.startsWith("/") || to.includes("//") || to.includes("\\") || /[\u0000-\u0020\u007f-\u009f\u2028\u2029]/u.test(to)) {
+          out.push({ rule: "V25", field, reason: `guard.deny_redirect "${to}" is not a same-origin path (one leading /, no //, no backslash, no whitespace, at most 200 characters)` });
+        } else if (to === route.path) out.push({ rule: "V25", field, reason: `guard.deny_redirect "${to}" is the page's own path (a redirect loop)` });
+      }
       const resource = guard.resource;
       if (isObject(resource)) {
         const type = resource.type as string;

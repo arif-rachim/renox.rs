@@ -25,18 +25,67 @@ export interface AuthzBlock {
   entities?: Record<string, { table?: string; id?: string; attrs?: string[] }>;
   default_roles?: Record<string, string[]>;
   sensitive?: string[];
+  /** Only the app's `renox.toml [authz]` (manifest.md 1.8.0, MF19). */
+  user_attrs?: string[];
 }
 
 /** `export const guard` (artifact.md 1.3, route `guard`). */
 export interface Guard {
   action: string;
   resource?: { type: string; id: string };
+  /** Artifact 1.13 (#795): a same-origin path a signed-in principal the guard denies is sent to (303); page routes only. */
+  deny_redirect?: string;
+}
+
+/** The longest `guard.deny_redirect` (artifact.md 1.13). */
+export const MAX_DENY_REDIRECT = 200;
+
+/**
+ * Why `path` is not a valid `guard.deny_redirect` (artifact.md 1.13, V25), or
+ * `null`: a same-origin path starts with one `/` and has no `//`, no
+ * backslash, no control character or whitespace, and at most 200 characters,
+ * so it can never name another origin. The cell checks the same rule at load.
+ */
+export function denyRedirectProblem(path: string): string | null {
+  if (path.length > MAX_DENY_REDIRECT) return `is longer than ${MAX_DENY_REDIRECT} characters`;
+  if (!path.startsWith("/")) return "must start with /";
+  if (path.includes("//")) return "must not contain //";
+  if (path.includes("\\")) return "must not contain a backslash";
+  if (/[\u0000-\u0020\u007f-\u009f\u2028\u2029]/u.test(path)) return "must not contain a control character or whitespace";
+  return null;
 }
 
 /** The platform's own action every app may use without declaring it. */
 export const PLATFORM_ACTIONS = ["realtime.subscribe"];
 
 const ACTION = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/u;
+
+/** The attributes of `Renox::User` the platform owns (renox-authz `USER_ATTRS`): an app's `user_attrs` never names one (MF19). */
+export const PLATFORM_USER_ATTRS = ["created_at", "email_verified", "has_password", "id", "mfa_verified", "org", "phone_verified"];
+export const USER_ATTR_NAME = /^[a-z][a-z0-9_]{1,31}$/u;
+export const MAX_USER_ATTRS = 8;
+
+/**
+ * MF19: `renox.toml [authz] user_attrs` names at most 8 boolean attributes,
+ * each `^[a-z][a-z0-9_]{1,31}$`, distinct, none a platform attribute of
+ * `Renox::User`. A module's `[authz]` has none.
+ */
+export function userAttrProblems(app: AuthzBlock | undefined, modules: readonly { name: string; authz?: AuthzBlock }[] = []): string[] {
+  const out: string[] = [];
+  for (const m of modules) if (m.authz?.user_attrs !== undefined) out.push(`MF19: ${m.name}: [authz] user_attrs is only for the app's renox.toml`);
+  const names = app?.user_attrs;
+  if (names === undefined) return out;
+  if (!Array.isArray(names)) return [...out, "MF19: [authz] user_attrs must be an array of names"];
+  if (names.length > MAX_USER_ATTRS) out.push(`MF19: [authz] user_attrs declares ${names.length} names, more than ${MAX_USER_ATTRS}`);
+  const seen = new Set<string>();
+  for (const n of names) {
+    if (typeof n !== "string" || !USER_ATTR_NAME.test(n)) out.push(`MF19: [authz] user_attrs ${JSON.stringify(n)} does not match ^[a-z][a-z0-9_]{1,31}$`);
+    else if (PLATFORM_USER_ATTRS.includes(n)) out.push(`MF19: [authz] user_attrs ${JSON.stringify(n)} is a platform attribute of Renox::User (${PLATFORM_USER_ATTRS.join(", ")})`);
+    else if (seen.has(n)) out.push(`MF19: [authz] user_attrs names ${JSON.stringify(n)} twice`);
+    seen.add(String(n));
+  }
+  return out;
+}
 
 /** The app's `[authz]`, or undefined when renox.toml has none. */
 export function appAuthz(project: string): AuthzBlock | undefined {
@@ -110,9 +159,17 @@ export function readGuard(source: string, file: string): Guard | null {
   if (g.resource !== undefined && (typeof g.resource?.type !== "string" || typeof g.resource?.id !== "string" || g.resource.id === "")) {
     throw new GuardError(`${file}: guard.resource is { type, id } with id a literal or ":<param>"`, { file });
   }
-  const keys = Object.keys(g).filter((k) => k !== "action" && k !== "resource");
+  const keys = Object.keys(g).filter((k) => k !== "action" && k !== "resource" && k !== "deny_redirect");
   if (keys.length) throw new GuardError(`${file}: guard has unknown keys ${keys.join(", ")}`, { file });
-  return g.resource ? { action: g.action, resource: { type: g.resource.type, id: g.resource.id } } : { action: g.action };
+  if (g.deny_redirect !== undefined) {
+    if (typeof g.deny_redirect !== "string") throw new GuardError(`${file}: guard.deny_redirect must be a same-origin path such as "/my"`, { file });
+    const why = denyRedirectProblem(g.deny_redirect);
+    if (why) throw new GuardError(`${file}: V25: guard.deny_redirect ${why}`, { file });
+  }
+  const out: Guard = { action: g.action };
+  if (g.resource) out.resource = { type: g.resource.type, id: g.resource.id };
+  if (g.deny_redirect !== undefined) out.deny_redirect = g.deny_redirect;
+  return out;
 }
 
 /** The merged action set: the app's and every module's `authz.actions`, plus the platform's. */
@@ -144,6 +201,14 @@ export function v25Problems(routes: readonly RouteLike[], app: AuthzBlock | unde
     if (id?.startsWith(":")) {
       const params = new Set([...(r.path ?? "").matchAll(/[:*]([a-z_][a-z0-9_]*)/gu)].map((m) => m[1]));
       if (!params.has(id.slice(1))) out.push(`V25: ${at}: guard resource id ${id} is not a parameter of ${r.path}`);
+    }
+    // Artifact 1.13 (#795): `deny_redirect` is a same-origin path of a page guard, never the page's own path.
+    const to = r.guard.deny_redirect;
+    if (to !== undefined) {
+      const why = denyRedirectProblem(to);
+      if (r.kind !== "page") out.push(`V25: ${at}: guard.deny_redirect is for page routes only`);
+      else if (why) out.push(`V25: ${at}: guard.deny_redirect ${why}`);
+      else if (to === r.path) out.push(`V25: ${at}: guard.deny_redirect is the page's own path ${to} (a redirect loop)`);
     }
   }
   const owners: [string, AuthzBlock | undefined][] = [["app", app], ...modules.map((m): [string, AuthzBlock | undefined] => [m.name, m.authz])];

@@ -8,7 +8,9 @@
 //! answered at once and a task moves the chunks to the connection,
 //! compressing each one, and writes the meter record at the end of the
 //! stream. A page whose loader is slower than [`SHELL_DELAY`] gets its
-//! shell first the same way (section 14, "Streaming the shell").
+//! shell first the same way (section 14, "Streaming the shell"), once the
+//! loader has called `ctx.setLocale`, has returned, or [`SHELL_LOCALE_WAIT`]
+//! has passed since the delay, whichever comes first (#790).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
@@ -1516,6 +1518,8 @@ impl CellManager {
             .pages
             .as_ref()
             .and_then(|_| cell.isolate.shell_template(&parts));
+        // #790: the loader's `setLocale`, for a request that may get a shell.
+        let (_locale_guard, locale) = renox_runtime::shell_locale::register(&ctx.request_id);
         let dispatching = cell.clone();
         // #295: a page request (the page guard gave it a CSRF token) runs a
         // loader on GET and HEAD and an action on POST; the rest are functions.
@@ -1545,27 +1549,46 @@ impl CellManager {
                 tokio::select! {
                     out = &mut dispatch => out,
                     _ = tokio::time::sleep(SHELL_DELAY) => {
-                        let request_id = ctx.request_id.clone();
-                        let (probe_nonce, token) = (nonce.clone(), csrf_token.clone());
-                        let probe = pages.clone();
-                        let shell = tokio::task::spawn_blocking(move || {
-                            probe.shell_of(&template, &request_id, probe_nonce.as_deref(), token.as_deref())
-                        })
-                        .await
-                        .ok()
-                        .flatten();
-                        match shell {
-                            Some(shell) => {
-                                let sent = ShellSent {
-                                    shell,
-                                    pages,
-                                    nonce: nonce.clone(),
-                                    csrf_token: csrf_token.clone(),
-                                    error_req: error_req.clone(),
-                                };
-                                return self.stream_shell(&cell, dispatch, sent, rc, encoding, set_cookie);
+                        // #790: the shell is held until the first of the
+                        // loader's `ctx.setLocale`, its return, or the
+                        // second bound (the wall-clock limit ends the
+                        // dispatch as ever).
+                        let held = tokio::select! {
+                            out = &mut dispatch => Err(out),
+                            _ = locale.called() => Ok(()),
+                            _ = tokio::time::sleep(SHELL_LOCALE_WAIT) => Ok(()),
+                        };
+                        match held {
+                            Err(out) => out,
+                            Ok(()) => {
+                                let request_id = ctx.request_id.clone();
+                                let (probe_nonce, token) = (nonce.clone(), csrf_token.clone());
+                                let probe = pages.clone();
+                                let set = locale.values();
+                                let shell = tokio::task::spawn_blocking(move || {
+                                    let (tag, dir) = match &set {
+                                        Some((tag, dir)) => (Some(tag.as_str()), Some(dir.as_str())),
+                                        None => (None, None),
+                                    };
+                                    probe.shell_of(&template, &request_id, probe_nonce.as_deref(), token.as_deref(), tag, dir)
+                                })
+                                .await
+                                .ok()
+                                .flatten();
+                                match shell {
+                                    Some(shell) => {
+                                        let sent = ShellSent {
+                                            shell,
+                                            pages,
+                                            nonce: nonce.clone(),
+                                            csrf_token: csrf_token.clone(),
+                                            error_req: error_req.clone(),
+                                        };
+                                        return self.stream_shell(&cell, dispatch, sent, rc, encoding, set_cookie);
+                                    }
+                                    None => dispatch.await,
+                                }
                             }
-                            None => dispatch.await,
                         }
                     }
                 }
@@ -2050,6 +2073,11 @@ impl CellManager {
         head.map(|_| Body::new(body))
     }
 }
+
+/// How long the shell is held after [`SHELL_DELAY`] for the loader's
+/// `ctx.setLocale` or its return (`ops.md` section 14, "The shell delay";
+/// #790): 250 ms, so the shell leaves at 300 ms at the latest.
+pub const SHELL_LOCALE_WAIT: Duration = Duration::from_millis(250);
 
 /// The shell delay (`ops.md` section 14, "Streaming the shell"): 50 ms
 /// *proposed*.

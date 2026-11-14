@@ -65,6 +65,7 @@ import {
   op_ai_meter,
   op_render_pdf,
   op_render_template,
+  op_page_locale,
 } from "ext:core/ops";
 
 const {
@@ -2068,7 +2069,7 @@ async function prelude(token, url, headers) {
   const g = await op_authz_guard(token);
   if (!g.allow) {
     const who = principal === null || principal === undefined ? { kind: "anonymous" } : { id: String(principal.id ?? ""), kind: String(principal.kind ?? "user"), roles: ArrayIsArray(principal.roles) ? ArrayPrototypeMap(principal.roles, (r) => (typeof r === "string" ? r : String(r?.role ?? ""))) : [] };
-    return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined, details_json: JSONStringify({ principal: who }) } };
+    return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined, redirect: g.redirect ?? undefined, details_json: JSONStringify({ principal: who }) } };
   }
   return { principal: freezePrincipal(principal) };
 }
@@ -2101,6 +2102,8 @@ function makeSetLocale(st) {
     if (dir !== undefined && dir !== "ltr" && dir !== "rtl") throw new RangeError('setLocale: dir is "ltr" or "rtl"');
     st.locale = locale;
     st.dir = dir ?? (ArrayPrototypeIncludes(RTL_LANGS, StringPrototypeToLowerCase(locale.split("-")[0])) ? "rtl" : "ltr");
+    // #790: the cell may hold the page's shell until this call.
+    op_page_locale(currentToken(), st.locale, st.dir);
   };
 }
 

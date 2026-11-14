@@ -19,7 +19,7 @@ import { CliError, EXIT, location, UserError } from "../errors.ts";
 import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
 import { type Finding, lintBody, lintCatalogs, lintFetch, lintGlobalState, lintMissingGuard, lintRedirect, lintSql, lintUnscoped, policyActions } from "../lib/lint.ts";
-import { mergedActions, PolicyError } from "../lib/policies.ts";
+import { mergedActions, PolicyError, readGuard } from "../lib/policies.ts";
 import { readProject } from "../lib/project.ts";
 import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { mergeModuleCsp, securityReport } from "../check/security.ts";
@@ -227,7 +227,20 @@ export function securityOutput(project: string): string {
   const config = readProject(project);
   // The approved module sources (renox.lock) are merged as the build merges them.
   const { security, provenance } = mergeModuleCsp(config.security, (readLock(project).entries ?? []).map((e) => ({ name: e.name, csp: e.approved.csp })));
-  return securityReport(security ?? {}, sortRoutes(routesOf(discoverFunctions(project), discoverPages(project))), provenance);
+  const pages = discoverPages(project);
+  // Artifact 1.13 (#795): the page guards that redirect a signed-in principal they deny.
+  const redirects: { path: string; action: string; to: string }[] = [];
+  for (const p of pages) {
+    if (!p.source) continue;
+    try {
+      const g = readGuard(readFileSync(join(project, p.source), "utf8"), p.source);
+      if (g?.deny_redirect !== undefined) redirects.push({ path: p.pattern, action: g.action, to: g.deny_redirect });
+    } catch {
+      // A bad guard is a check error, reported before this output.
+    }
+  }
+  redirects.sort((x, y) => x.path.localeCompare(y.path));
+  return securityReport(security ?? {}, sortRoutes(routesOf(discoverFunctions(project), pages)), provenance, redirects);
 }
 
 export async function run(args: string[]): Promise<number> {
