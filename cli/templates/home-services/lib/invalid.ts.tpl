@@ -18,7 +18,7 @@ type Tree = { [key: string]: string | Tree };
 const TEXTS: Record<"en" | "ar", Tree> = { en: en as Tree, ar: ar as Tree };
 
 /** The text at a dotted key, or `undefined`. */
-function lookup(lang: "en" | "ar", key: string): string | undefined {
+export function lookup(lang: "en" | "ar", key: string): string | undefined {
   let node: string | Tree | undefined = TEXTS[lang];
   for (const part of key.split(".")) node = typeof node === "object" ? node[part] : undefined;
   return typeof node === "string" ? node : undefined;

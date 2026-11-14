@@ -1,5 +1,5 @@
 // `make lighthouse` (#725): Lighthouse accessibility and performance of the
-// home-services dispatch board, technician visit page and, signed out, step 1
+// home-services dispatch board, technician list `/me` (#810) and visit page and, signed out, step 1
 // of the customer's booking page `/book` (#779), English and Arabic, on the
 // phone profile. Usage:
 //   RENOX_WORKER_PATH=<renox-worker> bun bench/lighthouse/run.ts [--assert] [--busy] [--seed <sql>]... [--runs <n>] [--out <dir>]
@@ -134,6 +134,9 @@ export async function main(argv: string[]): Promise<number> {
       { path: "/dispatch?lang=ar", role: "dispatcher", cookie: dispatcher },
       { path: `/me/visits/${visit}`, role: "technician", cookie: technician },
       { path: `/me/visits/${visit}?lang=ar`, role: "technician", cookie: technician },
+      // The technician's list (#810): it carries the offline queue's scripts and the "Needs attention" container.
+      { path: "/me", role: "technician", cookie: technician },
+      { path: "/me?lang=ar", role: "technician", cookie: technician },
       // The customer's way in (#779): /book step 1, signed out.
       { path: "/book", role: "visitor", cookie: "" },
       { path: "/book?lang=ar", role: "visitor", cookie: "" },

@@ -14,6 +14,11 @@
 // [data-upload-status] next to the input. Any failure shows the JSON "message"
 // there and leaves the key empty, so the form cannot post a file that is not
 // stored. The listener is on the document, so a form that htmx swaps in works too.
+//
+// The visit page's photo forms (`data-photo-queue`, #809) are handled by public/offline-queue.js when it is
+// there: it makes the image at most 1600 px on its long side, keeps it on the phone when there is no signal, and
+// otherwise calls `window.hsUpload.send(input, image)` below with the image it made (`{ blob, name, type, size }`).
+// `send` answers "network" when a request got no answer at all, so that the caller can keep the photo instead.
 (() => {
   const csrfOf = (input) => {
     const field = (input.form && input.form.querySelector('input[name="_csrf"]')) || document.querySelector('input[name="_csrf"]');
@@ -33,14 +38,15 @@
     return "The upload failed (" + res.status + ").";
   };
 
-  const send = async (input) => {
+  const send = async (input, image) => {
     const status = statusOf(input);
     const say = (text) => {
       if (status) status.textContent = text;
     };
     const field = (input.form || document).querySelector('[name="' + input.dataset.keyField + '"]');
     if (field) field.value = "";
-    const file = input.files && input.files[0];
+    const chosen = input.files && input.files[0];
+    const file = image || (chosen ? { blob: chosen, name: chosen.name, type: chosen.type, size: chosen.size } : null);
     if (!file || !field) return say("");
     say(file.name + " ...");
     try {
@@ -53,18 +59,24 @@
       });
       if (!signed.ok) return say(await messageOf(signed));
       const target = await signed.json();
-      const put = await fetch(target.url, { method: "PUT", headers: { "content-type": file.type }, body: file });
+      const put = await fetch(target.url, { method: "PUT", headers: { "content-type": file.type }, body: file.blob });
       if (put.status !== 201) return say(await messageOf(put));
       const stored = await put.json();
       field.value = stored.key;
       say(file.name);
     } catch (e) {
       say(e && e.message ? e.message : "The upload failed.");
+      return "network";
     }
   };
 
+  window.hsUpload = { send };
+
   document.addEventListener("change", (event) => {
     const input = event.target;
-    if (input instanceof HTMLInputElement && input.type === "file" && input.dataset.uploadAction && input.dataset.keyField) void send(input);
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.dataset.uploadAction || !input.dataset.keyField) return;
+    // The photo forms of the offline queue are its own while it is on the page (see the top of this file).
+    if (window.hsQueue && input.form && input.form.hasAttribute("data-photo-queue")) return;
+    void send(input);
   });
 })();

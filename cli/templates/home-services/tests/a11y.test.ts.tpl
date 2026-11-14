@@ -16,6 +16,7 @@ import { app, snapshot } from "@renoxium/sdk/test";
 
 import { inkOn, lineOn, PAPER, ratio } from "../lib/contrast";
 import { tokenHash } from "../lib/links";
+import { attention, attentionHtml, fill } from "../public/offline-queue-core.js";
 import { phoneSignIn } from "./outbox";
 
 const t = await app();
@@ -308,6 +309,7 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/me/visits/jb_seed_10", as: () => ali, note: "before check-in" },
   { path: "/me/visits/jb_seed_06", as: () => ali, note: "visit open" },
   { path: "/me/visits/jb_seed_12", as: () => ali, note: "visit closed" },
+  { path: "/me/signout", as: () => ali, note: "the sign-out warning (#810)" },
   { path: "/my", as: () => customer, note: "the customer portal" },
   { path: "/my/visits/jb_seed_06", as: () => customer, note: "a visit in progress" },
   { path: "/my/visits/jb_seed_02", as: () => customer, note: "a visit waiting for confirmation" },
@@ -592,4 +594,47 @@ describe("the brand colour", () => {
     expect(css).toContain(":focus-visible { outline: 3px solid var(--brand-line); outline-offset: 2px; }");
     expect(css).not.toMatch(/outline:\s*(none|0)\b/u);
   });
+});
+
+// -- the technician's "Needs attention" list (#810) ---------------------------------------------------------------------------------
+
+describe("/me with refused items rendered", () => {
+  const entities = (v: string): string => v.replace(/&#39;/gu, "'").replace(/&quot;/gu, '"').replace(/&lt;/gu, "<").replace(/&gt;/gu, ">").replace(/&amp;/gu, "&");
+  const refusedAction = (seq: number, job: string, action: string, reason: string, at: number, extra: Record<string, unknown> = {}) => ({
+    seq, action_id: `fixture-action-${String(seq).padStart(4, "0")}`, user_id: "u_dxb_ali", job_id: job, url: `/me/visits/${job}`, action, fields: {}, performed_at: at,
+    state: reason === "" ? "pending" : "refused", attempts: 0, job_number: job === "jb_a" ? "J-001042" : "J-001043", customer: job === "jb_a" ? "Layla Haddad" : "Peter Nowak", ...(reason === "" ? {} : { refused_reason: reason }), ...extra,
+  });
+
+  for (const lang of ["en", "ar"] as const) {
+    test(`${lang}: the list the script draws is a labelled live region with named buttons, a call link and no id twice, also with a question open`, async () => {
+      const res = await ali.page(withLang("/me", lang));
+      const tags = tagsOf(res.html);
+      const section = tags.find((x) => x.name === "section" && x.attrs.id === "needs-attention");
+      expect(section).toBeDefined();
+      expect(section?.attrs["aria-live"]).toBe("polite");
+      expect(section?.attrs.hidden).toBeDefined();
+      expect(section?.attrs["aria-labelledby"]).toBe("needs-attention-title");
+      // The texts the script reads are on the container, in the page's language.
+      const t = (key: string, values?: Record<string, string | number>) => fill(entities(section?.attrs[`data-${key.replace(/[A-Z]/gu, (c) => `-${c.toLowerCase()}`)}`] ?? ""), values ?? {});
+      const records = [
+        refusedAction(1, "jb_a", "checkin", "job_cancelled", 1_794_000_000_000),
+        refusedAction(2, "jb_a", "part", "", 1_794_000_100_000, { fields: { description: "Filter", qty: "2", price: "10" } }),
+        refusedAction(3, "jb_b", "notes", "job_reassigned", 1_794_000_200_000, { fields: { notes: "x" } }),
+        refusedAction(4, "jb_b", "signature", "invalid", 1_794_000_300_000, { refused_message: "Draw the signature first." }),
+      ];
+      const photos = [{ id: 1, user_id: "u_dxb_ali", job_id: "jb_a", phase: "after", caption: "", blob: null, type: "image/jpeg", size: 1, taken_at: 1_794_000_150_000, action_id: "fixture-photo-0000001", state: "pending", job_number: "J-001042", customer: "Layla Haddad" }];
+      const groups = attention(records as never, photos as never, "u_dxb_ali");
+      expect(groups.map((g) => [g.job_id, g.later, g.retry])).toEqual([["jb_a", true, false], ["jb_b", false, true]]);
+      for (const confirming of [null, "jb_a"]) {
+        const list = attentionHtml(groups, t, { phone: "+971 4 555 0100", confirming });
+        // The page, as the script leaves it: the list drawn, the container shown.
+        const page = res.html.replace('<div id="needs-attention-list"></div>', `<div id="needs-attention-list">${list}</div>`).replace(/(<section id="needs-attention"[^>]*?) hidden/u, "$1");
+        expect(page).toContain("Layla Haddad");
+        expect(page).toContain('href="tel:+97145550100"');
+        expect(page).toContain(t("later"));
+        expect(page).toContain(t("reasonJobCancelled").replace(/'/gu, "&#39;"));
+        expect(audit(page, lang)).toEqual([]);
+      }
+    });
+  }
 });
