@@ -28,7 +28,10 @@ import { shell } from "../../../lib/page";
 import { invalid } from "../../../lib/invalid";
 import { day } from "../../../lib/quotes";
 import { aed } from "../../../lib/money";
-import { imageOf, partsOf, partTotal, photosOf, type VisitRow } from "../../../lib/visit-data";
+import { getPart, listParts } from "../../../lib/parts";
+import { levelOf, round3 } from "../../../lib/stock";
+import { branchDb, type Scopable } from "../../../lib/scope";
+import { imageOf, partName, partsOf, partTotal, photosOf, type VisitRow } from "../../../lib/visit-data";
 import { checkinSchema, notesSchema, PHASES, partSchema, signatureSchema, summarySchema, type Phase } from "../../../lib/visit-forms";
 import { addPart, addPhoto, photoUploadUrl, checkIn, checkOut, performerOf, removePart, saveNotes, saveSignature, setSummary, type Failure } from "../../../lib/visits";
 
@@ -37,12 +40,32 @@ export const guard = { action: "visit.perform" };
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 const when = (seconds: number): string => `${day(seconds)} ${clock(seconds)}`;
 
+/** More active parts than this and the select gives way to a search (`?part_q=`) with its result list, all server-rendered. */
+const SELECT_LIMIT = 50;
+
+/**
+ * The parts the form offers: the active ones with the quantity on hand in the job's branch in brackets. Up to 50
+ * active parts they are all in the select; above, `search` is on and only the matches of `part_q` (at most 50) are.
+ */
+async function partPicker(db: Scopable, branch: string, lang: "en" | "ar", q: string) {
+  const all = await listParts(db, { activeOnly: true, perPage: 1 });
+  const search = all.total > SELECT_LIMIT;
+  const shown = search && q === "" ? [] : (await listParts(db, { activeOnly: true, q: search ? q : "", perPage: SELECT_LIMIT })).rows;
+  const held = new Map((await branchDb(db, branch).query<{ part_id: string; qty: number }>("select part_id, qty from app__stock", [])).map((r) => [r.part_id, r.qty]));
+  return {
+    search,
+    q,
+    searched: search && q !== "",
+    none: search && q !== "" && shown.length === 0,
+    options: shown.map((p) => ({ id: p.id, label: `${p.sku} · ${lang === "ar" ? p.name_ar : p.name_en} (${round3(held.get(p.id) ?? 0)})` })),
+  };
+}
+
 export async function load(ctx: LoaderContext) {
   const page = await shell(ctx);
   const got = await performerOf(ctx, ctx.params.id);
   if (!got.ok) return plain(got.status, got.message);
-  const { sdb, job, visit } = got.value;
-  const customer = await sdb.queryOne<{ id: string; name: string; phone: string }>("select id, name, phone from app__customers where id = ?", [job.customer_id]);
+  const { sdb, job, visit } = got.value;  const customer = await sdb.queryOne<{ id: string; name: string; phone: string }>("select id, name, phone from app__customers where id = ?", [job.customer_id]);
   const site = await sdb.queryOne<{ label: string; area: string; address: string; access_notes: string }>("select label, area, address, access_notes from app__sites where id = ?", [job.site_id]);
   const service = await ctx.db.queryOne<{ name_en: string; name_ar: string }>("select name_en, name_ar from app__services where id = ?", [job.service_id]);
   const canCheckIn = visit === null && (job.status === "scheduled" || job.status === "en_route" || job.status === "in_progress");
@@ -55,8 +78,18 @@ export async function load(ctx: LoaderContext) {
     }
     return out;
   };
-  const parts = visit === null ? [] : (await partsOf(sdb, visit.id)).map((p) => ({ id: p.id, description: p.description, qty: p.qty, price: aed(p.unit_price_fils), total: aed(partTotal(p)) }));
-  const partsTotal = visit === null ? 0 : (await partsOf(sdb, visit.id)).reduce((n, p) => n + partTotal(p), 0);
+  const lines = visit === null ? [] : await partsOf(sdb, visit.id);
+  const parts = lines.map((p) => ({ id: p.id, description: p.sku === null ? p.description : `${p.sku} · ${partName(p, page.locale === "ar" ? "ar" : "en")}`, qty: p.qty, price: aed(p.unit_price_fils), total: aed(partTotal(p)) }));
+  const partsTotal = lines.reduce((n, p) => n + partTotal(p), 0);
+  // The stocked parts of the lines whose stock in this branch is under zero: the technician tells the office.
+  const negative: { part: string }[] = [];
+  const seen = new Set<string>();
+  for (const p of lines) {
+    if (p.part_id === null || seen.has(p.part_id)) continue;
+    seen.add(p.part_id);
+    if ((await levelOf(ctx.db, got.value.branch.id, p.part_id)).qty < 0) negative.push({ part: `${p.sku} ${partName(p, page.locale === "ar" ? "ar" : "en")}` });
+  }
+  const picker = await partPicker(ctx.db, got.value.branch.id, page.locale === "ar" ? "ar" : "en", (ctx.url.searchParams.get("part_q") ?? "").trim().slice(0, 80));
   return {
     ...page,
     saved_at: savedAt(),
@@ -91,6 +124,9 @@ export async function load(ctx: LoaderContext) {
     before: await view("before"),
     after: await view("after"),
     parts,
+    negative,
+    has_negative: negative.length > 0,
+    picker,
     has_parts: parts.length > 0,
     parts_total: aed(partsTotal),
     report: visit !== null && visit.checkout_at !== null,
@@ -146,6 +182,10 @@ export const actions = {
     return withActionId(ctx, "part", ctx.params.id, async ({ page }) => {
       const input = await check(ctx.form, partSchema);
       if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
+      if (input.value.part_id !== null) {
+        const chosen = await getPart(ctx.db, input.value.part_id);
+        if (chosen === null || chosen.active === 0) return invalid(page.locale, ctx.form, { part_id: "visits.err.part_id" });
+      }
       return addPart(ctx, ctx.params.id, input.value);
     });
   },

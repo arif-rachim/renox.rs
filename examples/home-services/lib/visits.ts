@@ -14,9 +14,11 @@ import type { Ai, DbStatements, Storage } from "@renoxium/sdk";
 import { dispatchersOf } from "./book";
 import { type JobCtx, type JobRow, findJob, jobResource, transition } from "./jobs";
 import { issueLink } from "./links";
-import { notifyCustomer, notifyOfflineRefusal } from "./notify";
+import { notifyCustomer, notifyOfflineRefusal, notifyStaff } from "./notify";
+import { getPart } from "./parts";
+import { levelOf, move, StockError } from "./stock";
 import { buildReport } from "./report";
-import { branchOf, scopedDb, type Branch } from "./scope";
+import { branchDb, branchOf, scopedDb, type Branch } from "./scope";
 import { draftSummary } from "./summary";
 import { memberName } from "./technicians";
 import { type PartRow, type PhotoRow, type StorageModule, type VisitRow, MAX_PHOTO_BYTES, bytesOfDataUrl, partsOf, photoLimitMessage, visitOfJob } from "./visit-data";
@@ -258,20 +260,67 @@ export async function addPhoto(files: Pick<StorageModule, "list">, ctx: VisitCtx
   return { ok: true, value: row as PhotoRow };
 }
 
+/** The start of today in Dubai (UTC+4, no daylight saving), unix seconds: the "day" of the stock notice. */
+const dubaiDayStart = (at: number): number => Math.floor((at + 4 * 3600) / 86400) * 86400 - 4 * 3600;
+
+/**
+ * Tells the branch's dispatchers once per part per day that a visit took the part below zero: the notice goes with the
+ * first `out` move of the day that left the balance under zero (the moves of the day are the record, so a second
+ * technician on the same part the same day adds none). `moveId` is the move just made.
+ */
+async function noteBelowZero(ctx: VisitCtx, branch: Branch, part: { id: string; sku: string; name_en: string }, job: { number: string }, moveId: string): Promise<void> {
+  const earlier = await branchDb(ctx.db, branch.id).queryOne<{ n: number }>("select count(*) as n from app__stock_moves where part_id = ? and kind = 'out' and balance_after < 0 and created_at >= ? and id != ?", [part.id, dubaiDayStart(now()), moveId]);
+  if ((earlier?.n ?? 0) > 0) return;
+  await notifyStaff(await dispatchersOf(ctx, branch), { category: "jobs", title: `Stock of ${part.sku} ${part.name_en} in ${branch.name_en} is below zero (visit of ${job.number}): check the count`.slice(0, 200), link: `/admin/stock/${part.id}?branch=${branch.id}` });
+}
+
+/**
+ * Adds a part line to the open visit. With a `part_id` the line is a stocked part: its name and selling price come
+ * from the part (never from the form), and the same transaction takes `qty` out of the job's branch (`stock.move`,
+ * kind `out`, referencing the visit); stock may go below zero, which tells the dispatchers. A part that is not active
+ * is a 422. Without one the line is free text, as typed, and stock is not touched.
+ */
 export async function addPart(ctx: VisitCtx, rawJobId: unknown, part: PartInput): Promise<Result<PartRow>> {
   const got = await performerOf(ctx, rawJobId);
   if (!got.ok) return got;
   const visit = open(got.value);
   if (!visit.ok) return visit;
-  const n = await got.value.sdb.execute("insert into app__visit_parts (branch_id, visit_id, description, qty, unit_price_fils) values (?, ?, ?, ?, ?)", [got.value.branch.id, visit.value.id, part.description, part.qty, part.unit_price_fils]);
-  return { ok: true, value: { id: Number(n.lastInsertRowid), ...part } };
+  let description = part.description;
+  let price = part.unit_price_fils;
+  let moveId: string | null = null;
+  let stocked: Awaited<ReturnType<typeof getPart>> = null;
+  if (part.part_id !== null) {
+    stocked = await getPart(ctx.db, part.part_id);
+    if (stocked === null || stocked.active === 0) return fail(422, "Choose a part from the list.");
+    description = stocked.name_en;
+    price = stocked.sell_fils;
+    try {
+      moveId = await move(ctx.db, { branch: got.value.branch.id, part: stocked.id, kind: "out", qty: part.qty, reason: got.value.job.number, ref: { kind: "visit", id: visit.value.id }, by: ctx.principal?.id ?? "unknown" });
+    } catch (e) {
+      if (e instanceof StockError) return fail(422, "That quantity is not valid.");
+      throw e;
+    }
+  }
+  const n = await got.value.sdb.execute("insert into app__visit_parts (branch_id, visit_id, description, qty, unit_price_fils, part_id, stock_move_id) values (?, ?, ?, ?, ?, ?, ?)", [got.value.branch.id, visit.value.id, description, part.qty, price, part.part_id, moveId]);
+  if (stocked !== null && moveId !== null && (await levelOf(ctx.db, got.value.branch.id, stocked.id)).qty < 0) await noteBelowZero(ctx, got.value.branch, stocked, got.value.job, moveId);
+  return { ok: true, value: { id: Number(n.lastInsertRowid), description, qty: part.qty, unit_price_fils: price, part_id: part.part_id, sku: stocked?.sku ?? null, name_en: stocked?.name_en ?? null, name_ar: stocked?.name_ar ?? null, vat_rate: stocked?.vat_rate ?? null, stock_move_id: moveId } };
 }
 
+/**
+ * Removes a part line of the open visit. A stocked line puts its quantity back: one `in` move at the branch's current
+ * average cost (so the average does not change), referencing the same visit, in the same transaction as the delete.
+ */
 export async function removePart(ctx: VisitCtx, rawJobId: unknown, partId: number): Promise<Result<true>> {
   const got = await performerOf(ctx, rawJobId);
   if (!got.ok) return got;
   const visit = open(got.value);
   if (!visit.ok) return visit;
+  const line = await got.value.sdb.queryOne<{ part_id: string | null; qty: number }>("select part_id, qty from app__visit_parts where id = ? and visit_id = ?", [partId, visit.value.id]);
+  if (line === null) return { ok: true, value: true };
+  if (line.part_id !== null) {
+    const level = await levelOf(ctx.db, got.value.branch.id, line.part_id);
+    await move(ctx.db, { branch: got.value.branch.id, part: line.part_id, kind: "in", qty: line.qty, unitCost: level.avg_cost_fils, reason: `removed from ${got.value.job.number}`, ref: { kind: "visit", id: visit.value.id }, by: ctx.principal?.id ?? "unknown" });
+  }
   await got.value.sdb.execute("delete from app__visit_parts where id = ? and visit_id = ?", [partId, visit.value.id]);
   return { ok: true, value: true };
 }

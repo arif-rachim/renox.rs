@@ -278,9 +278,10 @@
         f.parentNode.insertBefore(list, f);
       }
       for (const none of section.querySelectorAll(":scope > p.muted")) none.hidden = true;
-      const { description = "", qty = "1", price = "0" } = record.fields;
+      const { description = "", qty = "1", price = "0", part_id = "", part_label = "" } = record.fields;
       const li = make("li", { dir: "auto" });
-      li.append(`${description} · `, make("bdi", { dir: "ltr" }, `${qty} × ${price}`), " · ", mark(record, "small"));
+      // A stocked part has its price from the list, so only the quantity is shown beside its name.
+      li.append(`${part_id ? part_label : description} · `, make("bdi", { dir: "ltr" }, part_id ? `${qty}` : `${qty} × ${price}`), " · ", mark(record, "small"));
       list.append(li);
     },
     notes(record) {
@@ -838,6 +839,9 @@
   };
 
   const queue = async (f, target, fields, id, performed) => {
+    // A stocked part (#814): the queue shows its name, which is the select's option text ("SKU · name (on hand)").
+    const chosen = target.action === "part" && fields.part_id ? f.querySelector('select[name="part_id"]') : null;
+    if (chosen && chosen.selectedOptions[0]) fields = { ...fields, part_label: chosen.selectedOptions[0].textContent.trim() };
     const record = { action_id: id, user_id: pageUser, job_id: target.job_id, url: target.url, action: target.action, fields, performed_at: performed, state: "pending", attempts: 0, ...jobLabel };
     let seq;
     try {
@@ -856,6 +860,8 @@
     const input = f.querySelector('input[type="hidden"][name="action_id"]');
     if (input) input.remove();
     if (target.action === "part") {
+      const picked = f.querySelector('[name="part_id"]');
+      if (picked) picked.value = "";
       f.querySelector('[name="description"]').value = "";
       f.querySelector('[name="qty"]').value = "1";
       f.querySelector('[name="price"]').value = "0";

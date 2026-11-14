@@ -21,7 +21,7 @@ import { type Method, type PaymentInput } from "./invoice-forms";
 import { notifyCustomer } from "./notify";
 import { day, linesOf } from "./quotes";
 import { branchOf, scopedDb } from "./scope";
-import { partsOf, visitOfJob } from "./visit-data";
+import { partName, partsOf, visitOfJob } from "./visit-data";
 
 export const STATUSES = ["issued", "part-paid", "paid", "credited"] as const;
 export type InvoiceStatus = (typeof STATUSES)[number];
@@ -109,7 +109,7 @@ export type TaxDocument = {
 
 export const documentOf = async (number: string): Promise<TaxDocument | null> => (await tax_gcc.invoice(number)) as TaxDocument | null;
 
-type TaxLine = { description: string; quantity: number; unit_fils: number; rate: "standard" };
+type TaxLine = { description: string; quantity: number; unit_fils: number; rate: "standard" | "zero" };
 
 /**
  * The lines of a job's invoice: the approved quotation's lines when there is
@@ -125,7 +125,7 @@ export async function invoiceLines(sdb: DbStatements, ctx: { db: DbStatements },
     if (s !== null) out.push({ description: language === "ar" ? s.name_ar : s.name_en, quantity: 1, unit_fils: s.price_fils, rate: "standard" });
   }
   const visit = await visitOfJob(sdb, job.id);
-  if (visit !== null) for (const p of await partsOf(sdb, visit.id)) out.push({ description: p.description, quantity: p.qty, unit_fils: p.unit_price_fils, rate: "standard" });
+  if (visit !== null) for (const p of await partsOf(sdb, visit.id)) out.push({ description: partName(p, language), quantity: p.qty, unit_fils: p.unit_price_fils, rate: p.vat_rate === 0 ? "zero" : "standard" });
   return out;
 }
 
