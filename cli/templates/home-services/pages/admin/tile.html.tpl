@@ -8,6 +8,7 @@
       <article class="tile" id="tile-invoices"><span><r-t key="backoffice.tiles.open_invoices" /></span><strong dir="ltr">{{ tiles.open_invoices }}</strong><a href="/invoices?status=open"><r-t key="invoices.title" /></a></article>
       <article class="tile" id="tile-amc"><span><r-t key="backoffice.tiles.amc_renewals" /></span><strong dir="ltr">{{ tiles.amc_renewals }}</strong><a href="/reports/amc"><r-t key="appreports.nav.amc" /></a></article>
       <article class="tile" id="tile-online"><span><r-t key="backoffice.tiles.online_to_confirm" /></span><strong dir="ltr">{{ tiles.online_to_confirm }}</strong><a href="/jobs?source=self_booking"><r-t key="jobs.badge.self_booking" /></a></article>
+      <article class="tile" id="tile-low" r-if="show_low"><span><r-t key="backoffice.tiles.low_stock" /></span><strong dir="ltr">{{ low_stock }}</strong><a href="/admin/stock?low=1"><r-t key="backoffice.nav.stock" /></a></article>
     </section>
   </article>
 </r-layout>

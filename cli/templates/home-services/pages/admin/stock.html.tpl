@@ -36,6 +36,7 @@
     <li r-for="b in branches" :id="'total-' ~ b.id">{{ b.name }}: <span dir="ltr">{{ b.value | money }}</span></li>
   </ul>
   <p><small class="muted"><r-t key="stock.note" /></small></p>
+  <p><a href="/reports/stock" id="stock-report-link"><r-t key="stock.report_link" /></a></p>
 
   <section r-if="can_move" id="stock-forms">
     <h2><r-t key="stock.receive.title" /></h2>

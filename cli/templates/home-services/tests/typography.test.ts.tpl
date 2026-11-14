@@ -153,6 +153,7 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/admin/parts", who: dispatcher, values: ["PIPE-15", "8.50", "14.00", "20.5"] },
     { page: "/admin/stock", who: dispatcher, values: ["PIPE-15", "20.5", "8.50", "68.00"] },
     { page: "/admin/stock/pt_0000000000007001", who: dispatcher, values: ["+8", "8.50"] },
+    { page: "/reports/stock", who: dispatcher, values: ["PIPE-15", "20.5", "8.50", "68.00"] },
     { page: "/admin/suppliers", who: accountant, values: ["100123456700003", "+97144110088", "orders@alnoor.example"] },
     { page: "/admin/purchasing", who: accountant, values: ["PO-000001", "23.63", "2026-12-31"] },
     { page: "/admin/purchasing/po_0000000000007001", who: accountant, values: ["PO-000001", "PIPE-15", "2.5", "9.00", "22.50", "100123456700003", "orders@alnoor.example"] },

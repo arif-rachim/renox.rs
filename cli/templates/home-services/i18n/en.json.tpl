@@ -677,6 +677,24 @@
       "due": "Due"
     }
   },
+  "stockreport": {
+    "title": "Stock report",
+    "hint": "What each branch holds and what moved in it, as of",
+    "to_stock": "Back to the stock",
+    "stock_caption": "Stock on hand in {branch}",
+    "moves_title": "Moves in the period",
+    "moves_caption": "Stock moves in {branch}",
+    "grand_total": "Value of all branches:",
+    "which": "Table",
+    "which_stock": "Stock on hand",
+    "which_moves": "Moves in the period",
+    "col": {
+      "received": "Received",
+      "used": "Used on visits",
+      "adjusted": "Adjusted",
+      "transferred": "Transferred"
+    }
+  },
   "invoice_page": {
     "title": "Tax invoice {number}"
   },
@@ -705,7 +723,8 @@
       "branch": "Branch: {branch}",
       "title": "Today in this branch",
       "open": "Open",
-      "online_to_confirm": "Online bookings to confirm"
+      "online_to_confirm": "Online bookings to confirm",
+      "low_stock": "Parts low on stock"
     },
     "settings": {
       "title": "Branding and settings",
@@ -838,7 +857,7 @@
     },
     "import": {
       "title": "Import from Excel",
-      "intro": "Bring your customers, sites, services and contracts in from Excel. Upload one .xlsx file per kind, in this order (up to {mb} MB and 10,000 rows each, first sheet only, the first row is the header). The file is checked first and nothing is written until you import a file with no errors.",
+      "intro": "Bring your customers, sites, services, parts, opening stock and contracts in from Excel. Upload one .xlsx file per kind, in this order (up to {mb} MB and 10,000 rows each, first sheet only, the first row is the header). The file is checked first and nothing is written until you import a file with no errors.",
       "columns": "Columns (* required):",
       "template": "Download the template",
       "f": {
@@ -881,6 +900,14 @@
         "contracts": {
           "name": "Contracts",
           "desc": "Maintenance contracts as drafts, one row per service at a site; rows with the same number are one contract."
+        },
+        "parts": {
+          "name": "Parts",
+          "desc": "The parts list: a SKU, names in both languages, a unit, a cost and a selling price in AED, and a minimum stock. An existing SKU is updated."
+        },
+        "stock": {
+          "name": "Opening stock",
+          "desc": "What each branch holds today: one row per branch and part, each an opening balance. Import the parts first; a branch and part that already have stock moves are refused, so an opening balance is imported once."
         }
       },
       "report": "Check report",
@@ -1100,6 +1127,12 @@
     "note": "The quantity on hand changes only through moves: receive, count, transfer, a visit or a purchase order. Open a SKU to see its moves.",
     "low": "Low",
     "negative": "Negative",
+    "report_link": "Stock report (CSV and Excel)",
+    "low_notice": {
+      "title": "Low stock in {branch}: {n} parts under their minimum",
+      "line": "{sku} {name}: {qty} on hand, minimum {min}",
+      "more": "and {n} more"
+    },
     "saved": {
       "received": "The stock was received.",
       "adjusted": "The count was recorded.",
@@ -1228,6 +1261,11 @@
       "bad_makani": "A Makani number has 10 digits.",
       "bad_code": "A code is 1 to 32 characters: capital letters, digits and hyphens.",
       "bad_unit": "Use visit, hour or unit.",
+      "bad_sku": "A SKU is 1 to 32 characters: capital letters, digits and hyphens.",
+      "bad_part_unit": "Use piece, metre, litre, kg or box.",
+      "bad_qty": "Enter a quantity with at most three decimals (more than zero for a stock row).",
+      "unknown_part": "No part has this SKU: import the parts first.",
+      "stock_exists": "This branch already has stock moves for this part: an opening balance is imported once. Use Receive or Count on the stock page instead.",
       "bad_price": "Enter a price in AED with at most two decimals, for example 120 or 120.50.",
       "bad_vat": "Use 0 or 5.",
       "bad_date": "Use a date written YYYY-MM-DD.",
