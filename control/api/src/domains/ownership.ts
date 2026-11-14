@@ -85,13 +85,13 @@ export async function claimHostname(deps: Deps, tenantDb: Db & { tenantId: strin
 }
 
 /** A domain leaving `verified`: its entries go. */
-export async function stopServing(deps: Deps, hostname: string): Promise<void> {
-  await syncRoutes(deps, [hostname]);
+export async function stopServing(deps: Deps, d: Pick<DomainRow, "hostname" | "tenant_id" | "app">): Promise<void> {
+  await syncRoutes(deps, [d.hostname], [d]);
 }
 
 /** A domain becoming `verified` again: its entries come back. */
-export async function resumeServing(deps: Deps, hostname: string): Promise<void> {
-  await syncRoutes(deps, [hostname]);
+export async function resumeServing(deps: Deps, d: Pick<DomainRow, "hostname" | "tenant_id" | "app">): Promise<void> {
+  await syncRoutes(deps, [d.hostname], [d]);
 }
 
 /**
@@ -132,6 +132,7 @@ export async function releaseExpired(deps: Deps, now: number): Promise<number> {
     await db.query(`update domains set state = 'released', released_at = $1 where state = 'detached' and detached_at <= $2 returning ${DOMAIN_COLUMNS}`, [now, now - HOLD_MS])
   ).map(toDomain);
   for (const d of rows) {
+    await syncRoutes(deps, [d.hostname], [d]);
     await deleteHostname(deps, d);
     await auditJob(deps, d, "releaseDomain", { reason: "held 30 days" });
   }

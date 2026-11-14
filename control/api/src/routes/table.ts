@@ -23,6 +23,8 @@ export interface RouteEntry {
   process?: "own";
   /** 0.5.1: the tenant's name on the suspension page; `suspended` entries only. */
   display_name?: string;
+  /** 0.12: config values the platform computes per module (section 8); omitted when there are none. */
+  module_config?: Record<string, Record<string, string>>;
 }
 
 /** The process tier of a tier (deploy-api.md section 17): paid runs in a process of its own. */
@@ -65,12 +67,13 @@ export async function upsertEntry(tx: Db, e: Omit<RouteEntry, "version">): Promi
   const { process: _process, ...rest } = e;
   const entry: RouteEntry = { ...rest, version: await nextVersion(tx), ...(processOf(e.tier) === "own" ? { process: "own" as const } : {}) };
   await tx.query(
-    `insert into route_entries (hostname, deployment_hash, tenant_id, app, status, updated_at, version, tier, node_id, secrets_version, database, display_name)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `insert into route_entries (hostname, deployment_hash, tenant_id, app, status, updated_at, version, tier, node_id, secrets_version, database, display_name, module_config)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text::jsonb)
      on conflict (hostname, deployment_hash) do update set tenant_id = excluded.tenant_id, app = excluded.app, status = excluded.status,
        updated_at = excluded.updated_at, version = excluded.version, tier = excluded.tier, node_id = excluded.node_id,
-       secrets_version = excluded.secrets_version, database = excluded.database, display_name = excluded.display_name`,
-    [entry.hostname, entry.deployment_hash, entry.tenant_id, entry.app, entry.status, entry.updated_at, entry.version, entry.tier, entry.node_id, entry.secrets_version, entry.database ?? null, entry.status === "suspended" ? (entry.display_name ?? null) : null],
+       secrets_version = excluded.secrets_version, database = excluded.database, display_name = excluded.display_name,
+       module_config = excluded.module_config`,
+    [entry.hostname, entry.deployment_hash, entry.tenant_id, entry.app, entry.status, entry.updated_at, entry.version, entry.tier, entry.node_id, entry.secrets_version, entry.database ?? null, entry.status === "suspended" ? (entry.display_name ?? null) : null, entry.module_config === undefined ? null : jsonb(entry.module_config)],
   );
   await tx.query("insert into route_changes (version, kind, hostname, deployment_hash, entry, at) values ($1, 'upsert', $2, $3, $4::text::jsonb, $5)", [
     entry.version,
@@ -111,6 +114,9 @@ function toEntry(r: Record<string, unknown>): RouteEntry {
     ...(typeof r.database === "string" ? { database: r.database } : {}),
     ...(r.tier === "paid" ? { process: "own" as const } : {}),
     ...(typeof r.display_name === "string" ? { display_name: r.display_name } : {}),
+    ...(r.module_config !== null && r.module_config !== undefined
+      ? { module_config: (typeof r.module_config === "string" ? JSON.parse(r.module_config) : r.module_config) as RouteEntry["module_config"] }
+      : {}),
   };
 }
 

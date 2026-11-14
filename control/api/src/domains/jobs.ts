@@ -43,7 +43,11 @@ async function checkPending(deps: Deps, db: Db, d: DomainRow, now: number): Prom
     "update domains set state = 'verified', verified_at = $2, last_checked_at = $2, next_check_at = $3, cf_misses = 0, cf_first_miss_at = null where id = $1 and state = 'pending' returning id",
     [d.id, now, now + REVERIFY_MS],
   );
-  if (verified.length > 0) deps.log.info("domain verified", { domain: d.id, tenant_id: d.tenant_id, app: d.app });
+  if (verified.length > 0) {
+    deps.log.info("domain verified", { domain: d.id, tenant_id: d.tenant_id, app: d.app });
+    // 0.12 (#826): the app's email `app_url` follows its verified domains.
+    await syncRoutes(deps, [d.hostname], [d]);
+  }
   return verified.length > 0;
 }
 

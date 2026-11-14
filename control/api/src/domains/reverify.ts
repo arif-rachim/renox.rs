@@ -93,7 +93,7 @@ export async function detachUnverified(deps: Deps, d: DomainRow, now: number, st
   );
   if (rows.length === 0) return;
   deps.log.warn("domain detached: custom hostname not active", { domain: d.id, tenant_id: d.tenant_id, hostname: d.hostname, status });
-  await stopServing(deps, d.hostname);
+  await stopServing(deps, d);
   await auditJob(deps, d, "detachDomain", { reason: `cloudflare status ${status}` });
   await notifyOwners(deps, db, d, status);
 }
@@ -107,7 +107,7 @@ async function reattach(deps: Deps, d: DomainRow, now: number): Promise<void> {
   );
   if (rows.length === 0) return;
   deps.log.info("domain verified again", { domain: d.id, tenant_id: d.tenant_id, hostname: d.hostname });
-  await resumeServing(deps, d.hostname);
+  await resumeServing(deps, d);
   await auditJob(deps, d, "reverifyDomain", { reason: "cloudflare status active" });
 }
 

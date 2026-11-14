@@ -34,6 +34,10 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - The `renox-worker` that the `ts` job tests the examples with is built with the new optimised `ci-worker` Cargo profile instead of `dev`, so CPU budgets (a 2,000 ms job attempt) behave as on the release build. (#821)
 
+**Control plane**
+
+- Route entries carry the optional `module_config` (`deploy-api.md` 0.12, migration `0038_route_module_config.sql`): when the active deployment's `email` module leaves `app_url` empty, the control plane writes `module_config.email.app_url`, the app's only verified custom domain or else `https://<app>.<platform domain>`, on the platform and custom-domain entries, and re-publishes it with no new deployment when a custom domain is verified, detached, verified again or released (#818, #826).
+
 ## 0.1.15 (2026-11-13)
 
 **Install**

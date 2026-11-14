@@ -11,7 +11,8 @@ import { CloudflareCustomHostnames, CloudflareError, fromApi } from "../src/doma
 import { PENDING_POLL_MS, tick } from "../src/domains/jobs.ts";
 import { configureDomains } from "../src/domains/service.ts";
 import { cloudflareConfig } from "../src/config.ts";
-import type { RouteSnapshot } from "../src/routes/table.ts";
+import { stopServing, resumeServing } from "../src/domains/ownership.ts";
+import { deltaSince, type RouteDelta, type RouteSnapshot } from "../src/routes/table.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { EDGE, StubCloudflare } from "./domain-stubs.ts";
 import { assertScoped, auditRows, createApp_, harness, registeredNode, scopedToken, tenant, type Harness } from "./helpers.ts";
@@ -371,5 +372,98 @@ describe("the Cloudflare client", () => {
   test("odd statuses are kept as unknown, never passed through", () => {
     expect(fromApi({ id: "x", hostname: HOST, status: "Active; drop table" }).status).toBe("unknown");
     expect(fromApi({ id: "x", hostname: HOST }).ssl_status).toBe("unknown");
+  });
+});
+
+describe("module_config.email.app_url (0.12, #826)", () => {
+  const OTHER = "shop.example.com";
+  const email = (config: Record<string, unknown>) => ({ modules: [{ name: "email", config }] });
+
+  /** Stores `extra` in the manifest of the second deployment and activates it. */
+  async function activateWith(e: Env, extra: Record<string, unknown>): Promise<void> {
+    await e.h.db.query("update deployments set manifest = manifest || $1::text::jsonb where app = 'hello' and hash = $2", [JSON.stringify(extra), e.hashes[1]]);
+    const res = await e.h.request("POST", "/v1/apps/hello/activate", { token: e.token, json: { hash: e.hashes[1] } });
+    expect(res.status).toBe(200);
+    await tick(e.h.deps);
+  }
+  const activeOf = async (e: Env, hostname: string) => (await hostEntries(e, hostname)).find((x) => x.status === "active");
+  const urlOf = async (e: Env, hostname: string) => (await activeOf(e, hostname))?.module_config;
+  const lastVersion = async (e: Env) => (await snapshotOf(e)).version;
+  /** The delta after `since`, which must pass the contract's schema. */
+  const deltaAfter = async (e: Env, since: number) => checkMessage<RouteDelta>("route_delta", await deltaSince(e.h.db, since));
+  const platformUrl = { email: { app_url: `https://${PLATFORM_HOST}` } };
+
+  test("an empty app_url gets the platform host on activation; the previous deployment's entry has none", async () => {
+    const e = await setup();
+    const since = await lastVersion(e);
+    await activateWith(e, email({ app_url: "" }));
+    expect(await urlOf(e, PLATFORM_HOST)).toEqual(platformUrl);
+    const delta = await deltaAfter(e, since);
+    expect(delta.upserts.find((u) => u.hostname === PLATFORM_HOST && u.status === "active")?.module_config).toEqual(platformUrl);
+    expect((await hostEntries(e, PLATFORM_HOST)).find((x) => x.status === "draining")?.module_config).toBeUndefined();
+  });
+
+  test("a verified custom domain moves it, with no new deployment; removing it moves it back", async () => {
+    const e = await setup();
+    await activateWith(e, email({}));
+    expect(await urlOf(e, PLATFORM_HOST)).toEqual(platformUrl);
+    let since = await lastVersion(e);
+    await verified(e);
+    const custom = { email: { app_url: `https://${HOST}` } };
+    expect(await urlOf(e, PLATFORM_HOST)).toEqual(custom);
+    expect(await urlOf(e, HOST)).toEqual(custom);
+    let delta = await deltaAfter(e, since);
+    expect(delta.upserts.filter((u) => u.status === "active").map((u) => [u.hostname, u.module_config]).sort()).toEqual(
+      [
+        [HOST, custom],
+        [PLATFORM_HOST, custom],
+      ].sort(),
+    );
+    since = await lastVersion(e);
+    expect((await e.h.request("DELETE", `/v1/apps/hello/domains/${HOST}`, { token: e.token })).status).toBe(200);
+    expect(await hostEntries(e)).toEqual([]);
+    expect(await urlOf(e, PLATFORM_HOST)).toEqual(platformUrl);
+    delta = await deltaAfter(e, since);
+    expect(delta.upserts.find((u) => u.hostname === PLATFORM_HOST && u.status === "active")?.module_config).toEqual(platformUrl);
+    expect(delta.removals.map((r) => r.hostname)).toContain(HOST);
+  });
+
+  test("with two verified domains it is the platform host; one removed, the other is primary again", async () => {
+    const e = await setup();
+    await activateWith(e, email({ app_url: "" }));
+    await verified(e);
+    expect((await add(e, OTHER)).status).toBe(201);
+    e.cf.setStatus(OTHER, "active");
+    const since = await lastVersion(e);
+    await tick(e.h.deps);
+    for (const h of [PLATFORM_HOST, HOST, OTHER]) expect(await urlOf(e, h)).toEqual(platformUrl);
+    await deltaAfter(e, since);
+    expect((await e.h.request("DELETE", `/v1/apps/hello/domains/${OTHER}`, { token: e.token })).status).toBe(200);
+    const custom = { email: { app_url: `https://${HOST}` } };
+    for (const h of [PLATFORM_HOST, HOST]) expect(await urlOf(e, h)).toEqual(custom);
+  });
+
+  test("a domain detached by misses and verified again moves the value both ways", async () => {
+    const e = await setup();
+    await activateWith(e, email({}));
+    await verified(e);
+    await e.h.db.query("update domains set state = 'detached', detach_reason = 'unverified', detached_at = $2 where hostname = $1", [HOST, e.h.clock.now]);
+    const d = { hostname: HOST, tenant_id: "t_hello", app: "hello" };
+    await stopServing(e.h.deps, d);
+    expect(await urlOf(e, PLATFORM_HOST)).toEqual(platformUrl);
+    await e.h.db.query("update domains set state = 'verified', detach_reason = null, detached_at = null where hostname = $1", [HOST]);
+    await resumeServing(e.h.deps, d);
+    expect(await urlOf(e, PLATFORM_HOST)).toEqual({ email: { app_url: `https://${HOST}` } });
+  });
+
+  test("an explicit app_url, or no email module, gets no module_config", async () => {
+    const e = await setup();
+    await activateWith(e, email({ app_url: "https://x.example" }));
+    await verified(e);
+    for (const h of [PLATFORM_HOST, HOST]) expect((await activeOf(e, h))?.module_config).toBeUndefined();
+    const plain = await setup();
+    await verified(plain);
+    for (const h of [PLATFORM_HOST, HOST]) expect((await activeOf(plain, h))?.module_config).toBeUndefined();
+    expect(checkMessage("route_snapshot", await snapshotOf(plain))).toBeTruthy();
   });
 });
