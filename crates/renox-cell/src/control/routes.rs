@@ -24,10 +24,11 @@
 //!    gap, and every `resync_interval_ms` with `If-None-Match` (304:
 //!    unchanged).
 //!
-//! Recycling (deploy-api.md 0.12 sections 8 to 10, #825): a cell is built
+//! Recycling (deploy-api.md sections 8 to 10; #825, #830): a cell is built
 //! from what [`DeploymentLookup::lookup`] answers for its deployment. When
-//! a snapshot or delta changes that answer's `module_config` for a
-//! deployment that had an entry before and still has one, the deployment's
+//! a snapshot or delta changes that answer's `secrets_version` (rotated
+//! secrets) or `module_config` (0.12) for a deployment that had an entry
+//! before and still has one, the deployment's
 //! cell is recycled ([`CellManager::recycle`]) once the new table is
 //! published: the next request gets a fresh cell built from the new entry.
 //! A new entry or a removed one is not such a change (a removal drains
@@ -811,6 +812,54 @@ pub(crate) mod tests {
             entries: vec![snap],
         });
         assert_eq!(recycled(&s).len(), 2);
+    }
+
+    /// #830 (deploy-api.md sections 8 and 9): a delta that raises the active
+    /// entry's `secrets_version` recycles the deployment's cell and `lookup`
+    /// answers the new version; the same version again recycles nothing.
+    #[test]
+    fn a_secrets_version_bump_recycles_the_deployment() {
+        let gw = Arc::new(RouteTable::new());
+        let s = RouteState::new("node-1", gw);
+        let hash = "a".repeat(64);
+        s.apply_snapshot(Snapshot {
+            version: 1,
+            entries: vec![entry("a.renox.app", 'a', RouteStatus::Active, "node-1", 1)],
+        });
+        assert_eq!(s.lookup("t_hello", &hash).secrets_version, 3);
+        let mut bumped = entry("a.renox.app", 'a', RouteStatus::Active, "node-1", 2);
+        bumped.secrets_version = 4;
+        assert!(s.apply_delta(Delta {
+            prev_version: 1,
+            version: 2,
+            upserts: vec![bumped.clone()],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s), vec![("t_hello".to_string(), hash.clone())]);
+        assert_eq!(s.lookup("t_hello", &hash).secrets_version, 4);
+        // Unchanged version (another field moved): no recycle.
+        let mut same = bumped.clone();
+        same.version = 3;
+        same.updated_at = 7;
+        assert!(s.apply_delta(Delta {
+            prev_version: 2,
+            version: 3,
+            upserts: vec![same],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s).len(), 1);
+        // A second hostname of the same deployment (a custom domain) with
+        // a newer version: what `lookup` answers changed, so it recycles.
+        let mut custom = entry("shop.example", 'a', RouteStatus::Active, "node-1", 4);
+        custom.secrets_version = 5;
+        assert!(s.apply_delta(Delta {
+            prev_version: 3,
+            version: 4,
+            upserts: vec![custom],
+            removals: vec![],
+        }));
+        assert_eq!(recycled(&s).len(), 2);
+        assert_eq!(s.lookup("t_hello", &hash).secrets_version, 5);
     }
 
     /// #825: a snapshot from a control plane older than deploy-api 0.12 has

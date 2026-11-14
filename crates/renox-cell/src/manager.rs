@@ -124,11 +124,13 @@ impl DeploymentMeta {
     /// Whether a cell built from `self` must not serve once `current` is
     /// what the deployment's lookup answers: something that reached the
     /// isolate at creation changed (deploy-api.md sections 8 to 10: the
-    /// `module_config` overlay, #825). The one test behind every recycle:
-    /// the route table's ([`crate::control::routes`]) and a child's
-    /// handover (`supervisor::child`).
+    /// secret set, `secrets_version`, #830, and the `module_config`
+    /// overlay, #825). The one test behind every recycle: the route
+    /// table's ([`crate::control::routes`]) and a child's handover
+    /// (`supervisor::child`).
     pub fn is_stale_against(&self, current: &DeploymentMeta) -> bool {
-        self.module_config != current.module_config
+        self.secrets_version != current.secrets_version
+            || self.module_config != current.module_config
     }
 }
 

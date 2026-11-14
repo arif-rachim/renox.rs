@@ -25,6 +25,9 @@ pub struct State {
     pub entries: Vec<Value>,
     /// hash → tar bytes.
     pub artifacts: HashMap<String, Vec<u8>>,
+    /// `(deployment_hash, version)` → `(tenant_id, name → value)`: the
+    /// secret bundles of `GET /v1/nodes/{node}/secrets/{app}/{hash}?version=N`.
+    pub secrets: HashMap<(String, u64), (String, Value)>,
     pub prepare_results: Vec<Value>,
     pub registrations: Vec<Value>,
     pub heartbeats: Vec<Value>,
@@ -152,6 +155,29 @@ impl FakeControl {
                 ("GET", ["v1", "nodes", _, "artifacts", hash]) => {
                     match self.state.lock().unwrap().artifacts.get(*hash) {
                         Some(t) => (200, "application/x-tar", t.clone()),
+                        None => (404, "application/json", b"{}".to_vec()),
+                    }
+                }
+                ("GET", ["v1", "nodes", _, "secrets", _app, rest]) => {
+                    let (hash, query) = rest.split_once('?').unwrap_or((rest, ""));
+                    let version: u64 = query
+                        .strip_prefix("version=")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(u64::MAX);
+                    match self
+                        .state
+                        .lock()
+                        .unwrap()
+                        .secrets
+                        .get(&(hash.to_string(), version))
+                    {
+                        Some((tenant, values)) => {
+                            let reply = json!({
+                                "tenant_id": tenant, "deployment_hash": hash,
+                                "version": version, "secrets": values,
+                            });
+                            (200, "application/json", reply.to_string().into_bytes())
+                        }
                         None => (404, "application/json", b"{}".to_vec()),
                     }
                 }
