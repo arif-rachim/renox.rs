@@ -159,7 +159,7 @@ export function headerSet(security: SecurityConfig, nonce = "<per-request>", tls
 }
 
 /** `renox check --security`: the effective headers, then CORS and buckets per route. */
-export function securityReport(security: SecurityConfig, routes: Route[], provenance: CspProvenance = {}): string {
+export function securityReport(security: SecurityConfig, routes: Route[], provenance: CspProvenance = {}, redirects: readonly { path: string; action: string; to: string }[] = []): string {
   const lines = ["Response headers (every route; the nonce is fresh per request):"];
   for (const [k, v] of headerSet(security)) lines.push(`  ${k}: ${v}`);
   const merged = CSP_KEYS.filter((k) => provenance[k]?.size);
@@ -182,6 +182,11 @@ export function securityReport(security: SecurityConfig, routes: Route[], proven
     const limit = buckets.map((b) => `${b.method} ${b.requests}/${b.window_s} s per ${b.key}`).join(", ");
     const kind = r.kind === "page" ? "page" : "function";
     lines.push(`  ${methods.join(",").padEnd(14)} ${r.path}  ${kind}${r.kind === "page" && r.actions?.length ? ", CSRF-checked actions" : ""}${limit ? `, rate limit ${limit}` : ""}`);
+  }
+  // Artifact 1.13 (#795): a guard that sends a signed-in principal it denies elsewhere instead of answering 403.
+  if (redirects.length) {
+    lines.push("Guards with a redirect (a signed-in principal the guard denies gets a 303 to the path, not a 403; anonymous keeps the 403):");
+    for (const r of redirects) lines.push(`  ${r.path}  guard ${r.action}  deny_redirect ${r.to}`);
   }
   return `${lines.join("\n")}\n`;
 }

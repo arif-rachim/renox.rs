@@ -46,6 +46,20 @@ mod ops {
     use crate::ops::pdf::{TemplateEnv, TemplateError};
     use crate::ops::request::{live_request, op_error};
 
+    /// `ctx.setLocale`: reports the call to the cell, which may hold the
+    /// page's shell for it (`ops.md` section 14, "The shell delay"; #790).
+    #[op2(fast)]
+    pub(crate) fn op_page_locale(
+        state: &mut OpState,
+        token: u32,
+        #[string] locale: &str,
+        #[string] dir: &str,
+    ) {
+        if let Ok(request) = live_request(state, token) {
+            crate::shell_locale::report(&request.borrow().request_id, locale, dir);
+        }
+    }
+
     /// `ctx.render(template, data)`: the fragment's HTML. The render counts
     /// as `render_fuel` and `render_ms` of the request. `locale` and `dir`
     /// are the request's `setLocale` values (empty: none), added by the

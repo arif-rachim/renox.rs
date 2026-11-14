@@ -106,13 +106,13 @@ fn module(name: &str, services: &[&str]) -> serde_json::Value {
     })
 }
 
-/// The artifact; `with_auth` installs the fixture `auth` module.
-fn artifact(store: &Path, with_auth: bool) -> String {
-    artifact_with(store, with_auth, "report.read")
-}
-
 /// `menu_action` is the action `pages/menu` names in its `r-can`.
 fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
+    artifact_full(store, with_auth, menu_action, "/menu")
+}
+
+/// `staff_redirect` is the `deny_redirect` of the guarded page `/staff` (#795).
+fn artifact_full(store: &Path, with_auth: bool, menu_action: &str, staff_redirect: &str) -> String {
     let mut project = TemplateProject::new();
     project.insert(
         "pages/orders/[id].html",
@@ -127,6 +127,7 @@ fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
         "pages/menu.html",
         format!(r#"<nav><a r-can="{menu_action}" href="/reports">Reports</a><i>menu</i></nav>"#),
     );
+    project.insert("pages/staff.html", "<p>staff</p>");
     // #603: a partial `ctx.render` shows to whoever `r-can` allows.
     project.insert(
         "partials/row.html",
@@ -192,6 +193,8 @@ fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
             { "kind": "function", "method": "GET", "path": "/render", "module": "functions/render", "export": "GET" },
             { "kind": "page", "path": "/board", "module": "pages/board", "load": true, "template": "pages/board" },
             { "kind": "page", "path": "/menu", "template": "pages/menu" },
+            { "kind": "page", "path": "/staff", "template": "pages/staff",
+              "guard": { "action": "report.read", "deny_redirect": staff_redirect } },
         ],
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] },
@@ -221,10 +224,14 @@ struct Node {
 }
 
 fn node(with_auth: bool) -> Node {
+    node_with_redirect(with_auth, "/menu")
+}
+
+fn node_with_redirect(with_auth: bool, staff_redirect: &str) -> Node {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let data = scratch("data");
     let artifacts = scratch("artifacts");
-    let hash = artifact(&artifacts, with_auth);
+    let hash = artifact_full(&artifacts, with_auth, "report.read", staff_redirect);
     let meter = Meter::start(MeterConfig::new("t_authz@test", "test", &data), StdoutSink);
     let manager = CellManager::new(
         Runtime::new(RuntimeConfig::default()),
@@ -253,6 +260,17 @@ fn node(with_auth: bool) -> Node {
 
 impl Node {
     async fn send(&self, method: &str, path: &str, headers: &[(&str, &str)]) -> (u16, String) {
+        let (status, _, body) = self.send_h(method, path, headers).await;
+        (status, body)
+    }
+
+    /// Like `send`, with the `location` header of the answer.
+    async fn send_h(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+    ) -> (u16, Option<String>, String) {
         let ctx = RequestCtx {
             tenant_id: "t_authz".into(),
             deployment_hash: self.hash.clone(),
@@ -274,8 +292,16 @@ impl Node {
             .dispatch(ctx, b.body(axum::body::Body::empty()).unwrap())
             .await;
         let status = res.status().as_u16();
+        let location = res
+            .headers()
+            .get("location")
+            .map(|v| v.to_str().unwrap().to_string());
         let body = res.into_body().collect().await.unwrap().to_bytes();
-        (status, String::from_utf8_lossy(&body).into_owned())
+        (
+            status,
+            location,
+            String::from_utf8_lossy(&body).into_owned(),
+        )
     }
 
     fn seen(&self) -> usize {
@@ -489,4 +515,83 @@ async fn ctx_render_sees_the_principal_for_r_can() {
     assert_eq!(status, 200, "{html}");
     assert!(html.contains("<i>row</i>"), "{html}");
     assert!(!html.contains("secret"), "anonymous: {html}");
+}
+
+/// #795: a guard with `deny_redirect` sends a signed-in principal it denies
+/// to that path (303) instead of the 403; an anonymous principal keeps the
+/// 403; a principal the guard allows is not redirected; and the redirect is
+/// still a deny (the guard was evaluated and counted as a decision).
+#[tokio::test]
+async fn deny_redirect_sends_a_signed_in_principal_it_denies() {
+    let n = node(true);
+    let alice = [("cookie", "uid=u_alice")];
+    let before = n.manager.authz_stats().decisions;
+    let (status, location, body) = n.send_h("GET", "/staff", &alice).await;
+    assert_eq!(status, 303, "{body}");
+    assert_eq!(location.as_deref(), Some("/menu"));
+    assert!(!body.contains("staff"), "no page body: {body}");
+    // A fragment request is guarded the same way (a 303 for any request).
+    let (status, location, _) = n
+        .send_h(
+            "GET",
+            "/staff",
+            &[
+                ("cookie", "uid=u_alice"),
+                ("hx-request", "true"),
+                ("hx-target", "title"),
+            ],
+        )
+        .await;
+    assert_eq!((status, location.as_deref()), (303, Some("/menu")));
+    assert!(
+        n.manager.authz_stats().decisions >= before + 2,
+        "a redirected deny is still a counted decision"
+    );
+    // Anonymous: unchanged, the 403 page.
+    let (status, location, body) = n.send_h("GET", "/staff", &[]).await;
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(location, None);
+    // A guard without `deny_redirect` is unchanged for a signed-in principal.
+    let (status, location, _) = n.send_h("GET", "/reports", &alice).await;
+    assert_eq!((status, location), (403, None));
+    // Once the principal holds the action the page renders.
+    let (status, body) = n.send("POST", "/api?user=u_alice", &[]).await;
+    assert_eq!(status, 200, "{body}");
+    let t0 = Instant::now();
+    loop {
+        let (status, location, body) = n.send_h("GET", "/staff", &alice).await;
+        if status == 200 {
+            assert_eq!(location, None);
+            assert!(body.contains("<p>staff</p>"), "{body}");
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the role never reached the guard: {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// #795 at load: a `deny_redirect` that is not a same-origin path, or that is
+/// the page's own path, refuses the deployment (V25).
+#[tokio::test]
+async fn a_bad_deny_redirect_refuses_the_deployment() {
+    for bad in [
+        "//evil.com",
+        "https://evil.com/x",
+        "\\evil.com",
+        "my",
+        "/a//b",
+        "/a b",
+        "/staff",
+    ] {
+        let n = node_with_redirect(true, bad);
+        let (status, body) = n.send("GET", "/menu", &[]).await;
+        assert_eq!(status, 500, "{bad}: {body}");
+    }
+    let long = format!("/{}", "a".repeat(200));
+    let n = node_with_redirect(true, &long);
+    let (status, body) = n.send("GET", "/menu", &[]).await;
+    assert_eq!(status, 500, "201 characters: {body}");
 }

@@ -215,6 +215,31 @@ impl TryFrom<WireRoute> for RouteDef {
     type Error = String;
 
     fn try_from(w: WireRoute) -> Result<RouteDef, String> {
+        // #795 (artifact.md 1.13, V25): `guard.deny_redirect` is a same-origin
+        // path, on a page route only, and never the page's own path.
+        let none = String::new();
+        let (is_page, path, guard) = match &w {
+            WireRoute::Function { path, guard, .. }
+            | WireRoute::Ws { path, guard, .. }
+            | WireRoute::Sse { path, guard, .. } => (false, path, guard),
+            WireRoute::Page { path, guard, .. } => (true, path, guard),
+            _ => (false, &none, &None),
+        };
+        if let Some(to) = guard.as_ref().and_then(|g| g.deny_redirect.as_deref()) {
+            if !is_page {
+                return Err(format!(
+                    "V25: {path}: guard.deny_redirect is for page routes only"
+                ));
+            }
+            if let Some(why) = crate::ops::authz::deny_redirect_problem(to) {
+                return Err(format!("V25: {path}: guard.deny_redirect {why}"));
+            }
+            if to == path {
+                return Err(format!(
+                    "V25: {path}: guard.deny_redirect is the page's own path (a redirect loop)"
+                ));
+            }
+        }
         Ok(match w {
             WireRoute::Function {
                 method,

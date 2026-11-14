@@ -99,7 +99,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
 | `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, method, next?, resume }`; `method` is `password`, `magic`, `oauth` (UAE PASS too), `phone` or `passkey`, #794) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
-| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
+| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped, except the app's own boolean attributes set by the app's filler (below) |
 | `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
 | `auth.send_sms` | Declared for F7 (`{ to, text }`) | Nothing fills it yet |
@@ -128,11 +128,12 @@ Override a template, never the code: put a copy at `overrides/auth/pages/login.h
 The cell asks `auth.principal` once per request, before any guard (`ops.md` 1.5.0 section 17). Signed out, the answer is `null`, the anonymous principal. Signed in, it is:
 
 ```json
-{ "id": "<user id>", "attrs": { "email_verified": true, "phone_verified": false, "created_at": 1793310868, "org": "o_1", "mfa_verified": true } }
+{ "id": "<user id>", "attrs": { "email_verified": true, "phone_verified": false, "has_password": true, "created_at": 1793310868, "org": "o_1", "mfa_verified": true } }
 ```
 
-- `email_verified`, `phone_verified` and `created_at` come from auth itself.
-- Fillers of the hook `auth.principal` add the rest: `org` from org, `mfa_verified` from 2fa (#287). Only the platform's user attributes are kept (`created_at`, `email_verified`, `mfa_verified`, `org`, `phone_verified`).
+- `email_verified`, `phone_verified`, `has_password` and `created_at` come from auth itself. `has_password` (1.4.0, #791) is true when the account has a password, false for a phone-only account and always false for an agent principal; no filler can change it.
+- Fillers of the hook `auth.principal` add the rest: `org` from org, `mfa_verified` from 2fa (#287). Only the platform's user attributes are kept (`created_at`, `email_verified`, `has_password`, `mfa_verified`, `org`, `phone_verified`), plus the app's own boolean attributes (below).
+- **App attributes (1.4.0, #791).** The app declares boolean attributes in `renox.toml` (`[authz] user_attrs = ["portal"]`, `docs/11-authorization.md`) and its own `hooks.ts` filler of `auth.principal` sets them (`principal.attrs.portal = true`); a policy reads `principal.portal`. Auth keeps a key outside the platform's list only when the app's own filler set it, its value is a boolean, and its name matches `^[a-z][a-z0-9_]{1,31}$` (at most 8); a module filler's write of such a key is ignored (it is told apart by `ctx.caller`), and anything else is dropped. The cell and the Cedar schema use only the names the app declared; an undeclared one is inert. A missing value is `false`.
 - The cell adds the user's role assignments as `roles`.
 - The cell caches the principal and drops it on `auth.login`, `auth.logout` and `authz.roles_changed`.
 - Code reads it as `ctx.principal`; policies read it as `principal`.
@@ -160,7 +161,7 @@ Every method ends the same way as the password flow. The hook `auth.after_login`
   - *Same answer.* A known and an unknown number get the same answer, the same buckets, one argon2 run and one `auth.send_otp` call each. The pending code of a new number is kept in `auth__phone_signups` (argon2id, no user id), never in `auth__public_users_v1`; five wrong attempts lock it.
   - *Account cap.* At most 3 accounts an hour and 20 a day per IP address. Past it a request for a new number answers the generic message and sends nothing; the cap is checked again where the account would be created (a correct code past it creates nothing and answers the generic error, counted as `auth.login_failed` with `reason: "locked"`).
   - *No password.* The account has a placeholder email (no `@`, shown as `""` by `currentUser` and the public view) and a placeholder password hash: `login`, magic link and password reset never match it, and nothing is mailed. `auth.user_registered` has `source: "phone"`.
-  - *Two services.* `setDisplayName(name)` sets the signed-in user's name (1 to 80 characters, trimmed), so an app can ask a phone-only user for it once. `hasPassword()` tells a phone-only account from one with a password. (`has_password` is not a `principal` attribute: the platform's Cedar schema fixes the attributes, so adding one needs a change in `renox-authz`.)
+  - *Two services.* `setDisplayName(name)` sets the signed-in user's name (1 to 80 characters, trimmed), so an app can ask a phone-only user for it once. `hasPassword()` tells a phone-only account from one with a password. (Since 1.4.0 the principal also carries `has_password`, #791.)
 - **Delivery.** Codes go out through the hook `auth.send_otp`. Install `whatsapp` (#290), which fills it. auth cannot call an optional module, and a hook needs no dependency.
 
 ### Passkeys (`passkeys = true`)

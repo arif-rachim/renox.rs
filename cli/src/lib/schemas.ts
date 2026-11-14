@@ -61,6 +61,8 @@ export const renoxTomlSchema: Json = {
         entities: { type: "object" },
         default_roles: { type: "object" },
         sensitive: { type: "array", items: { type: "string" }, uniqueItems: true },
+        // 1.8.0 (MF19): the values are checked by userAttrProblems (src/lib/policies.ts).
+        user_attrs: { type: "array", items: { type: "string" } },
       },
     },
     realtime: {

@@ -189,6 +189,26 @@ describe("routes without a path (artifact 1.3, #304)", () => {
     expect(checkManifest(m).filter((x) => x.rule === "V25").map((x) => x.reason)).toEqual([`tool "${tool.name}" is declared twice`]);
   });
 
+  test("guard.deny_redirect (1.13) is a same-origin path of a page, never its own path (V25)", () => {
+    const guarded = (to: string, kind = "page"): string[] => {
+      const m = f5();
+      const r = routes(m).find((x) => x.kind === kind && isGuarded(x)) as JsonObject;
+      (r.guard as JsonObject).deny_redirect = to;
+      // The schema (V3) refuses a bad path first; V25 covers what the schema cannot say.
+      return checkManifest(m).filter((x) => x.rule === "V25" || x.rule === "V3").map((x) => x.reason);
+    };
+    const isGuarded = (x: JsonObject): boolean => typeof x.guard === "object";
+    expect(guarded("/my")).toEqual([]);
+    expect(guarded("//evil.com").length).toBe(1);
+    expect(guarded("https://x").length).toBe(1);
+    expect(guarded("/a b").length).toBe(1);
+    expect(guarded(`/${"a".repeat(200)}`).length).toBe(1);
+    const m = f5();
+    const page = routes(m).find((x) => x.kind === "page" && isGuarded(x)) as JsonObject;
+    (page.guard as JsonObject).deny_redirect = page.path as string;
+    expect(checkManifest(m).filter((x) => x.rule === "V25").map((x) => x.reason)[0]).toContain("redirect loop");
+  });
+
   test("ws and sse routes keep their path and answer GET (a second sse on the same path conflicts, V8)", () => {
     const m = f5();
     const sse = routes(m).find((r) => r.kind === "sse") as JsonObject;
