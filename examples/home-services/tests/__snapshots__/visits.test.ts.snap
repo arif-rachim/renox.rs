@@ -79,10 +79,17 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
     <section id="parts">
       <h2>Parts used</h2>
       <p class="muted">No parts yet.</p>
+      
+      
       <form method="post" action="?/part" hx-post="?/part" class="stack narrow" id="part-form" data-offline-action="" data-offline-effect="part"><input type="hidden" name="_csrf" value="<csrf>">
-        <p><label>Part <input name="description" maxlength="200" required id="f-description" aria-required="true" dir="auto"></label></p>
+        <p><label>Part from the stock <select name="part_id" id="f-part_id">
+          <option value="">Other (type it)</option>
+          <option value="pt_00000000000d0003" dir="auto">CAP-35UF · Run capacitor 35 uF (8)</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF · Run capacitor 45 uF (6)</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT · Descaling kit (6)</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C · AC filter, cassette unit (4)</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S · AC filter, split unit (14)</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP · Kitchen mixer tap (4)</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25 · PVC elbow 25 mm (60)</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25 · PVC pipe 25 mm (30)</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25 · PVC tee 25 mm (25)</option><option value="pt_00000000000d0006" dir="auto">REF-R22 · Refrigerant R22 (2)</option><option value="pt_00000000000d0005" dir="auto">REF-R410A · Refrigerant R410A (6)</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL · Silicone sealant, clear (16)</option>
+        </select></label></p>
+        <p class="muted"><small>Only for Other: the name and the unit price. A part from the stock has its name and price from the list.</small></p>
+        <p><label>Part <input name="description" maxlength="200" id="f-description" dir="auto"></label></p>
         <p><label>Quantity <input name="qty" value="1" inputmode="decimal" dir="ltr" required id="f-qty" aria-required="true"></label></p>
-        <p><label>Unit price (AED) <input name="price" value="0" inputmode="decimal" dir="ltr" required id="f-price" aria-required="true"></label></p>
+        <p><label>Unit price (AED) <input name="price" value="0" inputmode="decimal" dir="ltr" id="f-price"></label></p>
         <p><button type="submit">Add part</button></p>
       </form>
     </section>
@@ -244,6 +251,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
         <tfoot><tr><th scope="row" colspan="2">Total (AED)</th><td dir="ltr" id="parts-total">50.00</td><th scope="row"><span class="visually-hidden">Actions</span></th></tr></tfoot>
       </table></div>
       
+      
+      
     </section>
 
     <section id="notes">
@@ -389,6 +398,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
         </tbody>
         <tfoot><tr><th scope="row" colspan="2">الإجمالي (درهم)</th><td dir="ltr" id="parts-total">50.00</td><th scope="row"><span class="visually-hidden">الإجراءات</span></th></tr></tfoot>
       </table></div>
+      
+      
       
     </section>
 

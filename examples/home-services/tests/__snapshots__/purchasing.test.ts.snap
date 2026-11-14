@@ -1,0 +1,755 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`snapshots the list and an order, in English and in Arabic: role: purchase orders sent, manager, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Purchase orders · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/purchasing">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · admin</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/purchasing?status=sent&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>Purchase orders</h1>
+  <h2 id="branch-name" dir="auto">Dubai</h2>
+  <form class="search" role="search" action="/admin/purchasing" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">—</option>
+        <option value="draft" dir="auto">Draft</option><option value="sent" selected dir="auto">Sent</option><option value="partly_received" dir="auto">Partly received</option><option value="received" dir="auto">Received</option><option value="cancelled" dir="auto">Cancelled</option>
+      </select></label>
+    <label>Supplier
+      <select name="supplier">
+        <option value="">—</option>
+        <option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a03" dir="auto">Closed Supplier</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option>
+      </select></label>
+    <button type="submit">Filter</button>
+  </form>
+  <div class="table-scroll" tabindex="0"><table id="orders">
+    <caption class="visually-hidden">Purchase orders</caption>
+    <thead>
+      <tr><th scope="col">Number</th><th scope="col">Supplier</th><th scope="col">Status</th><th scope="col">Created</th><th scope="col">Expected on</th><th scope="col">Total</th></tr>
+    </thead>
+    <tbody>
+      <tr id="po-po_<id>">
+        <td dir="ltr"><a href="/admin/purchasing/po_<id>" dir="auto">PO-000010</a></td>
+        <td dir="auto">Al Noor Trading</td>
+        <td><span class="status status-sent" dir="auto">Sent</span></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr">AED 40.96</td>
+      </tr><tr id="po-po_<id>">
+        <td dir="ltr"><a href="/admin/purchasing/po_<id>" dir="auto">PO-DEMO02</a></td>
+        <td dir="auto">Gulf Cooling Supplies LLC</td>
+        <td><span class="status status-sent" dir="auto">Sent</span></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr">AED 945.00</td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+  <section id="po-form">
+    <h2>New purchase order</h2>
+    <form method="post" action="?/create" hx-post="?/create" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>Supplier <select name="supplier" id="f-supplier" required aria-required="true"><option value=""></option><option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option></select></label></p>
+      <p><label>Language of the document <select name="language" id="f-language"><option value="en" selected>English</option><option value="ar">العربية</option></select></label></p>
+      <p><label>Expected on <input name="expected_on" type="date" dir="ltr" id="f-expected_on"></label></p>
+      <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
+      <p><button type="submit" class="btn-brand" id="create-po">Create the purchase order</button></p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`snapshots the list and an order, in English and in Arabic: role: purchase order sent, manager, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>PO-000010 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/purchasing/po_<id>">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · admin</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/purchasing/po_<id>?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <p><a href="/admin/purchasing">Back to purchase orders</a></p>
+  <h1 dir="ltr">PO-000010</h1>
+  <p><span class="status status-sent" id="po-status" dir="auto">Sent</span></p>
+  
+  
+  <dl class="detail">
+    <dt>Supplier</dt>
+    <dd><span dir="auto">Al Noor Trading<br><span>TRN: <bdi dir="ltr">100123456700003</bdi><br></span><bdi dir="ltr">orders@alnoor.example</bdi></span></dd>
+    <dt>Delivery branch</dt>
+    <dd dir="auto">Dubai</dd>
+    <dt>Language of the document</dt>
+    <dd dir="auto">English</dd>
+    <dt>Created</dt>
+    <dd dir="ltr"><date></dd>
+    <dt>Expected on</dt>
+    <dd dir="ltr"><date></dd>
+    <dt>Sent on</dt>
+    <dd dir="ltr"><date></dd>
+    
+    
+  </dl>
+  <p dir="auto"><strong>Notes:</strong> Call before delivery</p>
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">Lines of the purchase order</caption>
+    <thead><tr><th scope="col">SKU</th><th scope="col">Part</th><th scope="col">Quantity</th><th scope="col">Unit cost (AED)</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th><th scope="col">Received</th></tr></thead>
+    <tbody>
+      <tr id="line-19">
+        <td dir="ltr">AC-FILTER</td>
+        <td dir="auto">AC filter</td>
+        <td dir="ltr">3 <small dir="auto">piece</small></td>
+        <td dir="ltr">AED 5.50</td>
+        <td dir="ltr">AED 16.50</td>
+        <td dir="ltr">AED 0.83 <bdi dir="ltr">(5%)</bdi></td>
+        <td dir="ltr">AED 17.33</td>
+        <td dir="ltr">0</td>
+        
+      </tr><tr id="line-20">
+        <td dir="ltr">PIPE-15</td>
+        <td dir="auto">Copper pipe 15 mm</td>
+        <td dir="ltr">2.5 <small dir="auto">metre</small></td>
+        <td dir="ltr">AED 9.00</td>
+        <td dir="ltr">AED 22.50</td>
+        <td dir="ltr">AED 1.13 <bdi dir="ltr">(5%)</bdi></td>
+        <td dir="ltr">AED 23.63</td>
+        <td dir="ltr">0</td>
+        
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="6">Net</th><td dir="ltr" id="net">AED 39.00</td></tr>
+      <tr><th scope="row" colspan="6">VAT</th><td dir="ltr" id="vat">AED 1.96</td></tr>
+      <tr><th scope="row" colspan="6">Total</th><td dir="ltr" id="total"><strong dir="auto">AED 40.96</strong></td></tr>
+    </tfoot>
+  </table></div>
+  <p id="pdf-links">PDF: <a id="pdf-en" href="/admin/purchasing/po_<id>/pdf?lang=en" lang="en">English</a> · <a id="pdf-ar" href="/admin/purchasing/po_<id>/pdf?lang=ar" lang="ar">العربية</a></p>
+
+  
+
+  <section id="receive-section">
+    <h2>Receive a delivery</h2>
+    <p><small class="muted">Enter what arrived, up to the outstanding quantity, and the unit cost on the supplier&#39;s invoice. Each line is booked into this branch&#39;s stock.</small></p>
+    <form method="post" action="?/receive" hx-post="?/receive" class="stack" id="receive-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <div class="table-scroll" tabindex="0"><table id="receive-lines">
+        <caption class="visually-hidden">Receive a delivery</caption>
+        <thead><tr><th scope="col">SKU</th><th scope="col">Outstanding</th><th scope="col">Received now</th><th scope="col">Unit cost paid (AED)</th></tr></thead>
+        <tbody>
+          <tr id="receive-19">
+            <td dir="ltr">AC-FILTER</td>
+            <td dir="ltr">3</td>
+            <td><input name="qty_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_0" value="3" aria-label="Received now"></td>
+            <td><input name="price_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-price_0" value="5.50" aria-label="Unit cost paid (AED)"></td>
+          </tr><tr id="receive-20">
+            <td dir="ltr">PIPE-15</td>
+            <td dir="ltr">2.5</td>
+            <td><input name="qty_1" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_1" value="2.5" aria-label="Received now"></td>
+            <td><input name="price_1" dir="ltr" inputmode="decimal" size="8" id="f-receive-price_1" value="9.00" aria-label="Unit cost paid (AED)"></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <p><button type="submit" class="btn-brand" id="receive-submit">Book the delivery</button></p>
+    </form>
+  </section>
+
+  <section id="po-actions">
+    
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit" id="cancel-po">Cancel the order</button>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`snapshots the list and an order, in English and in Arabic: role: purchase order draft, manager, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>PO-<n> · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/purchasing/po_<id>">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · admin</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin/purchasing/po_<id>?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/import">Import</a>
+      <a href="/admin/parts">Parts</a>
+      <a href="/admin/suppliers">Suppliers</a>
+      <a href="/admin/whatsapp">WhatsApp</a>
+      <a href="/admin/people">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <p><a href="/admin/purchasing">Back to purchase orders</a></p>
+  <h1 dir="ltr">PO-<n></h1>
+  <p><span class="status status-draft" id="po-status" dir="auto">Draft</span></p>
+  
+  
+  <dl class="detail">
+    <dt>Supplier</dt>
+    <dd><span dir="auto">Al Noor Trading<br><span>TRN: <bdi dir="ltr">100123456700003</bdi><br></span><bdi dir="ltr">orders@alnoor.example</bdi></span></dd>
+    <dt>Delivery branch</dt>
+    <dd dir="auto">Dubai</dd>
+    <dt>Language of the document</dt>
+    <dd dir="auto">English</dd>
+    <dt>Created</dt>
+    <dd dir="ltr"><date></dd>
+    
+    
+    
+    
+    
+    
+  </dl>
+  
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">Lines of the purchase order</caption>
+    <thead><tr><th scope="col">SKU</th><th scope="col">Part</th><th scope="col">Quantity</th><th scope="col">Unit cost (AED)</th><th scope="col">Net</th><th scope="col">VAT</th><th scope="col">Total</th><th scope="col">Received</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+      <tr id="line-21">
+        <td dir="ltr">AC-FILTER</td>
+        <td dir="auto">AC filter</td>
+        <td dir="ltr">1 <small dir="auto">piece</small></td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="ltr">AED 6.00</td>
+        <td dir="ltr">AED 0.30 <bdi dir="ltr">(5%)</bdi></td>
+        <td dir="ltr">AED 6.30</td>
+        <td dir="ltr">0</td>
+        <td>
+          <form method="post" action="?/remove_line" hx-post="?/remove_line" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="line" value="21">
+            <button type="submit" id="remove-21">Remove</button>
+          </form>
+        </td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="6">Net</th><td dir="ltr" id="net">AED 6.00</td></tr>
+      <tr><th scope="row" colspan="6">VAT</th><td dir="ltr" id="vat">AED 0.30</td></tr>
+      <tr><th scope="row" colspan="6">Total</th><td dir="ltr" id="total"><strong dir="auto">AED 6.30</strong></td></tr>
+    </tfoot>
+  </table></div>
+  <p id="pdf-links">PDF: <a id="pdf-en" href="/admin/purchasing/po_<id>/pdf?lang=en" lang="en">English</a> · <a id="pdf-ar" href="/admin/purchasing/po_<id>/pdf?lang=ar" lang="ar">العربية</a></p>
+
+  <section id="line-form">
+    <h2>Add a line</h2>
+    <form method="post" action="?/add_line" hx-post="?/add_line" class="stack narrow" id="add-line-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>Part <select name="part" id="f-line-part" required aria-required="true"><option value=""></option><option value="pt_0000000000815a01" dir="auto">AC-FILTER: AC filter (6.00)</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: Run capacitor 35 uF (22.00)</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: Run capacitor 45 uF (26.00)</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: Descaling kit (20.00)</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: AC filter, cassette unit (18.00)</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: AC filter, split unit (12.00)</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: Kitchen mixer tap (110.00)</option><option value="pt_0000000000815a02" dir="auto">PIPE-15: Copper pipe 15 mm (10.00)</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: PVC elbow 25 mm (1.50)</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: PVC pipe 25 mm (4.50)</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: PVC tee 25 mm (2.00)</option><option value="pt_00000000000d0006" dir="auto">REF-R22: Refrigerant R22 (45.00)</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: Refrigerant R410A (38.00)</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: Silicone sealant, clear (11.00)</option></select></label></p>
+      <p><label>Quantity <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-line-qty" value=""></label></p>
+      <p><label>Unit cost (AED) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" id="f-line-unit_cost" value=""></label> <small class="muted">Leave blank for the part&#39;s cost.</small></p>
+      <p><button type="submit" class="btn-brand" id="add-line">Add the line</button></p>
+    </form>
+  </section>
+
+  
+
+  <section id="po-actions">
+    <form method="post" action="?/send" hx-post="?/send" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit" class="btn-brand" id="send-po">Send to the supplier</button>
+    </form>
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit" id="cancel-po">Cancel the order</button>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`snapshots the list and an order, in English and in Arabic: role: purchase orders sent, manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>أوامر الشراء · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/purchasing">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/purchasing?status=sent&amp;lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <h1>أوامر الشراء</h1>
+  <h2 id="branch-name" dir="auto">دبي</h2>
+  <form class="search" role="search" action="/admin/purchasing" method="get">
+    <label>الحالة
+      <select name="status">
+        <option value="">—</option>
+        <option value="draft" dir="auto">مسودة</option><option value="sent" selected dir="auto">مُرسَل</option><option value="partly_received" dir="auto">مستلم جزئيًا</option><option value="received" dir="auto">مستلم</option><option value="cancelled" dir="auto">ملغى</option>
+      </select></label>
+    <label>المورّد
+      <select name="supplier">
+        <option value="">—</option>
+        <option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_0000000000815a03" dir="auto">Closed Supplier</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option>
+      </select></label>
+    <button type="submit">تصفية</button>
+  </form>
+  <div class="table-scroll" tabindex="0"><table id="orders">
+    <caption class="visually-hidden">أوامر الشراء</caption>
+    <thead>
+      <tr><th scope="col">الرقم</th><th scope="col">المورّد</th><th scope="col">الحالة</th><th scope="col">تاريخ الإنشاء</th><th scope="col">التسليم المتوقع</th><th scope="col">الإجمالي</th></tr>
+    </thead>
+    <tbody>
+      <tr id="po-po_<id>">
+        <td dir="ltr"><a href="/admin/purchasing/po_<id>" dir="auto">PO-000010</a></td>
+        <td dir="auto">Al Noor Trading</td>
+        <td><span class="status status-sent" dir="auto">مُرسَل</span></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr">40.96 د.إ.</td>
+      </tr><tr id="po-po_<id>">
+        <td dir="ltr"><a href="/admin/purchasing/po_<id>" dir="auto">PO-DEMO02</a></td>
+        <td dir="auto">Gulf Cooling Supplies LLC</td>
+        <td><span class="status status-sent" dir="auto">مُرسَل</span></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr"><date></td>
+        <td dir="ltr">945.00 د.إ.</td>
+      </tr>
+    </tbody>
+  </table></div>
+  
+  <section id="po-form">
+    <h2>أمر شراء جديد</h2>
+    <form method="post" action="?/create" hx-post="?/create" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>المورّد <select name="supplier" id="f-supplier" required aria-required="true"><option value=""></option><option value="su_0000000000815a01" dir="auto">Al Noor Trading</option><option value="su_00000000000d0002" dir="auto">Emirates Plumbing Trading</option><option value="su_00000000000d0001" dir="auto">Gulf Cooling Supplies LLC</option><option value="su_0000000000815a02" dir="auto">Walk-in Pipes</option></select></label></p>
+      <p><label>لغة المستند <select name="language" id="f-language"><option value="en" selected>English</option><option value="ar">العربية</option></select></label></p>
+      <p><label>التسليم المتوقع <input name="expected_on" type="date" dir="ltr" id="f-expected_on"></label></p>
+      <p><label>ملاحظات <textarea name="notes" rows="3" maxlength="1000" id="f-notes" dir="auto"></textarea></label></p>
+      <p><button type="submit" class="btn-brand" id="create-po">إنشاء أمر الشراء</button></p>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`snapshots the list and an order, in English and in Arabic: role: purchase order sent, manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>PO-000010 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/purchasing/po_<id>">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/purchasing/po_<id>?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <p><a href="/admin/purchasing">العودة إلى أوامر الشراء</a></p>
+  <h1 dir="ltr">PO-000010</h1>
+  <p><span class="status status-sent" id="po-status" dir="auto">مُرسَل</span></p>
+  
+  
+  <dl class="detail">
+    <dt>المورّد</dt>
+    <dd><span dir="auto">Al Noor Trading<br><span>TRN: <bdi dir="ltr">100123456700003</bdi><br></span><bdi dir="ltr">orders@alnoor.example</bdi></span></dd>
+    <dt>فرع التسليم</dt>
+    <dd dir="auto">دبي</dd>
+    <dt>لغة المستند</dt>
+    <dd dir="auto">English</dd>
+    <dt>تاريخ الإنشاء</dt>
+    <dd dir="ltr"><date></dd>
+    <dt>التسليم المتوقع</dt>
+    <dd dir="ltr"><date></dd>
+    <dt>تاريخ الإرسال</dt>
+    <dd dir="ltr"><date></dd>
+    
+    
+  </dl>
+  <p dir="auto"><strong>ملاحظات:</strong> Call before delivery</p>
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">بنود أمر الشراء</caption>
+    <thead><tr><th scope="col">الرمز</th><th scope="col">القطعة</th><th scope="col">الكمية</th><th scope="col">تكلفة الوحدة (درهم)</th><th scope="col">الصافي</th><th scope="col">ضريبة القيمة المضافة</th><th scope="col">الإجمالي</th><th scope="col">المستلم</th></tr></thead>
+    <tbody>
+      <tr id="line-19">
+        <td dir="ltr">AC-FILTER</td>
+        <td dir="auto">فلتر مكيف</td>
+        <td dir="ltr">3 <small dir="auto">قطعة</small></td>
+        <td dir="ltr">5.50 د.إ.</td>
+        <td dir="ltr">16.50 د.إ.</td>
+        <td dir="ltr">0.83 د.إ. <bdi dir="ltr">(5%)</bdi></td>
+        <td dir="ltr">17.33 د.إ.</td>
+        <td dir="ltr">0</td>
+        
+      </tr><tr id="line-20">
+        <td dir="ltr">PIPE-15</td>
+        <td dir="auto">أنبوب نحاسي 15 مم</td>
+        <td dir="ltr">2.5 <small dir="auto">متر</small></td>
+        <td dir="ltr">9.00 د.إ.</td>
+        <td dir="ltr">22.50 د.إ.</td>
+        <td dir="ltr">1.13 د.إ. <bdi dir="ltr">(5%)</bdi></td>
+        <td dir="ltr">23.63 د.إ.</td>
+        <td dir="ltr">0</td>
+        
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="6">الصافي</th><td dir="ltr" id="net">39.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="6">ضريبة القيمة المضافة</th><td dir="ltr" id="vat">1.96 د.إ.</td></tr>
+      <tr><th scope="row" colspan="6">الإجمالي</th><td dir="ltr" id="total"><strong dir="auto">40.96 د.إ.</strong></td></tr>
+    </tfoot>
+  </table></div>
+  <p id="pdf-links">ملف PDF: <a id="pdf-en" href="/admin/purchasing/po_<id>/pdf?lang=en" lang="en">English</a> · <a id="pdf-ar" href="/admin/purchasing/po_<id>/pdf?lang=ar" lang="ar">العربية</a></p>
+
+  
+
+  <section id="receive-section">
+    <h2>استلام شحنة</h2>
+    <p><small class="muted">أدخل ما وصل، حتى الكمية المتبقية، وتكلفة الوحدة في فاتورة المورّد. يُسجَّل كل بند في مخزون هذا الفرع.</small></p>
+    <form method="post" action="?/receive" hx-post="?/receive" class="stack" id="receive-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <div class="table-scroll" tabindex="0"><table id="receive-lines">
+        <caption class="visually-hidden">استلام شحنة</caption>
+        <thead><tr><th scope="col">الرمز</th><th scope="col">المتبقي</th><th scope="col">المستلم الآن</th><th scope="col">تكلفة الوحدة المدفوعة (درهم)</th></tr></thead>
+        <tbody>
+          <tr id="receive-19">
+            <td dir="ltr">AC-FILTER</td>
+            <td dir="ltr">3</td>
+            <td><input name="qty_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_0" value="3" aria-label="المستلم الآن"></td>
+            <td><input name="price_0" dir="ltr" inputmode="decimal" size="8" id="f-receive-price_0" value="5.50" aria-label="تكلفة الوحدة المدفوعة (درهم)"></td>
+          </tr><tr id="receive-20">
+            <td dir="ltr">PIPE-15</td>
+            <td dir="ltr">2.5</td>
+            <td><input name="qty_1" dir="ltr" inputmode="decimal" size="8" id="f-receive-qty_1" value="2.5" aria-label="المستلم الآن"></td>
+            <td><input name="price_1" dir="ltr" inputmode="decimal" size="8" id="f-receive-price_1" value="9.00" aria-label="تكلفة الوحدة المدفوعة (درهم)"></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <p><button type="submit" class="btn-brand" id="receive-submit">تسجيل التسليم</button></p>
+    </form>
+  </section>
+
+  <section id="po-actions">
+    
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit" id="cancel-po">إلغاء الأمر</button>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`snapshots the list and an order, in English and in Arabic: role: purchase order draft, manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>PO-<n> · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+  
+</head>
+<body>
+  <a class="skip" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin/purchasing/po_<id>">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="اللغة">
+      <a href="/admin/purchasing/po_<id>?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="المكتب الإداري">
+      <a href="/admin">الرئيسية</a>
+      <a href="/admin/settings">الهوية</a>
+      <a href="/admin/branches">الفروع</a>
+      <a href="/admin/import">الاستيراد</a>
+      <a href="/admin/parts">قطع الغيار</a>
+      <a href="/admin/suppliers">الموردون</a>
+      <a href="/admin/whatsapp">واتساب</a>
+      <a href="/admin/people">الأشخاص</a>
+      <a href="/admin/audit">سجل التدقيق</a>
+      <a href="/">قائمة العمل</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      
+  
+  <p><a href="/admin/purchasing">العودة إلى أوامر الشراء</a></p>
+  <h1 dir="ltr">PO-<n></h1>
+  <p><span class="status status-draft" id="po-status" dir="auto">مسودة</span></p>
+  
+  
+  <dl class="detail">
+    <dt>المورّد</dt>
+    <dd><span dir="auto">Al Noor Trading<br><span>TRN: <bdi dir="ltr">100123456700003</bdi><br></span><bdi dir="ltr">orders@alnoor.example</bdi></span></dd>
+    <dt>فرع التسليم</dt>
+    <dd dir="auto">دبي</dd>
+    <dt>لغة المستند</dt>
+    <dd dir="auto">English</dd>
+    <dt>تاريخ الإنشاء</dt>
+    <dd dir="ltr"><date></dd>
+    
+    
+    
+    
+    
+    
+  </dl>
+  
+  <div class="table-scroll" tabindex="0"><table id="lines">
+    <caption class="visually-hidden">بنود أمر الشراء</caption>
+    <thead><tr><th scope="col">الرمز</th><th scope="col">القطعة</th><th scope="col">الكمية</th><th scope="col">تكلفة الوحدة (درهم)</th><th scope="col">الصافي</th><th scope="col">ضريبة القيمة المضافة</th><th scope="col">الإجمالي</th><th scope="col">المستلم</th><th scope="col"><span class="visually-hidden">الإجراءات</span></th></tr></thead>
+    <tbody>
+      <tr id="line-22">
+        <td dir="ltr">AC-FILTER</td>
+        <td dir="auto">فلتر مكيف</td>
+        <td dir="ltr">1 <small dir="auto">قطعة</small></td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="ltr">6.00 د.إ.</td>
+        <td dir="ltr">0.30 د.إ. <bdi dir="ltr">(5%)</bdi></td>
+        <td dir="ltr">6.30 د.إ.</td>
+        <td dir="ltr">0</td>
+        <td>
+          <form method="post" action="?/remove_line" hx-post="?/remove_line" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+            <input type="hidden" name="line" value="22">
+            <button type="submit" id="remove-22">حذف</button>
+          </form>
+        </td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="6">الصافي</th><td dir="ltr" id="net">6.00 د.إ.</td></tr>
+      <tr><th scope="row" colspan="6">ضريبة القيمة المضافة</th><td dir="ltr" id="vat">0.30 د.إ.</td></tr>
+      <tr><th scope="row" colspan="6">الإجمالي</th><td dir="ltr" id="total"><strong dir="auto">6.30 د.إ.</strong></td></tr>
+    </tfoot>
+  </table></div>
+  <p id="pdf-links">ملف PDF: <a id="pdf-en" href="/admin/purchasing/po_<id>/pdf?lang=en" lang="en">English</a> · <a id="pdf-ar" href="/admin/purchasing/po_<id>/pdf?lang=ar" lang="ar">العربية</a></p>
+
+  <section id="line-form">
+    <h2>إضافة بند</h2>
+    <form method="post" action="?/add_line" hx-post="?/add_line" class="stack narrow" id="add-line-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>القطعة <select name="part" id="f-line-part" required aria-required="true"><option value=""></option><option value="pt_0000000000815a01" dir="auto">AC-FILTER: فلتر مكيف (6.00)</option><option value="pt_00000000000d0003" dir="auto">CAP-35UF: مكثف تشغيل 35 ميكروفاراد (22.00)</option><option value="pt_00000000000d0004" dir="auto">CAP-45UF: مكثف تشغيل 45 ميكروفاراد (26.00)</option><option value="pt_00000000000d000c" dir="auto">DESCALE-KIT: عدة إزالة الترسبات (20.00)</option><option value="pt_00000000000d0002" dir="auto">FIL-AC-C: فلتر مكيف كاسيت (18.00)</option><option value="pt_00000000000d0001" dir="auto">FIL-AC-S: فلتر مكيف سبليت (12.00)</option><option value="pt_00000000000d000b" dir="auto">MIXER-TAP: خلاط حوض المطبخ (110.00)</option><option value="pt_0000000000815a02" dir="auto">PIPE-15: أنبوب نحاسي 15 مم (10.00)</option><option value="pt_00000000000d0007" dir="auto">PVC-ELB-25: كوع بي في سي 25 مم (1.50)</option><option value="pt_00000000000d0009" dir="auto">PVC-PIPE-25: أنبوب بي في سي 25 مم (4.50)</option><option value="pt_00000000000d0008" dir="auto">PVC-TEE-25: تي بي في سي 25 مم (2.00)</option><option value="pt_00000000000d0006" dir="auto">REF-R22: غاز التبريد R22 (45.00)</option><option value="pt_00000000000d0005" dir="auto">REF-R410A: غاز التبريد R410A (38.00)</option><option value="pt_00000000000d000a" dir="auto">SEAL-SIL-CL: سيليكون شفاف (11.00)</option></select></label></p>
+      <p><label>الكمية <input name="qty" dir="ltr" inputmode="decimal" size="10" required aria-required="true" id="f-line-qty" value=""></label></p>
+      <p><label>تكلفة الوحدة (درهم) <input name="unit_cost" dir="ltr" inputmode="decimal" size="10" id="f-line-unit_cost" value=""></label> <small class="muted">اتركه فارغًا لاستخدام تكلفة القطعة.</small></p>
+      <p><button type="submit" class="btn-brand" id="add-line">إضافة البند</button></p>
+    </form>
+  </section>
+
+  
+
+  <section id="po-actions">
+    <form method="post" action="?/send" hx-post="?/send" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit" class="btn-brand" id="send-po">إرسال إلى المورّد</button>
+    </form>
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit" id="cancel-po">إلغاء الأمر</button>
+    </form>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;

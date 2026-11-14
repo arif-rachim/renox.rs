@@ -97,6 +97,16 @@ rw((db) => {
   const ok = JSON.stringify({ errors: [], insert: 2, update: 0, exists: 1 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11b0', 'customers', 'k1', 'bad.xlsx', 'checked', 3, 1, 0, 2, ?, 'u_owner', ?)", [bad, now]);
   db.run("insert into app__imports (id, kind, file_key, file_name, status, rows, ok, skipped, errors, report, created_by, created_at) values ('im_00000000000a11c0', 'customers', 'k2', 'ok.xlsx', 'checked', 3, 2, 1, 0, ?, 'u_owner', ?)", [ok, now]);
+  // Parts and suppliers (#812): one active and one deactivated of each.
+  db.run("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_00000000000a11a1', 'A11Y-PIPE', 'Copper pipe 15 mm', 'أنبوب نحاسي 15 مم', 'metre', 850, 1400, 5, 20, 1, ?)", [now]);
+  db.run("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_00000000000a11a2', 'A11Y-GAS', 'R32 refrigerant', 'غاز التبريد R32', 'kg', 4500, 0, 0, 3.5, 0, ?)", [now]);
+  db.run("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_00000000000a11a1', 'Al Noor Trading', '100123456700003', '+97144110088', 'orders@alnoor.example', 'Dubai', 'Net 30', 1, ?)", [now]);
+  db.run("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_00000000000a11a2', 'Old Pipes LLC', null, '', '', '', '', 0, ?)", [now]);
+  // Purchase orders (#815): a draft with a line, a sent one with a line, and a partly received one (its lines need no stock rows: receiving is tested by purchasing.test.ts).
+  db.run("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_00000000000a11a1', 'br_dubai', 'su_00000000000a11a1', 'PO-A11Y01', 'draft', 'en', '2026-12-31', 'Call before delivery', 'u_dxb_manager', ?, null)", [now]);
+  db.run("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_00000000000a11a2', 'br_dubai', 'su_00000000000a11a1', 'PO-A11Y02', 'sent', 'ar', null, '', 'u_dxb_manager', ?, ?)", [now, now]);
+  db.run("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_00000000000a11a3', 'br_dubai', 'su_00000000000a11a1', 'PO-A11Y03', 'partly_received', 'en', null, '', 'u_dxb_manager', ?, ?)", [now, now]);
+  for (const po of ["po_00000000000a11a1", "po_00000000000a11a2", "po_00000000000a11a3"]) db.run("insert into app__purchase_order_lines (po_id, branch_id, part_id, qty, unit_cost_fils, received_qty) values (?, 'br_dubai', 'pt_00000000000a11a1', 12.5, 850, ?)", [po, po.endsWith("3") ? 5 : 0]);
   // The background states of #733: a file being checked (its page reloads itself) and one that failed.
   const empty = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_00000000000a11d0', 'customers', 'k3', 'waiting.xlsx', 'checking', ?, 'u_owner', ?)", [empty, now]);
@@ -115,6 +125,9 @@ rw((db) => {
   db.run("insert into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values ('INV-000950', 'invoice', null, ?, 12000, 0, 0, 600, ?)", [body, now * 1000]);
   db.run("insert into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values (null, 'br_dubai', 'cu_dxb_02', 'INV-000950', 12600, ?, null, 'u_dxb_accountant', ?)", [now + 30 * 86_400, now]);
 });
+// Stock (#813): Dubai receives some of the active part through the page, as the owner would (the tables are written by
+// lib/stock.ts only), so /admin/stock and its history have a row and a move; the part is under its minimum.
+expect((await owner.action("/admin/stock", "receive", { branch: "br_dubai", part: "pt_00000000000a11a1", qty: "8", unit_cost: "8.50", reason: "delivery for the audit" })).status).toBe(303);
 
 // Two self-bookings of Peter's waiting for the dispatcher (#779): one at a time the technicians are free (the
 // confirm form) and one on a Sunday, when the branch is closed (no technician free: Confirm disabled).
@@ -300,6 +313,29 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/admin/whatsapp?status=failed", as: () => owner, note: "a filter" },
   { path: "/admin/people", as: () => owner },
   { path: "/admin/import", as: () => owner },
+  { path: "/admin/parts", as: () => owner },
+  { path: "/admin/parts?edit=pt_00000000000a11a1", as: () => owner, note: "editing a part (#812)" },
+  { path: "/admin/parts?q=pipe", as: () => owner, note: "a search" },
+  { path: "/admin/parts", as: () => dispatcher, note: "read-only, no form" },
+  { path: "/admin/stock", as: () => owner, note: "stock per branch, with the three forms (#813)" },
+  { path: "/admin/stock?branch=br_sharjah&low=1", as: () => owner, note: "another branch, low stock only" },
+  { path: "/admin/stock?q=pipe", as: () => owner, note: "a search" },
+  { path: "/admin/stock", as: () => dispatcher, note: "read-only, no form" },
+  { path: "/admin/stock/pt_00000000000a11a1", as: () => owner, note: "the moves of a part" },
+  { path: "/admin/stock/pt_00000000000a11a1", as: () => dispatcher, note: "the moves of a part, read-only" },
+  { path: "/reports/stock", as: () => owner, note: "the stock report of both branches (#816)" },
+  { path: "/reports/stock?from=2020-01-01&to=2020-01-31", as: () => owner, note: "a period with no moves" },
+  { path: "/reports/stock", as: () => dispatcher, note: "one branch, read-only" },
+  { path: "/admin/suppliers", as: () => owner },
+  { path: "/admin/suppliers?edit=su_00000000000a11a1", as: () => owner, note: "editing a supplier (#812)" },
+  { path: "/admin/suppliers", as: () => accountant, note: "read-only, no form" },
+  { path: "/admin/purchasing", as: () => owner, note: "purchase orders, with the new-order form (#815)" },
+  { path: "/admin/purchasing?status=sent&supplier=su_00000000000a11a1", as: () => owner, note: "a filter" },
+  { path: "/admin/purchasing", as: () => accountant, note: "read-only, no form" },
+  { path: "/admin/purchasing/po_00000000000a11a1", as: () => owner, note: "a draft: add a line, send, cancel" },
+  { path: "/admin/purchasing/po_00000000000a11a2", as: () => owner, note: "sent: the receive form" },
+  { path: "/admin/purchasing/po_00000000000a11a3", as: () => owner, note: "partly received" },
+  { path: "/admin/purchasing/po_00000000000a11a2", as: () => accountant, note: "read-only, no form" },
   { path: "/admin/import/im_00000000000a11b0", as: () => owner, note: "a file with errors" },
   { path: "/admin/import/im_00000000000a11c0", as: () => owner, note: "a clean file" },
   { path: "/admin/import/im_00000000000a11d0", as: () => owner, note: "being checked" },

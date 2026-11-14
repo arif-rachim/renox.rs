@@ -13,7 +13,7 @@ import { aed } from "./money";
 import { getSettings, pdfBrand } from "./settings";
 import { type Branch, branchDb, type Scopable } from "./scope";
 import { memberName } from "./technicians";
-import { photosOf, partsOf, partTotal, visitById } from "./visit-data";
+import { partName, photosOf, partsOf, partTotal, visitById } from "./visit-data";
 
 interface ReportCtx {
   readonly db: Scopable;
@@ -58,7 +58,7 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
   const own: ReportLang = customer?.language === "ar" ? "ar" : "en";
   const language: ReportLang = lang ?? own;
   const settings = await getSettings(sdb);
-  const parts = (await partsOf(sdb, visit.id)).map((p) => ({ description: p.description, qty: p.qty, unit_price: p.unit_price_fils / 100, total: partTotal(p) / 100 }));
+  const parts = (await partsOf(sdb, visit.id)).map((p) => ({ description: p.sku === null ? p.description : `${p.sku} · ${partName(p, language)}`, qty: p.qty, unit_price: p.unit_price_fils / 100, total: partTotal(p) / 100 }));
   const photos = (await photosOf(sdb, visit.id)).map((p) => ({ phase: p.phase, caption: p.caption, file_key: p.file_key }));
   const data = {
     job_number: job.number,

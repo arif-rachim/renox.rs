@@ -31,6 +31,8 @@ Roles are the `[authz.default_roles]` of `renox.toml`; branches are `org` organi
 | Accountant | Issues tax invoices and credit notes, records payments, reads and exports the reports. |
 | Customer | No login: signed links to approve a quotation, read the visit report and the invoice. |
 
+Inventory follows the same roles. The owner and the branch manager keep the parts and the suppliers (`part.write`), move stock (`stock.move`) and raise purchase orders (`purchase.write`); the dispatcher reads the parts and the stock (`part.read`, `stock.read`); the accountant reads those and the suppliers and purchase orders too (`purchase.read`); a technician sees the parts list and picks a part on a visit, and nothing of the stock. The stock report and the low-stock tile need `stock.read`.
+
 ## The flow, end to end
 
 1. **Request.** A customer writes on WhatsApp or calls; the dispatcher finds or adds the customer and the site (`/customers`; `gcc` checks the +971 number and the TRN).
@@ -63,6 +65,16 @@ Roles are the `[authz.default_roles]` of `renox.toml`; branches are `org` organi
 8. **Reports.** The owner and the accountant see sales per day, jobs and hours per technician, contracts due for renewal and outstanding invoices by age, and export each as CSV or Excel.
 
    _Screenshot: the reports page._
+
+9. **Parts and stock.** The company knows what it has in each branch (`/admin/parts`, `/admin/stock`, `/admin/suppliers`, `/admin/purchasing`). The path of a part:
+   - **Buy.** The owner or the branch manager adds the part (SKU, names in English and Arabic, unit, cost, selling price, VAT, minimum stock) and the supplier, then raises a purchase order for the active branch (`/admin/purchasing`: a draft with lines, each a part, a quantity and a unit cost). **Send** marks it sent and offers its PDF in English or Arabic (`/admin/purchasing/<id>/pdf`); the platform's `email` module cannot attach a file yet, so the office downloads the PDF and sends it to the supplier.
+   - **Receive.** When the goods arrive, the order's page takes what came, in part or in full, with the cost really paid: each line is one `in` move into the order's branch, the branch's average cost follows, and the order becomes *partly received* and then *received*. Stock that arrives without an order is received on `/admin/stock`.
+   - **Use on a visit.** On the visit page the technician picks the part from the list (the quantity on hand is shown) or types a free-text part as before. A picked part takes its name and selling price from the list and the same save takes the quantity out of the branch's stock: one `out` move that names the visit. A phone that sends the same action twice moves stock once (the offline queue's `action_id`). A visit may take the balance below zero (the technician used what the books did not have): the move shows as negative and the branch's dispatchers are told once for that part and day.
+   - **Count.** `/admin/stock` shows each branch's parts with the quantity, minimum, average cost and value. The owner or the manager records what was counted on the shelf (one `adjust` move with the difference and the count in its reason; it asks for the second factor), or transfers stock to another branch (a pair of moves). A part's page, `/admin/stock/<part>`, is its move history: who, why, and the balance after each move. The quantity is never edited, only moved.
+   - **Low stock.** A part is low when what a branch has is under its minimum. The admin tile shows "Parts low on stock" (over the branches the owner holds) and links to `/admin/stock?low=1`; every day at 08:00 (Dubai) a job tells each branch's managers and the owner in the app, with up to ten parts (SKU, name, on hand, minimum), unless the list is the one told yesterday. The owner's connector answers "what are we running out of?" with the tool `list_low_stock`.
+   - **Report.** `/reports/stock` lists, for each branch the viewer holds, the stock with its value at average cost and its total, and the moves of a period (the current month unless `?from=&to=`): received, used on visits, adjusted and transferred per part. Each table downloads as CSV or Excel (`stock` and `moves`, one sheet each; names are text, never formulas).
+
+   _Screenshot: the stock page with a low part, and the purchase order's PDF._
 
 The back office at `/admin` holds the branding settings, the branches, the users and their roles per branch, and the audit log. An AI agent can use three MCP tools of the app: `next_free_slot`, `job_status` and `create_job` (with a confirmation step).
 
@@ -97,7 +109,9 @@ A technician in a basement or a lift lobby can finish a visit with no signal. Th
 | `admin` | The back office, mounted at `/admin`; the app fills its `admin.sidebar` and `admin.dashboard` slots through `[[slots]]` in `renox.toml`, and its users page is `/admin/people`. An invited person's pending role is applied by `hooks.ts` on `org.member_added`, which emits the app's own `app.member_ready`. |
 | `gcc` | Emirates, +971 numbers, TRN and trade licence checks. |
 
-The PDFs (quotation, visit report, invoice, statement, contract) are `ctx.pdf` templates under `partials/pdf/`; the PDF engine renders text only, so photos are listed by caption and the signature by the signer's name.
+Inventory is not a module. Parts, stock, stock moves, suppliers and purchase orders are tables of the app (`app__parts`, `app__stock`, `app__stock_moves`, `app__suppliers`, `app__purchase_orders` and their lines), because the owner's decision of 2026-11-09 was to keep them in the example and promote them to an official module only when a second vertical needs them (`docs/plans/2026-11-09-home-services-v1-1.md`, "Decisions"). One file, `lib/stock.ts`, writes the stock tables, so the number on hand is always the result of moves; the branch fence is the same `[authz.ownership]` as for jobs.
+
+The PDFs (quotation, visit report, invoice, statement, contract, purchase order) are `ctx.pdf` templates under `partials/pdf/`; the PDF engine renders text only, so photos are listed by caption and the signature by the signer's name.
 
 ## Arabic and right-to-left
 
@@ -144,6 +158,7 @@ This is the path from "yes" to "their staff use it on Monday" for one pilot comp
 Ask the company for:
 
 - their customer list, their sites, their price list and their running contracts, each as a spreadsheet (`.xlsx`; step 5 gives the columns);
+- if they keep parts: the parts list (SKU, names, unit, cost, selling price, minimum) and **a count of what each branch holds on the shelf today**: count your opening stock first, before the first visit that uses a part, so the books start true;
 - the logo as a PNG and the brand colour as a hex value (`#1f6f5c`);
 - the branch names and the emirate of each;
 - who is owner, manager, dispatcher, technician and accountant, with each person's email;
@@ -180,14 +195,16 @@ A technician opens `/me` on the phone and chooses "Add to Home Screen" (Chrome: 
 
 ### 5. Import the existing data
 
-`/admin/import` (the owner, with a recent second factor). Upload the four files **in this order**, because each one refers to the one before:
+`/admin/import` (the owner, with a recent second factor). Upload the six files **in this order**, because each one refers to the ones before:
 
 1. `customers`: the people and companies, by branch.
 2. `sites`: the addresses of those customers (found by the customer's phone).
 3. `services`: the price list.
-4. `contracts`: the running yearly contracts (they need the customer, the site and the service to exist).
+4. `parts`: the parts the company stocks (skip it when it stocks none).
+5. `stock`: the opening balances, one row per branch and part, from the shelf count of step 1 (it needs the parts and the branches to exist).
+6. `contracts`: the running yearly contracts (they need the customer, the site and the service to exist).
 
-Download the template of each kind from the page, or directly: `/admin/import/template/customers`, `/admin/import/template/sites`, `/admin/import/template/services` and `/admin/import/template/contracts`. Each is a one-sheet `.xlsx` with the header row and two example rows. Header names are not case-sensitive and extra columns are ignored; only the first sheet is read; a file is at most 10 MiB and 10,000 data rows.
+Download the template of each kind from the page, or directly: `/admin/import/template/customers`, `/admin/import/template/sites`, `/admin/import/template/services`, `/admin/import/template/parts`, `/admin/import/template/stock` and `/admin/import/template/contracts`. Each is a one-sheet `.xlsx` with the header row and two example rows. Header names are not case-sensitive and extra columns are ignored; only the first sheet is read; a file is at most 10 MiB and 10,000 data rows.
 
 The columns of each file, as `lib/import.ts` checks them (required columns in bold):
 
@@ -196,6 +213,8 @@ The columns of each file, as `lib/import.ts` checks them (required columns in bo
 | `customers` | **branch**, **kind**, **name**, **phone**, email, trn, language | `branch` is a branch's English name, Arabic name or slug, case-insensitive. `kind` is `company` or `household`. `phone`, `trn`, `email`, `name` and `language` are checked by the customer form's own rules (a TRN is not required for a company). The phone is stored normalised. `language` is `en` or `ar`, default `en`. A customer with the same branch and phone, in the app or earlier in the file, is `exists`. |
 | `sites` | **customer_phone**, **label**, **emirate**, **area**, **address**, makani, access_notes | `customer_phone` finds the customer by normalised phone in any branch: none is `unknown_customer`, more than one is `ambiguous_customer`. `emirate` is a code (`AE-DU`) or the emirate's English or Arabic name. `area`, `address`, `makani` and `access_notes` are checked by the site form's rules. The site takes the customer's branch. The same customer and label (case-insensitive) is `exists`. |
 | `services` | **code**, **name_en**, **name_ar**, **unit**, **price_aed**, vat_rate, branch | `code` is 1 to 32 characters `[A-Z0-9-]`, upper-cased. `unit` is `visit`, `hour` or `unit`. `price_aed` is ≥ 0 with at most two decimals, stored in fils (12.5 becomes 1250). `vat_rate` is 0 or 5, default 5. An empty `branch` means every branch. An existing `code` is `updated`. |
+| `parts` | **sku**, **name_en**, **name_ar**, **unit**, cost_aed, sell_aed, vat_rate, min_stock | `sku` is 1 to 32 characters `[A-Z0-9-]`, upper-cased (`bad_sku`). `unit` is `piece`, `metre`, `litre`, `kg` or `box` (`bad_part_unit`). `cost_aed` and `sell_aed` are ≥ 0 with at most two decimals, stored in fils; both default to 0. `vat_rate` is 0 or 5, default 5. `min_stock` has at most three decimals, default 0 (`bad_qty`). An existing `sku` is `updated` (names, unit, prices, VAT and minimum; the part's id and its active flag stay). The import writes no stock. |
+| `stock` | **branch**, **sku**, **qty**, unit_cost_aed, reason | `branch` as in `customers`. `sku` must be a part (`unknown_part`: import the parts first). `qty` is more than 0 with at most three decimals (`bad_qty`). `unit_cost_aed` is the cost per unit; blank takes the part's cost. Each row becomes one `in` move with the reference `manual` and the reason "opening balance" unless `reason` says another. A branch and part that already have any move are refused with `stock_exists`, and so is a second row of the same pair in the file: an opening balance is imported once. Afterwards use Receive and Count on `/admin/stock`. |
 | `contracts` | **number**, **customer_phone**, **starts_on**, **ends_on**, **price_aed**, **site_label**, **service_code**, **visits_per_year**, next_visit_on, notes | One row per contract item. Rows with the same `number` must agree on customer, dates and price (else `inconsistent_contract`). Dates are `YYYY-MM-DD` or an Excel date. `ends_on` ≥ `starts_on`. `visits_per_year` is 1 to 52. `site_label` must be a site of that customer, and `service_code` an active service of the customer's branch. `next_visit_on` must lie within the term. A contract is created as a draft. An existing `number` is `exists`. |
 
 A file can hold 10,000 data rows. The check and the import each run as one background job, and a job attempt has a CPU budget of its own (2,000 ms on the free tier, 10,000 ms on a paid plan, #768), so a whole file of 10,000 rows is checked and imported in one go on the free tier, the import in one transaction. A run that goes past the budget does not break anything: it ends as "Failed" with "too large to check on the current plan".
@@ -203,7 +222,7 @@ A file can hold 10,000 data rows. The check and the import each run as one backg
 The flow for each file: choose the kind, pick the file and press "Check the file". Nothing is written yet. The import's page says "Checking the file…" and reloads itself every few seconds until the check is done (usually within a second; a file that fails is retried once, about 10 seconds later). The report then shows the totals (rows, to insert, to update, already there, errors) and, for every wrong row, the sheet row, the column and the message. Fix the spreadsheet and check it again; the "Import <n> rows" button appears only when there are no errors. Pressing it writes the whole file in one transaction (the owner confirms with the second factor): the page says "Importing…" until it is done, then shows the result. A file that is not a workbook, or one too large for the plan, ends as "Failed" with the reason and an "Upload again" link, and stays in the list of last imports; nothing of it is written.
 
 - `exists`: the row is already in the app (same branch and phone for a customer, same customer and label for a site, same number for a contract), so it is skipped and is not an error. Checking and committing the same file twice inserts nothing the second time.
-- `updated`: only services are updated: a row whose `code` already exists changes that service's name, unit, price and VAT. Customers, sites and contracts are never changed by an import.
+- `updated`: only services and parts are updated: a row whose `code` (or `sku`) already exists changes that service's name, unit, price and VAT (or that part's names, unit, prices, VAT and minimum). Customers, sites, stock and contracts are never changed by an import.
 
 The three most common errors:
 
@@ -212,6 +231,7 @@ The three most common errors:
 | `bad_phone` | The phone is not a valid UAE number | Write it as `+971 50 123 4567` or `050 123 4567` (spaces are fine, letters are not); set the column's format to Text in Excel so the leading `0` or `+` survives |
 | `unknown_branch` | The `branch` is not a branch name on `/admin/branches` | Copy the name from `/admin/branches` exactly, or add the branch first |
 | `unknown_customer` | A `customer_phone` matches no customer | Import the `customers` file first, and write the phone in the same way in both files |
+| `stock_exists` | The branch already has stock moves for that part | The opening balance was imported before, or a visit or a delivery moved the part: do not import it again; use Count on `/admin/stock` to correct the number |
 
 An import cannot be undone from the app: if a wrong file was committed, restore the database to the minute before it (see `ops/runbooks/pilot-support.md`, "A wrong import").
 

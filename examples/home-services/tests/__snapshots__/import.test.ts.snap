@@ -5,7 +5,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
       
   
   <h1>الاستيراد من إكسل</h1>
-  <p>أدخل عملاءك ومواقعك وخدماتك وعقودك من ملفات إكسل. ارفع ملف ‎.xlsx‎ واحداً لكل نوع بهذا الترتيب (حتى ⁨10⁩ ميغابايت و10٬000 صف لكل ملف، الورقة الأولى فقط، والصف الأول هو العناوين). يُفحص الملف أولاً ولا يُكتب شيء حتى تستورد ملفاً بلا أخطاء.</p>
+  <p>أدخل عملاءك ومواقعك وخدماتك وقطعك ومخزونك الافتتاحي وعقودك من ملفات إكسل. ارفع ملف ‎.xlsx‎ واحداً لكل نوع بهذا الترتيب (حتى ⁨10⁩ ميغابايت و10٬000 صف لكل ملف، الورقة الأولى فقط، والصف الأول هو العناوين). يُفحص الملف أولاً ولا يُكتب شيء حتى تستورد ملفاً بلا أخطاء.</p>
   <ol id="import-kinds">
     <li id="kind-customers" dir="auto">
       <strong dir="auto">العملاء</strong>: الشركات والمنازل، كلٌّ في فرع واحد، برقم هاتف وبريد إلكتروني ورقم ضريبي ولغة اختيارياً.
@@ -19,6 +19,14 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
       <strong dir="auto">الخدمات</strong>: قائمة الأسعار: رمز وأسماء بالعربية والإنجليزية ووحدة وسعر بالدرهم. يُحدَّث الرمز الموجود.
       <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">code*, name_en*, name_ar*, unit*, price_aed*, vat_rate, branch</span></small>
       <a href="/admin/import/template/services" id="template-services">تنزيل النموذج</a>
+    </li><li id="kind-parts" dir="auto">
+      <strong dir="auto">قطع الغيار</strong>: قائمة القطع: رمز SKU واسمان بالعربية والإنجليزية ووحدة وتكلفة وسعر بيع بالدرهم وحدّ أدنى للمخزون. يُحدَّث الرمز الموجود.
+      <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">sku*, name_en*, name_ar*, unit*, cost_aed, sell_aed, vat_rate, min_stock</span></small>
+      <a href="/admin/import/template/parts" id="template-parts">تنزيل النموذج</a>
+    </li><li id="kind-stock" dir="auto">
+      <strong dir="auto">المخزون الافتتاحي</strong>: ما يحتفظ به كل فرع اليوم: صف لكل فرع وقطعة، وكل صف رصيد افتتاحي. استورد القطع أولاً؛ يُرفض الفرع والقطعة اللذان لهما حركات مخزون، فيُستورد الرصيد الافتتاحي مرة واحدة.
+      <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">branch*, sku*, qty*, unit_cost_aed, reason</span></small>
+      <a href="/admin/import/template/stock" id="template-stock">تنزيل النموذج</a>
     </li><li id="kind-contracts" dir="auto">
       <strong dir="auto">العقود</strong>: عقود الصيانة كمسودات، صف لكل خدمة في موقع؛ الصفوف التي لها الرقم نفسه تكوّن عقداً واحداً.
       <br><small class="muted">الأعمدة (* مطلوب): <span dir="ltr">number*, customer_phone*, starts_on*, ends_on*, price_aed*, site_label*, service_code*, visits_per_year*, next_visit_on, notes</span></small>
@@ -27,7 +35,7 @@ exports[`/admin/import the page and the report render in Arabic, right to left: 
   </ol>
   <form method="post" action="?/check" hx-post="?/check" class="stack narrow" id="import-form"><input type="hidden" name="_csrf" value="<csrf>">
     <p><label>محتوى الملف
-      <select name="kind" id="f-kind"><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="contracts" dir="auto">العقود</option></select></label></p>
+      <select name="kind" id="f-kind"><option value="customers" dir="auto">العملاء</option><option value="sites" dir="auto">المواقع</option><option value="services" dir="auto">الخدمات</option><option value="parts" dir="auto">قطع الغيار</option><option value="stock" dir="auto">المخزون الافتتاحي</option><option value="contracts" dir="auto">العقود</option></select></label></p>
     <p><label>ملف إكسل (‎.xlsx‎) <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-upload-action="/admin/import?/upload_url" data-key-field="file_key" required aria-required="true" id="f-file_key"> <span data-upload-status="" class="muted"></span></label>
       <input type="hidden" name="file_key"></p>
     <p><button type="submit" class="btn-brand">افحص الملف</button></p>

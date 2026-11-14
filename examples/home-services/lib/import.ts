@@ -19,10 +19,12 @@ import { type ContractInput, validDay } from "./contract-forms";
 import { createContract } from "./contracts";
 import { insertCustomer, insertSite } from "./customers";
 import { customerSchema, emirateOptions, EMIRATES, filsOf, siteSchema, type SiteInput } from "./forms";
+import { getPart, normaliseSku, PART_UNITS, quantityOf, savePart, validSku, type PartInput } from "./parts";
 import { day } from "./quotes";
 import { branchDb, type Scopable } from "./scope";
+import { move } from "./stock";
 
-export const KINDS = ["customers", "sites", "services", "contracts"] as const;
+export const KINDS = ["customers", "sites", "services", "parts", "stock", "contracts"] as const;
 export type ImportKind = (typeof KINDS)[number];
 export const isKind = (v: unknown): v is ImportKind => typeof v === "string" && (KINDS as readonly string[]).includes(v);
 
@@ -81,7 +83,27 @@ export const COLUMNS: Record<ImportKind, { name: string; required: boolean }[]> 
     { name: "next_visit_on", required: false },
     { name: "notes", required: false },
   ],
+  parts: [
+    { name: "sku", required: true },
+    { name: "name_en", required: true },
+    { name: "name_ar", required: true },
+    { name: "unit", required: true },
+    { name: "cost_aed", required: false },
+    { name: "sell_aed", required: false },
+    { name: "vat_rate", required: false },
+    { name: "min_stock", required: false },
+  ],
+  stock: [
+    { name: "branch", required: true },
+    { name: "sku", required: true },
+    { name: "qty", required: true },
+    { name: "unit_cost_aed", required: false },
+    { name: "reason", required: false },
+  ],
 };
+
+/** What a `stock` row's move says when the file gives no reason. */
+export const OPENING_REASON = "opening balance";
 
 /** The template of a kind: the header and two example rows (valid against the seed's branches). */
 export const TEMPLATES: Record<ImportKind, Cell[][]> = {
@@ -104,6 +126,16 @@ export const TEMPLATES: Record<ImportKind, Cell[][]> = {
     ["number", "customer_phone", "starts_on", "ends_on", "price_aed", "site_label", "service_code", "visits_per_year", "next_visit_on", "notes"],
     ["C-2026-001", "+971 50 123 4567", "2026-01-01", "2026-12-31", 1800, "Head office", "AC-CLEAN", 4, null, "Quarterly cleaning"],
     ["C-2026-001", "+971 50 123 4567", "2026-01-01", "2026-12-31", 1800, "Head office", "PLUMB-HR", 2, "2026-03-01", null],
+  ],
+  parts: [
+    ["sku", "name_en", "name_ar", "unit", "cost_aed", "sell_aed", "vat_rate", "min_stock"],
+    ["AC-FILTER-S", "AC filter, split unit", "فلتر مكيف سبليت", "piece", 12, 25, 5, 10],
+    ["PVC-PIPE-25", "PVC pipe 25 mm", "أنبوب بي في سي 25 مم", "metre", 4.5, 9, 5, 20],
+  ],
+  stock: [
+    ["branch", "sku", "qty", "unit_cost_aed", "reason"],
+    ["Dubai", "AC-FILTER-S", 14, 12, null],
+    ["Sharjah", "PVC-PIPE-25", 60, 4.5, "counted on 1 January"],
   ],
 };
 
@@ -158,7 +190,22 @@ export interface ContractIn {
   next_visit_on: string | null;
   notes: string;
 }
-export type ParsedRow = CustomerIn | SiteIn | ServiceIn | ContractIn;
+export interface PartIn {
+  kind: "parts";
+  row: number;
+  part: PartInput;
+}
+export interface StockIn {
+  kind: "stock";
+  row: number;
+  branch: string;
+  sku: string;
+  qty: number;
+  /** Fils per unit; null when the file gives none (the part's catalogue cost is used). */
+  unit_cost_fils: number | null;
+  reason: string;
+}
+export type ParsedRow = CustomerIn | SiteIn | ServiceIn | ContractIn | PartIn | StockIn;
 
 /** Looks up a header: the column index by lower-cased name. */
 type Reader = (name: string) => Cell;
@@ -267,6 +314,42 @@ export async function parseSheet(kind: ImportKind, cells: readonly (readonly Cel
       if (errors.length === before) {
         rows.push({ kind: "services", row: rowNo, code, name_en: nameEn, name_ar: nameAr, unit: unit as ServiceIn["unit"], price_fils: fils as number, vat_rate: vatRaw === "0" ? 0 : 5, branch: str(read("branch")) });
       }
+    } else if (kind === "parts") {
+      const sku = normaliseSku(need("sku"));
+      const nameEn = need("name_en");
+      const nameAr = need("name_ar");
+      const unit = need("unit").toLowerCase();
+      const costRaw = str(read("cost_aed"));
+      const sellRaw = str(read("sell_aed"));
+      const vatRaw = str(read("vat_rate"));
+      const minRaw = str(read("min_stock"));
+      if (sku !== "" && !validSku(sku)) bad("sku", "bad_sku");
+      if (nameEn.length > 120) bad("name_en", "too_long");
+      if (nameAr.length > 120) bad("name_ar", "too_long");
+      if (unit !== "" && !(PART_UNITS as readonly string[]).includes(unit)) bad("unit", "bad_part_unit");
+      const cost = costRaw === "" ? 0 : filsOf(costRaw);
+      if (cost === null) bad("cost_aed", "bad_price");
+      const sell = sellRaw === "" ? 0 : filsOf(sellRaw);
+      if (sell === null) bad("sell_aed", "bad_price");
+      if (vatRaw !== "" && vatRaw !== "0" && vatRaw !== "5") bad("vat_rate", "bad_vat");
+      const min = minRaw === "" ? 0 : quantityOf(minRaw);
+      if (min === null) bad("min_stock", "bad_qty");
+      if (errors.length === before && cost !== null && sell !== null && min !== null) {
+        rows.push({ kind: "parts", row: rowNo, part: { sku, name_en: nameEn, name_ar: nameAr, unit: unit as PartInput["unit"], cost_fils: cost, sell_fils: sell, vat_rate: vatRaw === "0" ? 0 : 5, min_stock: min } });
+      }
+    } else if (kind === "stock") {
+      const branch = need("branch");
+      const sku = normaliseSku(need("sku"));
+      const qtyRaw = need("qty");
+      const costRaw = str(read("unit_cost_aed"));
+      const reason = str(read("reason"));
+      if (sku !== "" && !validSku(sku)) bad("sku", "bad_sku");
+      const qty = qtyRaw === "" ? null : quantityOf(qtyRaw);
+      if (qtyRaw !== "" && (qty === null || qty <= 0)) bad("qty", "bad_qty");
+      const cost = costRaw === "" ? null : filsOf(costRaw);
+      if (costRaw !== "" && cost === null) bad("unit_cost_aed", "bad_price");
+      if (reason.length > 200) bad("reason", "too_long");
+      if (errors.length === before && qty !== null) rows.push({ kind: "stock", row: rowNo, branch, sku, qty, unit_cost_fils: cost, reason: reason === "" ? OPENING_REASON : reason });
     } else {
       const number = need("number");
       const phone = need("customer_phone");
@@ -330,6 +413,8 @@ export interface Planned {
   service_id?: number;
   /** A service's branch (null: every branch). */
   service_branch?: string | null;
+  /** The part a `stock` row is for. */
+  part_id?: string;
 }
 
 export interface PlanCtx {
@@ -420,6 +505,38 @@ export async function planImport(ctx: PlanCtx, kind: ImportKind, rows: readonly 
       }
       plan.push({ row: r, op: known.has(r.code) ? "update" : "insert", service_branch: branchId });
       known.add(r.code);
+    }
+  } else if (kind === "parts") {
+    const known = new Set((await ctx.db.query<{ sku: string }>("select sku from app__parts", [])).map((r) => r.sku));
+    for (const r of rows as PartIn[]) {
+      plan.push({ row: r, op: known.has(r.part.sku) ? "update" : "insert" });
+      known.add(r.part.sku);
+    }
+  } else if (kind === "stock") {
+    const branchOf = await branchLookup(ctx.db);
+    const partIds = new Map((await ctx.db.query<{ id: string; sku: string }>("select id, sku from app__parts", [])).map((p) => [p.sku, p.id]));
+    // An opening balance is imported once: a branch and part that already have any move (or an earlier row of this file) are refused.
+    const held = new Set((await ctx.db.query<{ branch_id: string; part_id: string }>("select distinct branch_id, part_id from app__stock_moves", [])).map((m) => `${m.branch_id}|${m.part_id}`));
+    for (const r of rows as StockIn[]) {
+      const branch = branchOf(r.branch);
+      const partId = partIds.get(r.sku);
+      let bad = false;
+      if (branch === undefined) {
+        fail(r.row, "branch", "unknown_branch");
+        bad = true;
+      }
+      if (partId === undefined) {
+        fail(r.row, "sku", "unknown_part");
+        bad = true;
+      }
+      if (bad) continue;
+      const key = `${(branch as BranchRow).id}|${partId as string}`;
+      if (held.has(key)) {
+        fail(r.row, "sku", "stock_exists");
+        continue;
+      }
+      held.add(key);
+      plan.push({ row: r, op: "insert", branch_id: (branch as BranchRow).id, part_id: partId as string });
     }
   } else {
     const customers = await customersByPhone(ctx.db);
@@ -619,6 +736,8 @@ export async function commitChecked(ctx: PlanCtx, row: ImportRow, result: Checke
   if (row.kind === "customers") await writeCustomers(ctx, result.plan);
   else if (row.kind === "sites") await writeSites(ctx, result.plan);
   else if (row.kind === "services") await writeServices(ctx, result.plan);
+  else if (row.kind === "parts") await writeParts(ctx, result.plan);
+  else if (row.kind === "stock") await writeStock(ctx, result.plan, by);
   else await writeContracts(ctx, result.plan);
   const report: Report = { errors: [], ...result.counts };
   await ctx.db.execute("update app__imports set status = 'committed', committed_at = ?, rows = ?, ok = ?, skipped = ?, report = ? where id = ? and status = 'committing'", [
@@ -668,6 +787,21 @@ async function writeServices(ctx: PlanCtx, plan: Planned[]): Promise<void> {
   }
   // The job runs as System::"app", which holds no booking.manage: the next staff request mirrors the services into `booking` (lib/page.ts shell).
   if (plan.some((p) => p.op !== "exists")) await markSyncPending(ctx.db);
+}
+
+/** The parts of the file: a new SKU is added, an existing one is updated (its active flag stays), through lib/parts.ts. */
+async function writeParts(ctx: PlanCtx, plan: Planned[]): Promise<void> {
+  for (const p of plan) await savePart(ctx.db, (p.row as PartIn).part, p.op === "update" ? "update" : "insert");
+}
+
+/** One `in` move per row (reference `manual`), through lib/stock.ts, the only writer of the stock tables. A blank cost is the part's catalogue cost. */
+async function writeStock(ctx: PlanCtx, plan: Planned[], by: string): Promise<void> {
+  for (const p of plan) {
+    const r = p.row as StockIn;
+    const part = await getPart(ctx.db, p.part_id);
+    if (part === null) throw new Error(`import: part ${r.sku} is gone`);
+    await move(ctx.db, { branch: p.branch_id as string, part: part.id, kind: "in", qty: r.qty, unitCost: r.unit_cost_fils ?? part.cost_fils, reason: r.reason, ref: { kind: "manual" }, by });
+  }
 }
 
 /** One draft contract per number, in the customer's branch, with one item per row (`createContract`); the file's number replaces the generated one. */

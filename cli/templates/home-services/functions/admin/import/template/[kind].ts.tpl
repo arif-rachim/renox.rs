@@ -1,5 +1,5 @@
 // GET /admin/import/template/<kind>: the one-sheet .xlsx of a kind (customers,
-// sites, services, contracts) with the header row and two example rows, made by
+// sites, services, parts, stock, contracts) with the header row and two example rows, made by
 // the `reports` module. `settings.read`.
 import type { Handler } from "@renoxium/sdk";
 import { reports } from "renox:modules";

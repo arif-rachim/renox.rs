@@ -335,7 +335,15 @@
       "add": "Add part",
       "none": "No parts yet.",
       "remove": "Remove",
-      "total": "Total (AED)"
+      "total": "Total (AED)",
+      "pick": "Part from the stock",
+      "other": "Other (type it)",
+      "other_hint": "Only for Other: the name and the unit price. A part from the stock has its name and price from the list.",
+      "search": "Search the parts by SKU or name",
+      "search_submit": "Search",
+      "search_none": "No part matches. Choose Other to type it.",
+      "search_more": "There are many parts: search, then choose from the result.",
+      "negative": "Stock for {part} is now below zero; tell the office."
     },
     "notes": {
       "title": "Notes",
@@ -377,6 +385,7 @@
     "err": {
       "position": "The position is not valid.",
       "part": "Name the part (up to 200 characters).",
+      "part_id": "Choose a part from the list, or Other.",
       "qty": "Enter a quantity above 0 with at most two decimals.",
       "price": "Enter the price in AED, for example 120 or 120.50.",
       "notes": "Notes are at most 2000 characters.",
@@ -668,6 +677,24 @@
       "due": "Due"
     }
   },
+  "stockreport": {
+    "title": "Stock report",
+    "hint": "What each branch holds and what moved in it, as of",
+    "to_stock": "Back to the stock",
+    "stock_caption": "Stock on hand in {branch}",
+    "moves_title": "Moves in the period",
+    "moves_caption": "Stock moves in {branch}",
+    "grand_total": "Value of all branches:",
+    "which": "Table",
+    "which_stock": "Stock on hand",
+    "which_moves": "Moves in the period",
+    "col": {
+      "received": "Received",
+      "used": "Used on visits",
+      "adjusted": "Adjusted",
+      "transferred": "Transferred"
+    }
+  },
   "invoice_page": {
     "title": "Tax invoice {number}"
   },
@@ -683,7 +710,11 @@
       "audit": "Audit trail",
       "menu": "Back office",
       "label": "Back office",
-      "whatsapp": "WhatsApp"
+      "whatsapp": "WhatsApp",
+      "parts": "Parts",
+      "stock": "Stock",
+      "suppliers": "Suppliers",
+      "purchasing": "Purchase orders"
     },
     "tiles": {
       "jobs_today": "Jobs today",
@@ -692,7 +723,8 @@
       "branch": "Branch: {branch}",
       "title": "Today in this branch",
       "open": "Open",
-      "online_to_confirm": "Online bookings to confirm"
+      "online_to_confirm": "Online bookings to confirm",
+      "low_stock": "Parts low on stock"
     },
     "settings": {
       "title": "Branding and settings",
@@ -825,7 +857,7 @@
     },
     "import": {
       "title": "Import from Excel",
-      "intro": "Bring your customers, sites, services and contracts in from Excel. Upload one .xlsx file per kind, in this order (up to {mb} MB and 10,000 rows each, first sheet only, the first row is the header). The file is checked first and nothing is written until you import a file with no errors.",
+      "intro": "Bring your customers, sites, services, parts, opening stock and contracts in from Excel. Upload one .xlsx file per kind, in this order (up to {mb} MB and 10,000 rows each, first sheet only, the first row is the header). The file is checked first and nothing is written until you import a file with no errors.",
       "columns": "Columns (* required):",
       "template": "Download the template",
       "f": {
@@ -868,6 +900,14 @@
         "contracts": {
           "name": "Contracts",
           "desc": "Maintenance contracts as drafts, one row per service at a site; rows with the same number are one contract."
+        },
+        "parts": {
+          "name": "Parts",
+          "desc": "The parts list: a SKU, names in both languages, a unit, a cost and a selling price in AED, and a minimum stock. An existing SKU is updated."
+        },
+        "stock": {
+          "name": "Opening stock",
+          "desc": "What each branch holds today: one row per branch and part, each an opening balance. Import the parts first; a branch and part that already have stock moves are refused, so an opening balance is imported once."
         }
       },
       "report": "Check report",
@@ -940,6 +980,10 @@
     }
   },
   "fields": {
+    "to_branch": "To branch",
+    "counted": "Counted quantity",
+    "unit_cost": "Unit cost (AED)",
+    "part": "Part",
     "kind": "Type",
     "name": "Name",
     "phone": "Phone",
@@ -1006,7 +1050,197 @@
     "payment_instructions_ar": "Payment instructions (Arabic)",
     "reason_other": "More about the reason",
     "portal_cutoff_hours": "Customers may change a visit until (hours before)",
-    "portal_max_reschedules": "Reschedules allowed per visit"
+    "portal_max_reschedules": "Reschedules allowed per visit",
+    "sku": "SKU",
+    "unit": "Unit",
+    "cost": "Cost (AED)",
+    "sell": "Selling price (AED)",
+    "min_stock": "Minimum stock",
+    "vat_rate": "VAT",
+    "supplier": "Supplier",
+    "expected_on": "Expected on",
+    "form": "Purchase order"
+  },
+  "parts": {
+    "title": "Parts",
+    "search": "Search by SKU or name",
+    "search_submit": "Search",
+    "none": "No parts found.",
+    "created": "The part was added.",
+    "updated": "The part was saved.",
+    "activated": "The part is active again.",
+    "deactivated": "The part was deactivated. Its history stays.",
+    "add": "Add a part",
+    "add_submit": "Add the part",
+    "edit": "Edit the part",
+    "edit_link": "Edit",
+    "save": "Save the part",
+    "cancel": "Cancel",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "on": "Active",
+    "off": "Off",
+    "pages": "Pages of parts",
+    "prev": "Previous",
+    "next": "Next",
+    "page_of": "Page {n} of {pages}",
+    "f": {
+      "sku": "SKU",
+      "name": "Name",
+      "name_en": "Name (English)",
+      "name_ar": "Name (Arabic)",
+      "unit": "Unit",
+      "cost": "Cost (AED)",
+      "sell": "Selling price (AED)",
+      "vat": "VAT",
+      "min_stock": "Minimum stock",
+      "active": "Status",
+      "actions": "Actions"
+    },
+    "unit": {
+      "piece": "piece",
+      "metre": "metre",
+      "litre": "litre",
+      "kg": "kg",
+      "box": "box"
+    },
+    "err": {
+      "sku": "Use 1 to 32 letters, digits or hyphens, for example AC-FILTER-01.",
+      "sku_taken": "The SKU {sku} is already used by {name}.",
+      "name_en": "Enter the English name (up to 120 characters).",
+      "name_ar": "Enter the Arabic name (up to 120 characters).",
+      "unit": "Choose a unit.",
+      "cost": "Enter the cost in AED, for example 12 or 12.50.",
+      "sell": "Enter the selling price in AED, for example 20 or 19.90.",
+      "vat_rate": "Choose 0% or 5%.",
+      "min_stock": "Enter the minimum stock as a number of at most 3 decimals, for example 5 or 2.5."
+    }
+  },
+  "stock": {
+    "title": "Stock",
+    "branches": "Branches",
+    "search": "Search by SKU or name",
+    "search_submit": "Search",
+    "low_only": "Low stock only",
+    "none": "No parts held or with a minimum in this branch.",
+    "totals": "Value of the stock by branch (average cost)",
+    "note": "The quantity on hand changes only through moves: receive, count, transfer, a visit or a purchase order. Open a SKU to see its moves.",
+    "low": "Low",
+    "negative": "Negative",
+    "report_link": "Stock report (CSV and Excel)",
+    "low_notice": {
+      "title": "Low stock in {branch}: {n} parts under their minimum",
+      "line": "{sku} {name}: {qty} on hand, minimum {min}",
+      "more": "and {n} more"
+    },
+    "saved": {
+      "received": "The stock was received.",
+      "adjusted": "The count was recorded.",
+      "transferred": "The stock was transferred."
+    },
+    "f": {
+      "sku": "SKU",
+      "name": "Name",
+      "unit": "Unit",
+      "on_hand": "On hand",
+      "min": "Minimum",
+      "avg": "Average cost",
+      "value": "Value",
+      "status": "Status",
+      "part": "Part",
+      "qty": "Quantity",
+      "unit_cost": "Unit cost (AED)",
+      "reason": "Reason",
+      "counted": "Counted quantity",
+      "to_branch": "To branch"
+    },
+    "receive": {
+      "title": "Receive stock",
+      "submit": "Receive"
+    },
+    "adjust": {
+      "title": "Count and adjust",
+      "note": "Enter what you counted on the shelf: the difference is recorded as a move. Asks for your second factor.",
+      "submit": "Record the count"
+    },
+    "transfer": {
+      "title": "Transfer to another branch",
+      "submit": "Transfer",
+      "none": "You hold no other branch to transfer to."
+    },
+    "history": {
+      "title": "Moves of {sku}",
+      "back": "Back to the stock",
+      "caption": "Stock moves, newest first",
+      "none": "No moves yet.",
+      "pages": "Pages of moves"
+    },
+    "h": {
+      "when": "When",
+      "kind": "Move",
+      "qty": "Quantity",
+      "balance": "Balance after",
+      "cost": "Cost (AED)",
+      "reason": "Reason",
+      "ref": "Reference",
+      "who": "By"
+    },
+    "kind": {
+      "in": "Received",
+      "out": "Used",
+      "adjust": "Count adjustment",
+      "transfer_out": "Transferred out",
+      "transfer_in": "Transferred in"
+    },
+    "ref": {
+      "visit": "Visit",
+      "purchase": "Purchase order",
+      "transfer": "Transfer",
+      "manual": "Entered by hand"
+    },
+    "err": {
+      "part": "Choose a part.",
+      "qty": "Enter a quantity above zero with at most 3 decimals, for example 5 or 2.5.",
+      "unit_cost": "Enter the unit cost in AED, for example 12 or 12.50.",
+      "reason": "Give a reason of 3 to 200 characters.",
+      "counted": "Enter the counted quantity, zero or more, with at most 3 decimals.",
+      "to_branch": "Choose another branch you hold.",
+      "short": "The branch holds less than this quantity, so it cannot be transferred.",
+      "no_change": "The count equals what the books say. Nothing to record."
+    }
+  },
+  "suppliers": {
+    "title": "Suppliers",
+    "none": "No suppliers yet.",
+    "created": "The supplier was added.",
+    "updated": "The supplier was saved.",
+    "activated": "The supplier is active again.",
+    "deactivated": "The supplier was deactivated. Its history stays.",
+    "add": "Add a supplier",
+    "add_submit": "Add the supplier",
+    "edit": "Edit the supplier",
+    "edit_link": "Edit",
+    "save": "Save the supplier",
+    "cancel": "Cancel",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "on": "Active",
+    "off": "Off",
+    "f": {
+      "name": "Name",
+      "trn": "TRN",
+      "phone": "Phone",
+      "email": "Email",
+      "address": "Address",
+      "notes": "Notes",
+      "active": "Status",
+      "actions": "Actions"
+    },
+    "err": {
+      "name": "Enter the supplier's name (up to 120 characters).",
+      "address": "The address is at most 300 characters.",
+      "notes": "The notes are at most 1000 characters."
+    }
   },
   "problem": {
     "title": "The form could not be saved",
@@ -1027,6 +1261,11 @@
       "bad_makani": "A Makani number has 10 digits.",
       "bad_code": "A code is 1 to 32 characters: capital letters, digits and hyphens.",
       "bad_unit": "Use visit, hour or unit.",
+      "bad_sku": "A SKU is 1 to 32 characters: capital letters, digits and hyphens.",
+      "bad_part_unit": "Use piece, metre, litre, kg or box.",
+      "bad_qty": "Enter a quantity with at most three decimals (more than zero for a stock row).",
+      "unknown_part": "No part has this SKU: import the parts first.",
+      "stock_exists": "This branch already has stock moves for this part: an opening balance is imported once. Use Receive or Count on the stock page instead.",
       "bad_price": "Enter a price in AED with at most two decimals, for example 120 or 120.50.",
       "bad_vat": "Use 0 or 5.",
       "bad_date": "Use a date written YYYY-MM-DD.",
@@ -1260,6 +1499,77 @@
         "moved": "Your visit is moved. We sent you a WhatsApp message.",
         "cancelled": "Your visit is cancelled. We sent you a WhatsApp message."
       }
+    }
+  },
+  "purchasing": {
+    "title": "Purchase orders",
+    "back": "Back to purchase orders",
+    "none": "No purchase orders yet.",
+    "filter": "Filter",
+    "pages": "Pages of purchase orders",
+    "new": "New purchase order",
+    "create": "Create the purchase order",
+    "lines": "Lines of the purchase order",
+    "no_lines": "No lines yet. Add the parts to order.",
+    "remove": "Remove",
+    "add_line": "Add a line",
+    "add_line_submit": "Add the line",
+    "cost_hint": "Leave blank for the part's cost.",
+    "pdf": "PDF",
+    "send": "Send to the supplier",
+    "cancel": "Cancel the order",
+    "send_note": "The order is marked as sent. Download the PDF and send it to the supplier: this app cannot attach a file to an email yet.",
+    "saved": {
+      "created": "The purchase order was created.",
+      "line_added": "The line was added.",
+      "line_removed": "The line was removed.",
+      "sent": "The purchase order was sent.",
+      "received": "The delivery was booked into the stock.",
+      "cancelled": "The purchase order was cancelled."
+    },
+    "status": {
+      "draft": "Draft",
+      "sent": "Sent",
+      "partly_received": "Partly received",
+      "received": "Received",
+      "cancelled": "Cancelled"
+    },
+    "f": {
+      "number": "Number",
+      "supplier": "Supplier",
+      "status": "Status",
+      "created": "Created",
+      "expected_on": "Expected on",
+      "total": "Total",
+      "language": "Language of the document",
+      "notes": "Notes",
+      "branch": "Delivery branch",
+      "sent_at": "Sent on",
+      "closed_at": "Closed on",
+      "sku": "SKU",
+      "part": "Part",
+      "qty": "Quantity",
+      "unit_cost": "Unit cost (AED)",
+      "net": "Net",
+      "vat": "VAT",
+      "received": "Received",
+      "actions": "Actions",
+      "outstanding": "Outstanding",
+      "received_now": "Received now",
+      "paid_cost": "Unit cost paid (AED)"
+    },
+    "receive": {
+      "title": "Receive a delivery",
+      "note": "Enter what arrived, up to the outstanding quantity, and the unit cost on the supplier's invoice. Each line is booked into this branch's stock.",
+      "submit": "Book the delivery"
+    },
+    "err": {
+      "supplier": "Choose an active supplier.",
+      "expected_on": "Enter a date, for example 2026-12-31.",
+      "receive_qty": "Enter a quantity from zero up to the outstanding quantity, with at most 3 decimals.",
+      "receive_none": "Enter a received quantity above zero on at least one line.",
+      "empty": "Add at least one line before sending the order.",
+      "state": "The purchase order is in a state that does not allow this."
     }
   }
 }

@@ -20,7 +20,7 @@ const plain = (status: number, text: string): Response => new Response(text, { s
 const notFound = (): Response => plain(404, "Import not found");
 
 /** Where the written rows can be found, by kind. */
-const WHERE: Record<string, string> = { customers: "/customers", sites: "/customers", services: "/services", contracts: "/contracts" };
+const WHERE: Record<string, string> = { customers: "/customers", sites: "/customers", services: "/services", contracts: "/contracts", parts: "/admin/parts", stock: "/admin/stock" };
 
 export async function load(ctx: LoaderContext) {
   const page = await shell(ctx);

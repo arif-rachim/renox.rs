@@ -840,3 +840,54 @@ describe("update_settings: the customer portal (#779)", () => {
     expect(r.error?.code).toBe("RENOX_FORBIDDEN");
   });
 });
+
+// #816: `list_low_stock`, the owner connector's read-only tool for "what are we running out of?": per branch the
+// token acts in, the parts under their minimum (SKU, name, unit, on hand, minimum), at most 20 a branch. `stock.read`
+// like /admin/stock: a dispatcher's and an accountant's agent read it, a technician's is refused by the cell.
+describe("list_low_stock (#816)", () => {
+  const DUBAI_LOW = [
+    { sku: "FIL-AC-C", name: "AC filter, cassette unit", unit: "piece", on_hand: 4, minimum: 6 },
+    { sku: "PVC-TEE-25", name: "PVC tee 25 mm", unit: "piece", on_hand: 25, minimum: 30 },
+    { sku: "REF-R22", name: "Refrigerant R22", unit: "kg", on_hand: 2, minimum: 3 },
+  ];
+
+  test("a dispatcher's agent gets Dubai's three parts under their minimum; the tool is read only and asks for no confirmation", async () => {
+    const list = await t.tools({ as: dina });
+    expect(list.tools.find((x) => x.name === "list_low_stock")?.annotations).toEqual({ readOnlyHint: true, destructiveHint: false });
+    const r = await t.tool("list_low_stock", {}, { as: dina });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(r.confirmation).toBeUndefined();
+    expect(r.result).toEqual({ branches: [{ branch: "dubai", name: "Dubai", low_parts: DUBAI_LOW, more: 0 }] });
+    expect((await t.tool("list_low_stock", {}, { as: accountant })).ok).toBe(true);
+  });
+
+  test("the owner's agent (acting in Dubai) gets the same; an unknown property is refused", async () => {
+    const r = await own("list_low_stock", {});
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(r.result).toEqual({ branches: [{ branch: "dubai", name: "Dubai", low_parts: DUBAI_LOW, more: 0 }] });
+    expectInvalid(await own("list_low_stock", { branch: "sharjah" }), "an unknown property");
+  });
+
+  test("a technician's agent is forbidden (403, no preview, no confirmation)", async () => {
+    const r = await t.tool("list_low_stock", {}, { as: ali });
+    expect(r.ok).toBe(false);
+    expect(r.error?.code).toBe("RENOX_FORBIDDEN");
+    expect(r.preview).toBeUndefined();
+    expect(r.confirmation).toBeUndefined();
+  });
+
+  test("a branch lists at most 20 parts and says how many more there are", async () => {
+    const db = new Database(t.dbFile);
+    db.exec("pragma busy_timeout = 5000");
+    try {
+      for (let i = 1; i <= 20; i++) db.run("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values (?, ?, ?, ?, 'piece', 100, 200, 5, 5, 1, 1700000000)", [`pt_00000000000e00${i.toString(16).padStart(2, "0")}`, `LOW-${String(i).padStart(2, "0")}`, `Low part ${i}`, `قطعة ${i}`]);
+    } finally {
+      db.close();
+    }
+    const r = await t.tool("list_low_stock", {}, { as: dina });
+    const dubai = (r.result as { branches: { low_parts: unknown[]; more: number }[] }).branches[0];
+    expect(dubai?.low_parts).toHaveLength(20);
+    // Three of the demo parts and the twenty added are under their minimum in Dubai: 23 in all.
+    expect(dubai?.more).toBe(3);
+  });
+});
