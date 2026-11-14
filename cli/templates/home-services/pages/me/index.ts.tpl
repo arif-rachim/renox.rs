@@ -5,6 +5,7 @@
 import type { LoaderContext } from "@renoxium/sdk";
 
 import { clock, OFFSET_MS } from "../../lib/booking-sync";
+import { savedAt } from "../../lib/offline";
 import { shell } from "../../lib/page";
 import { branchOf, noBranch, scopedDb } from "../../lib/scope";
 
@@ -31,6 +32,8 @@ export async function load(ctx: LoaderContext) {
   const services = new Map((await ctx.db.query<{ id: number; name_en: string; name_ar: string }>("select id, name_en, name_ar from app__services", [])).map((s) => [s.id, page.locale === "ar" ? s.name_ar : s.name_en]));
   return {
     ...page,
+    saved_at: savedAt(),
+    user_id: ctx.principal?.id ?? "",
     visits: rows.map((r) => ({
       id: r.id,
       number: r.number,

@@ -1,6 +1,8 @@
 <r-layout use="main">
   <r-group slot="title">{{ job.number }} · {{ brand.name }}</r-group>
   <div class="touch">
+  <meta name="hs-user" content="{{ user_id }}">
+  <p id="offline-banner" class="warning" hidden role="status" :data-saved-at="saved_at"><r-t key="visits.offline" /> <bdi dir="ltr" id="offline-time"></bdi>.</p>
   <p><a href="/me"><r-t key="visits.back" /></a></p>
   <h1 dir="ltr">{{ job.number }}</h1>
   <p><span :class="'status status-' ~ job.status" id="job-status">{{ ('jobs.status.' ~ job.status) | t }}</span></p>

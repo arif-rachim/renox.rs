@@ -23,6 +23,7 @@ import { storage } from "renox:modules";
 import { clock } from "../../../lib/booking-sync";
 import { withActionId } from "../../../lib/action-log";
 import { check } from "../../../lib/forms";
+import { savedAt } from "../../../lib/offline";
 import { shell } from "../../../lib/page";
 import { invalid } from "../../../lib/invalid";
 import { day } from "../../../lib/quotes";
@@ -58,6 +59,8 @@ export async function load(ctx: LoaderContext) {
   const partsTotal = visit === null ? 0 : (await partsOf(sdb, visit.id)).reduce((n, p) => n + partTotal(p), 0);
   return {
     ...page,
+    saved_at: savedAt(),
+    user_id: ctx.principal?.id ?? "",
     job: {
       id: job.id,
       number: job.number,

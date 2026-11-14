@@ -79,6 +79,8 @@ lighthouse:
 # what journey.yml runs on main and nightly. RENOX_JOURNEY=1 makes a browser
 # test fail instead of skip; not part of `make test`.
 JOURNEY_TESTS := control/dashboard/tests/account.browser.test.ts cli/tests/browser/client-events.test.ts
+# An example app's own browser tests: the root bunfig.toml ignores examples/home-services/**, so they run from the app's folder (#807).
+JOURNEY_APP_TESTS := tests/browser/offline-read.test.ts
 journey:
 ifeq ($(RENOX_WORKER_PATH),)
 	@echo "journey: RENOX_WORKER_PATH is not set (cargo build -p renox-cell --bin renox-worker, or bun cli/scripts/fetch-worker.ts)" >&2; exit 1
@@ -87,5 +89,6 @@ ifeq ($(PLAYWRIGHT_PATH),)
 	@echo "journey: PLAYWRIGHT_PATH is not set (docs/12-developer-experience.md, \"Browser tests\")" >&2; exit 1
 endif
 	RENOX_JOURNEY=1 bun test $(JOURNEY_TESTS)
+	cd examples/home-services && RENOX_JOURNEY=1 bun test $(JOURNEY_APP_TESTS)
 	# Its own process: the dashboards and workers it starts never meet another file's ports.
 	RENOX_JOURNEY=1 bun test cli/tests/journey.e2e.test.ts

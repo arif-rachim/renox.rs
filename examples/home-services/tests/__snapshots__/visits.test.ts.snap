@@ -40,6 +40,8 @@ exports[`the technician's day the check-in state of a visit, on a phone, in Engl
     
   
   <div class="touch">
+  <meta name="hs-user" content="u_dxb_ali">
+  <p id="offline-banner" class="warning" hidden role="status" data-saved-at="<when>">You are offline. Showing the copy saved at <bdi dir="ltr" id="offline-time"></bdi>.</p>
   <p><a href="/me">My visits</a></p>
   <h1 dir="ltr">J-000010</h1>
   <p><span class="status status-in_progress" id="job-status" dir="auto">In progress</span></p>
@@ -118,6 +120,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     
   
   <div class="touch">
+  <meta name="hs-user" content="u_dxb_ali">
+  <p id="offline-banner" class="warning" hidden role="status" data-saved-at="<when>">You are offline. Showing the copy saved at <bdi dir="ltr" id="offline-time"></bdi>.</p>
   <p><a href="/me">My visits</a></p>
   <h1 dir="ltr">J-000012</h1>
   <p><span class="status status-done" id="job-status" dir="auto">Done</span></p>
@@ -257,6 +261,8 @@ exports[`the visit page on a phone a closed visit with its photos, part, summary
     
   
   <div class="touch">
+  <meta name="hs-user" content="u_dxb_ali">
+  <p id="offline-banner" class="warning" hidden role="status" data-saved-at="<when>">أنت غير متصل بالإنترنت. تعرض هذه الصفحة النسخة المحفوظة في <bdi dir="ltr" id="offline-time"></bdi>.</p>
   <p><a href="/me">زياراتي</a></p>
   <h1 dir="ltr">J-000012</h1>
   <p><span class="status status-done" id="job-status" dir="auto">منجزة</span></p>

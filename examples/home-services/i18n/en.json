@@ -296,6 +296,7 @@
     "title": "My visits",
     "today": "Today",
     "none": "No visits for you today.",
+    "offline": "You are offline. Showing the copy saved at",
     "open": "Open",
     "back": "My visits",
     "f": {
