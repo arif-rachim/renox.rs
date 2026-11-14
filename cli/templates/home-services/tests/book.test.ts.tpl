@@ -122,17 +122,22 @@ describe("the three steps, signed out", () => {
     expect(res.html).not.toContain('name="slot"');
   });
 
-  test("step 2 lists the next 7 days and at most 12 free slots of the day, earliest first, across the branch's technicians", async () => {
+  test("step 2 lists the next 7 days and at most 12 free times of the day, earliest first, each time once", async () => {
     const res = await t.as("fresh").page(`${STEP2}&lang=en`);
     expect(res.status).toBe(200);
     expect(res.html).toContain("Served by our Dubai branch.");
     expect([...res.html.matchAll(/<li><(?:a|strong)\b/gu)].length).toBe(7);
     const slots = [...res.html.matchAll(/name="slot" value="([^"@]+)@(\d+)"/gu)];
-    expect(slots.length).toBeGreaterThan(0);
-    expect(slots.length).toBeLessThanOrEqual(12);
+    // Two technicians are free all morning, so every time has two candidates: 12 distinct times, one radio each.
+    expect(slots.length).toBe(12);
     const starts = slots.map((m) => Number(m[2]));
     expect([...starts].sort((a, b) => a - b)).toEqual(starts);
-    expect(new Set(slots.map((m) => m[1]))).toEqual(new Set(["u_dxb_ali", "u_dxb_bilal"]));
+    expect(new Set(starts).size).toBe(12);
+    const labels = [...res.html.matchAll(/<span dir="ltr">(\d{2}:\d{2}–\d{2}:\d{2})<\/span><\/label>/gu)].map((m) => m[1]);
+    expect(labels.length).toBe(12);
+    expect(new Set(labels).size).toBe(12);
+    // Both are free and unloaded: the tie goes to the technician id, for a stable list.
+    expect(new Set(slots.map((m) => m[1]))).toEqual(new Set(["u_dxb_ali"]));
     expect(res.html).not.toContain('name="_csrf"');
     snapshot(steady(res.html), { role: "book step 2, signed out, en" });
     const ar = await t.as("fresh").page(`${STEP2}&lang=ar`);
@@ -408,5 +413,83 @@ describe("auto-confirm on: the dispatcher has nothing to confirm (#779)", () => 
     } finally {
       write("delete from app__settings where key = 'portal_auto_confirm'");
     }
+  });
+});
+
+/** Working days after DAY (Dubai) that no other test of this file books on, one per test below. */
+const OTHER_DAYS = (() => {
+  const out: string[] = [];
+  for (let i = 1; i < 7 && out.length < 4; i++) {
+    const local = new Date(Date.now() + i * 86_400_000 + 4 * 3_600_000);
+    const key = local.toISOString().slice(0, 10);
+    if ([1, 2, 3, 4, 6].includes(local.getUTCDay()) && key !== DAY) out.push(key);
+  }
+  if (out.length < 3) throw new Error("not enough working days ahead");
+  return out;
+})();
+const step2On = (day: string) => `/book?${q({ ...PLACE, step: "2", day })}`;
+const slotsOn = async (day: string): Promise<string[]> => [...(await t.as("anonymous").page(step2On(day))).html.matchAll(/name="slot" value="([^"]+)"/gu)].map((m) => m[1] as string);
+const techOf = (slot: string): string => slot.slice(0, slot.indexOf("@"));
+const startOf = (slot: string): number => Number(slot.slice(slot.indexOf("@") + 1));
+let phoneSeq = 0;
+/** Step 3's submit of `slot` on `day` by a fresh visitor with a phone of its own; the address log is cleared so the hourly limit never gets in the way. */
+async function holdSlot(slot: string, day: string) {
+  write("delete from app__booking_draft_log");
+  const phone = `+97150888${String(++phoneSeq).padStart(4, "0")}`;
+  const res = await t.as(`own-${phoneSeq}`).action("/book", "hold", { ...PLACE, day, slot, name: "Some Visitor", language: "en", phone });
+  return { res, phone };
+}
+const draftTech = (phone: string): string => String(rows("select technician_user_id from app__booking_drafts where phone = ?", [phone])[0]?.technician_user_id);
+
+describe("one radio per time: the technician is not the customer's choice (#802)", () => {
+  test("the less busy technician takes the time: with a job of Ali on the day, every time is Bilal's", async () => {
+    const day = OTHER_DAYS[0] as string;
+    const base = Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) - 4 * 3600;
+    write(
+      "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, scheduled_start, scheduled_end, technician_user_id, booking_id, created_by, created_at, updated_at, source) values ('jb_load_1', 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', null, 'J-000981', 'scheduled', 'normal', ?, '', ?, ?, 'u_dxb_ali', null, 'u_dxb_dispatcher', 1793000000, 1793000000, 'staff')",
+      [Number(AC), base + 15 * 3600, base + 16 * 3600],
+    );
+    const slots = await slotsOn(day);
+    expect(slots.length).toBe(12);
+    expect(new Set(slots.map(techOf))).toEqual(new Set(["u_dxb_bilal"]));
+    // A cancelled job does not count: with it cancelled the tie goes back to the technician id.
+    write("update app__jobs set status = 'cancelled' where id = 'jb_load_1'");
+    expect(new Set((await slotsOn(day)).map(techOf))).toEqual(new Set(["u_dxb_ali"]));
+  });
+
+  test("a time free for the second technician only is offered, and books that technician", async () => {
+    const day = OTHER_DAYS[1] as string;
+    const before = await slotsOn(day);
+    const first = before[0] as string;
+    expect(techOf(first)).toBe("u_dxb_ali");
+    // Ali's first time is held by someone else: it stays on the page, now Bilal's.
+    expect((await holdSlot(first, day)).res.status).toBe(303);
+    const after = await slotsOn(day);
+    expect(after.length).toBe(12);
+    expect(after[0]).toBe(`u_dxb_bilal@${startOf(first)}`);
+    const mine = await holdSlot(after[0] as string, day);
+    expect(mine.res.status).toBe(303);
+    expect(draftTech(mine.phone)).toBe("u_dxb_bilal");
+    // Now nobody is free at that time: it is gone from the list.
+    expect((await slotsOn(day)).map(startOf)).not.toContain(startOf(first));
+  });
+
+  test("the chosen technician taken between the page and the submit: the other one is booked silently", async () => {
+    const day = OTHER_DAYS[2] as string;
+    const shown = (await slotsOn(day))[0] as string;
+    expect((await holdSlot(shown, day)).res.status).toBe(303);
+    const mine = await holdSlot(shown, day);
+    expect(mine.res.status).toBe(303);
+    expect(located(mine.res)).toContain("/auth/phone");
+    expect(draftTech(mine.phone)).not.toBe(techOf(shown));
+    expect(rows("select slot_start from app__booking_drafts where phone = ?", [mine.phone])[0]?.slot_start).toBe(Math.floor(startOf(shown) / 1000));
+    // Both technicians are held at that time now: "That time was just taken".
+    const third = await holdSlot(shown, day);
+    expect(third.res.status).toBe(303);
+    expect(located(third.res)).toContain("taken=1");
+    expect(located(third.res)).toContain("step=2");
+    expect(rows("select count(*) as n from app__booking_drafts where phone = ?", [third.phone])[0]?.n).toBe(0);
+    const page = await t.as("anonymous").page(located(third.res));
+    expect(page.html).toContain("That time was just taken, please pick another.");
   });
 });

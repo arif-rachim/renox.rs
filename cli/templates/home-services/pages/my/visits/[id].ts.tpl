@@ -35,7 +35,7 @@ import { storage } from "renox:modules";
 
 import ar from "../../../i18n/ar.json";
 import en from "../../../i18n/en.json";
-import { dispatchersOf, freeSlots, nextDays, parseSlot, type FreeSlot } from "../../../lib/book";
+import { dispatchersOf, freeSlots, nextDays, parseSlot, resolveSlot, type FreeSlot } from "../../../lib/book";
 import type { ChangeTarget, CustomerDb } from "../../../lib/customer-db";
 import { invalid } from "../../../lib/invalid";
 import { requestTime, scheduleJob, transitionJob } from "../../../lib/jobs";
@@ -160,9 +160,8 @@ export const actions = {
         return { ...bad, ...(await slotsView(ctx, id, target, lang, ctx.form.get("day")?.toString() ?? "")) };
       }
       // The slot must be one ?change=1 offers now: free in `booking` for a technician of the job's branch, and not the current one.
-      const dayKey = dayOf(Math.floor(parsed.start / 1000));
       const current = target.job.scheduled_start === null ? null : target.job.scheduled_start * 1000;
-      const offered: FreeSlot | undefined = parsed.start === current ? undefined : (await freeSlots(ctx, target.branch, { code: target.service_code }, dayKey)).find((s) => s.value === slot);
+      const offered: FreeSlot | undefined = parsed.start === current ? undefined : await resolveSlot(ctx, target.branch, { code: target.service_code }, slot);
       if (offered === undefined) return conflict("taken");
       const job = target.job;
       const from = job.scheduled_start === null ? "no time" : when(job.scheduled_start);

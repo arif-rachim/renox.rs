@@ -161,13 +161,23 @@ interface SlotCtx {
   readonly authz: Pick<Authz, "roles">;
 }
 
+/** The jobs each technician has on `dayKey` (Dubai), cancelled ones left out: the load that decides who takes a time several are free at. */
+async function loadOn(db: DbStatements, dayKey: string): Promise<Map<string, number>> {
+  const from = Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 1000) - OFFSET_MS / 1000;
+  const rows = await db.query<{ technician_user_id: string; n: number }>(
+    "select technician_user_id, count(*) as n from app__jobs where technician_user_id is not null and status != 'cancelled' and scheduled_start >= ? and scheduled_start < ? group by technician_user_id",
+    [from, from + 86_400],
+  );
+  return new Map(rows.map((r) => [r.technician_user_id, r.n]));
+}
+
 /**
- * The free slots of `service` on `dayKey` across the branch's technicians (the
- * search of the next_free_slot tool, lib/tools.ts nextFreeSlots), from now on,
- * earliest first, at most MAX_SLOTS. A service or technician `booking` does
- * not know yet offers nothing.
+ * The free slots of `dayKey`, from now on, grouped by time: for each (start,
+ * end) the technicians free then, the least loaded first (ties: the id), and
+ * the first MAX_SLOTS distinct times, earliest first. A service or technician
+ * `booking` does not know yet offers nothing.
  */
-export async function freeSlots(ctx: SlotCtx, branch: Branch, service: Pick<BookService, "code">, dayKey: string): Promise<FreeSlot[]> {
+async function freeTimes(ctx: SlotCtx, branch: Branch, service: Pick<BookService, "code">, dayKey: string): Promise<FreeSlot[][]> {
   const staff = (await techniciansOf(ctx, branch)).map((t) => t.id);
   if (staff.length === 0) return [];
   let found: { start: number; end: number; staff: string }[];
@@ -178,10 +188,41 @@ export async function freeSlots(ctx: SlotCtx, branch: Branch, service: Pick<Book
     throw e;
   }
   const now = Date.now();
-  return found
-    .filter((s) => s.start >= now)
-    .slice(0, MAX_SLOTS)
-    .map((s) => ({ value: slotValue(s.staff, s.start), staff: s.staff, start: s.start, end: s.end, from: clock(Math.floor(s.start / 1000)), to: clock(Math.floor(s.end / 1000)) }));
+  const load = await loadOn(ctx.db, dayKey);
+  const times = new Map<string, FreeSlot[]>();
+  for (const s of found) {
+    if (s.start < now) continue;
+    const slot: FreeSlot = { value: slotValue(s.staff, s.start), staff: s.staff, start: s.start, end: s.end, from: clock(Math.floor(s.start / 1000)), to: clock(Math.floor(s.end / 1000)) };
+    const key = `${s.start}-${s.end}`;
+    times.set(key, [...(times.get(key) ?? []), slot]);
+  }
+  return [...times.values()]
+    .map((group) => group.sort((a, b) => (load.get(a.staff) ?? 0) - (load.get(b.staff) ?? 0) || a.staff.localeCompare(b.staff)))
+    .sort((a, b) => (a[0] as FreeSlot).start - (b[0] as FreeSlot).start || (a[0] as FreeSlot).end - (b[0] as FreeSlot).end)
+    .slice(0, MAX_SLOTS);
+}
+
+/**
+ * The free times of `service` on `dayKey` across the branch's technicians
+ * (the search of the next_free_slot tool, lib/tools.ts nextFreeSlots), from
+ * now on, earliest first, each time once with the technician who has the
+ * fewest jobs that day, at most MAX_SLOTS distinct times.
+ */
+export async function freeSlots(ctx: SlotCtx, branch: Branch, service: Pick<BookService, "code">, dayKey: string): Promise<FreeSlot[]> {
+  return (await freeTimes(ctx, branch, service, dayKey)).map((g) => g[0] as FreeSlot);
+}
+
+/**
+ * The slot a submitted `value` stands for: the same time, with the chosen
+ * technician if still free, else silently another technician free then (the
+ * visitor chose a time, not a person). Undefined when the time is not one the
+ * page offers now or nobody is free at it ("That time was just taken").
+ */
+export async function resolveSlot(ctx: SlotCtx, branch: Branch, service: Pick<BookService, "code">, value: string): Promise<FreeSlot | undefined> {
+  const parsed = parseSlot(value);
+  if (parsed === null) return undefined;
+  const group = (await freeTimes(ctx, branch, service, dayOf(Math.floor(parsed.start / 1000)))).find((g) => (g[0] as FreeSlot).start === parsed.start);
+  return group?.find((s) => s.staff === parsed.staff) ?? group?.[0];
 }
 
 /** The client address as the platform passes it (auth's `clientIp`), hashed: the app never stores the address. */
