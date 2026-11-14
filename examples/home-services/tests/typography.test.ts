@@ -62,6 +62,9 @@ plant("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_
 // Stock (#813): Dubai receives 8 metres of it at 8.50 through the page, so the stock list and the history have numbers.
 expect((await manager.action("/admin/stock", "receive", { part: "pt_0000000000007001", qty: "8", unit_cost: "8.50", reason: "first delivery" })).status).toBe(303);
 plant("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_0000000000007001', 'Al Noor Trading', '100123456700003', '+97144110088', 'orders@alnoor.example', 'Dubai', '', 1, ?)", [Math.floor(Date.now() / 1000)]);
+// A sent purchase order (#815) of that supplier for 2.5 metres at 9.00, for the purchasing pages.
+plant("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_0000000000007001', 'br_dubai', 'su_0000000000007001', 'PO-000001', 'sent', 'en', '2026-12-31', '', 'u_dxb_manager', ?, ?)", [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)]);
+plant("insert into app__purchase_order_lines (po_id, branch_id, part_id, qty, unit_cost_fils, received_qty) values ('po_0000000000007001', 'br_dubai', 'pt_0000000000007001', 2.5, 900, 0)", []);
 
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 
@@ -151,6 +154,8 @@ describe("numbers, phones and codes in Arabic are isolated left to right", () =>
     { page: "/admin/stock", who: dispatcher, values: ["PIPE-15", "20.5", "8.50", "68.00"] },
     { page: "/admin/stock/pt_0000000000007001", who: dispatcher, values: ["+8", "8.50"] },
     { page: "/admin/suppliers", who: accountant, values: ["100123456700003", "+97144110088", "orders@alnoor.example"] },
+    { page: "/admin/purchasing", who: accountant, values: ["PO-000001", "23.63", "2026-12-31"] },
+    { page: "/admin/purchasing/po_0000000000007001", who: accountant, values: ["PO-000001", "PIPE-15", "2.5", "9.00", "22.50", "100123456700003", "orders@alnoor.example"] },
     { page: "/my/invoices", who: customer, values: ["INV-000960", "126.00"] },
     { page: "/my/invoices/INV-000960", who: customer, values: ["INV-000960", "120.00", "6.00"] },
   ];

@@ -102,6 +102,11 @@ rw((db) => {
   db.run("insert into app__parts (id, sku, name_en, name_ar, unit, cost_fils, sell_fils, vat_rate, min_stock, active, created_at) values ('pt_00000000000a11a2', 'A11Y-GAS', 'R32 refrigerant', 'غاز التبريد R32', 'kg', 4500, 0, 0, 3.5, 0, ?)", [now]);
   db.run("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_00000000000a11a1', 'Al Noor Trading', '100123456700003', '+97144110088', 'orders@alnoor.example', 'Dubai', 'Net 30', 1, ?)", [now]);
   db.run("insert into app__suppliers (id, name, trn, phone, email, address, notes, active, created_at) values ('su_00000000000a11a2', 'Old Pipes LLC', null, '', '', '', '', 0, ?)", [now]);
+  // Purchase orders (#815): a draft with a line, a sent one with a line, and a partly received one (its lines need no stock rows: receiving is tested by purchasing.test.ts).
+  db.run("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_00000000000a11a1', 'br_dubai', 'su_00000000000a11a1', 'PO-A11Y01', 'draft', 'en', '2026-12-31', 'Call before delivery', 'u_dxb_manager', ?, null)", [now]);
+  db.run("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_00000000000a11a2', 'br_dubai', 'su_00000000000a11a1', 'PO-A11Y02', 'sent', 'ar', null, '', 'u_dxb_manager', ?, ?)", [now, now]);
+  db.run("insert into app__purchase_orders (id, branch_id, supplier_id, number, status, language, expected_on, notes, created_by, created_at, sent_at) values ('po_00000000000a11a3', 'br_dubai', 'su_00000000000a11a1', 'PO-A11Y03', 'partly_received', 'en', null, '', 'u_dxb_manager', ?, ?)", [now, now]);
+  for (const po of ["po_00000000000a11a1", "po_00000000000a11a2", "po_00000000000a11a3"]) db.run("insert into app__purchase_order_lines (po_id, branch_id, part_id, qty, unit_cost_fils, received_qty) values (?, 'br_dubai', 'pt_00000000000a11a1', 12.5, 850, ?)", [po, po.endsWith("3") ? 5 : 0]);
   // The background states of #733: a file being checked (its page reloads itself) and one that failed.
   const empty = JSON.stringify({ errors: [], insert: 0, update: 0, exists: 0 });
   db.run("insert into app__imports (id, kind, file_key, file_name, status, report, created_by, created_at) values ('im_00000000000a11d0', 'customers', 'k3', 'waiting.xlsx', 'checking', ?, 'u_owner', ?)", [empty, now]);
@@ -321,6 +326,13 @@ const PAGES: { path: string; as: () => Who; note?: string }[] = [
   { path: "/admin/suppliers", as: () => owner },
   { path: "/admin/suppliers?edit=su_00000000000a11a1", as: () => owner, note: "editing a supplier (#812)" },
   { path: "/admin/suppliers", as: () => accountant, note: "read-only, no form" },
+  { path: "/admin/purchasing", as: () => owner, note: "purchase orders, with the new-order form (#815)" },
+  { path: "/admin/purchasing?status=sent&supplier=su_00000000000a11a1", as: () => owner, note: "a filter" },
+  { path: "/admin/purchasing", as: () => accountant, note: "read-only, no form" },
+  { path: "/admin/purchasing/po_00000000000a11a1", as: () => owner, note: "a draft: add a line, send, cancel" },
+  { path: "/admin/purchasing/po_00000000000a11a2", as: () => owner, note: "sent: the receive form" },
+  { path: "/admin/purchasing/po_00000000000a11a3", as: () => owner, note: "partly received" },
+  { path: "/admin/purchasing/po_00000000000a11a2", as: () => accountant, note: "read-only, no form" },
   { path: "/admin/import/im_00000000000a11b0", as: () => owner, note: "a file with errors" },
   { path: "/admin/import/im_00000000000a11c0", as: () => owner, note: "a clean file" },
   { path: "/admin/import/im_00000000000a11d0", as: () => owner, note: "being checked" },

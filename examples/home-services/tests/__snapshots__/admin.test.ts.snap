@@ -10,6 +10,7 @@ exports[`/admin per role normal case: the owner sees the module's dashboard with
 <a href="/admin/parts" id="nav-parts">Parts</a>
 <a href="/admin/stock" id="nav-stock">Stock</a>
 <a href="/admin/suppliers" id="nav-suppliers">Suppliers</a>
+<a href="/admin/purchasing" id="nav-purchasing">Purchase orders</a>
 <a href="/admin/whatsapp" id="nav-whatsapp">WhatsApp</a>
 <a href="/admin/people" id="nav-people">People</a>
 <a href="/admin/settings" id="nav-branding">Branding</a>
@@ -41,6 +42,7 @@ exports[`/admin per role in Arabic: the sidebar links and the tile: role: admin 
 <a href="/admin/parts" id="nav-parts">قطع الغيار</a>
 <a href="/admin/stock" id="nav-stock">المخزون</a>
 <a href="/admin/suppliers" id="nav-suppliers">الموردون</a>
+<a href="/admin/purchasing" id="nav-purchasing">أوامر الشراء</a>
 <a href="/admin/whatsapp" id="nav-whatsapp">واتساب</a>
 <a href="/admin/people" id="nav-people">الأشخاص</a>
 <a href="/admin/settings" id="nav-branding">الهوية</a>
