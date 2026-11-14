@@ -27,6 +27,8 @@ export interface OrgCtx {
   hooks: { run(name: string, args: unknown): Promise<{ halt: false } | { halt: true; response: Response; module: string }> };
   /** Who the cell runs the service for: null (anonymous), a user, or a system principal (`bootstrap` reads it). */
   principal?: { kind?: unknown; id?: unknown } | null;
+  /** Who made the service call: `"app"` for the app's code (and the platform's setup call), else the calling module's name (ops.md 15.2, "Caller"). */
+  caller?: string;
 }
 
 export type Role = "owner" | "admin" | "member";
@@ -467,8 +469,8 @@ export async function switcher(ctx: OrgCtx, next?: unknown): Promise<Switcher | 
 export class BootstrapForbiddenError extends Error {
   readonly code = "RENOX_FORBIDDEN";
   readonly status = 403;
-  readonly details: { action: "org.bootstrap"; reason: "principal" | "not_fresh" | "owner" };
-  constructor(reason: "principal" | "not_fresh" | "owner") {
+  readonly details: { action: "org.bootstrap"; reason: "principal" | "caller" | "not_fresh" | "owner" };
+  constructor(reason: "principal" | "caller" | "not_fresh" | "owner") {
     super("Bootstrap is not allowed here.");
     this.name = "BootstrapForbiddenError";
     this.details = { action: "org.bootstrap", reason };
@@ -519,16 +521,18 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * 1. `ctx.principal` is null: the setup call is an anonymous HTTPS request.
  *    A user (a session, an App MCP call) or a system principal (a job, an
  *    event handler, a module, the platform's `renox`) is refused.
- * 2. The app is fresh: no organisation and no invitation. One-shot.
- * 3. The app's only user is `owner_user_id` (the setup call registers the
+ * 2. `ctx.caller` is `"app"`: the app's own code, or the platform's setup
+ *    service call (the broker gives it `"app"`). A module's call is refused.
+ *    In `shared` mode that is only as strong as the shared boundary (module
+ *    code that gets the app's code to run a function of its own runs it as
+ *    `"app"`); an `isolate` module is always seen as itself.
+ * 3. The app is fresh: no organisation and no invitation. One-shot.
+ * 4. The app's only user is `owner_user_id` (the setup call registers the
  *    owner just before).
- * NOT covered: the runtime does not tell a service which module called it,
- * so another module's code in the same anonymous request on a fresh app
- * (before any organisation, with one user at most) looks like the app's own.
- * That window is the app's first anonymous requests.
  */
 export async function bootstrap(ctx: OrgCtx, input: unknown): Promise<BootstrapResult> {
   if (ctx.principal !== null && ctx.principal !== undefined) throw new BootstrapForbiddenError("principal");
+  if (ctx.caller !== "app") throw new BootstrapForbiddenError("caller");
   if ((await ctx.db.queryOne("select 1 as x from org__orgs limit 1")) !== null || (await ctx.db.queryOne("select 1 as x from org__invites limit 1")) !== null) {
     throw new BootstrapForbiddenError("not_fresh");
   }

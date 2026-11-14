@@ -1,6 +1,6 @@
 [module]
 name = "booking"
-version = "1.0.1"
+version = "1.1.0"
 description = "Appointments: services, staff, weekly and seasonal hours, slots in the tenant's time zone, holds, deposits through billing, reminders, the staff's live calendar"
 
 [dependencies]
@@ -42,6 +42,10 @@ description = "A booking was confirmed (deposits, reminders and notifications ha
 [exports.events."booking.cancelled"]
 payload = { type = "object", required = ["booking_id", "deposit_retained"], additionalProperties = false, properties = { booking_id = { type = "string" }, deposit_retained = { type = "boolean" } } }
 description = "A booking was cancelled; inside the service's cancellation window a paid deposit is retained"
+
+[exports.hooks."booking.remind"]
+args = { type = "object", required = ["booking_id", "kind", "customer", "service", "start_at", "handled"], properties = { booking_id = { type = "string" }, kind = { enum = ["24h", "2h"] }, customer = { type = "string" }, service = { type = "string" }, start_at = { type = "integer" }, handled = { type = "boolean" } } }
+description = "A confirmed booking's 24 h or 2 h reminder is due: a filler that delivers it itself (WhatsApp, SMS) sets `handled = true`; otherwise booking sends the email reminder"
 
 [authz]
 actions = ["booking.manage", "booking.view_calendar"]

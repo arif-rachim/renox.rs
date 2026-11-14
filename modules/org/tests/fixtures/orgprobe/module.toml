@@ -1,0 +1,11 @@
+[module]
+name = "orgprobe"
+version = "1.0.0"
+description = "Test fixture: a module that calls org.bootstrap (the caller guard of #763)"
+isolation = "isolate"
+
+[dependencies]
+org = "^1.0"
+
+[exports.services]
+callBootstrap = "Calls org.bootstrap with the given request: (input) -> its result"

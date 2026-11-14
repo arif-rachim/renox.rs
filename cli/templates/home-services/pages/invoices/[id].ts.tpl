@@ -9,8 +9,8 @@
 // A refusal of the policy is a 403 that commits, so the platform's audit row of
 // the decision stays.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
-import { twofa } from "renox:modules";
 
+import { stepUp } from "../../lib/admin";
 import { findCustomer } from "../../lib/customers";
 import { check } from "../../lib/forms";
 import { creditSchema, METHODS, paymentSchema } from "../../lib/invoice-forms";
@@ -73,8 +73,7 @@ async function sensitive(ctx: ActionContext, action: "invoice.pay" | "invoice.is
     if ((e as { code?: string }).code === "RENOX_FORBIDDEN") return plain(403, "Forbidden");
     throw e;
   }
-  await twofa.requireRecent({ next: `/invoices/${ctx.params.id}` });
-  return null;
+  return stepUp(`/invoices/${ctx.params.id}`);
 }
 
 export const actions = {

@@ -420,6 +420,51 @@ export function runJob(spec: TestSpec, db: string, module: string, name: string,
   }
 }
 
+/** The event handlers (`on`) of the test artifact: `app` and module name -> the event names its `hooks` entry handles, or null when the entry does not record them. */
+function handlersOf(spec: TestSpec): Map<string, string[] | null> {
+  const manifest = JSON.parse(readFileSync(join(spec.artifacts, spec.hash, "manifest.json"), "utf8")) as { entries?: Record<string, { exports: string[]; on?: string[] }> };
+  const out = new Map<string, string[] | null>();
+  for (const [id, e] of Object.entries(manifest.entries ?? {})) {
+    const owner = id === "hooks" ? "app" : /^modules\/([^/]+)\/hooks$/u.exec(id)?.[1];
+    if (owner === undefined) continue;
+    if (e.on !== undefined) out.set(owner, e.on);
+    else if (e.exports.includes("on")) out.set(owner, null);
+  }
+  return out;
+}
+
+/**
+ * One durable delivery of the module event `event` (emitted by `module`) to
+ * `to` (`app` or a module name), written into the tenant file `db` the way the
+ * outbox worker writes the delivery of one handler (ops.md section 15.4,
+ * "Delivery"): a `renox__outbox` row with `target` the handler, `name` the
+ * event and `module` its emitter, in an IMMEDIATE transaction that waits on
+ * the worker's lock. Rejects (a `UserError`) when `to` has no handler for the
+ * event in the test artifact, so a typo fails the test. Returns the row id.
+ */
+export function runDeliver(spec: TestSpec, db: string, event: string, payload: unknown, module: string, to = "app", now = Date.now()): { id: string; attempts: number } {
+  const handlers = handlersOf(spec);
+  const on = handlers.get(to);
+  const who = to === "app" ? "the app" : `module ${to}`;
+  if (on === undefined || (on !== null && !on.includes(event))) {
+    const known = [...handlers].flatMap(([h, names]) => (names ?? []).map((n) => `${h}:${n}`)).sort().join(", ") || "none";
+    throw new UserError(`${who} has no handler for the event ${event} (handlers: ${known})`);
+  }
+  const json = JSON.stringify(payload ?? null);
+  if (Buffer.byteLength(json) > 64 * 1024) throw new UserError(`the payload of ${event} is not JSON of at most 64 KiB`);
+  const sqlite = new Database(db);
+  sqlite.exec(`pragma busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  try {
+    return sqlite.transaction(() => {
+      const id = ulid(now);
+      sqlite.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, ?, ?, ?, ?, ?, 0, ?)").run(id, to, event, json, module, now, now);
+      return { id, attempts: 0 };
+    }).immediate();
+  } finally {
+    sqlite.close();
+  }
+}
+
 /** What installing or upgrading a module reported. */
 export interface ModuleChange {
   /** `renox check` on the app after the change (drift, broken contracts). */

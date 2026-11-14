@@ -15,6 +15,7 @@ import en from "../i18n/en.json";
 import { schema, text } from "./forms";
 import { DEFAULT_HOURS, type HourRow, WEEK_ORDER } from "./booking-sync";
 import { type Branch, branchDb, type Scopable } from "./scope";
+import { stepUpUrl } from "./step-up";
 
 export const STAFF_ROLES = ["owner", "branch_manager", "dispatcher", "technician", "accountant"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
@@ -367,9 +368,29 @@ export async function removeStaff(ctx: AdminCtx, branch: Branch, userId: string)
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 
 /**
+ * twofa's step-up for a sensitive action, after the policy allowed it: null when the second factor is recent,
+ * else a 303 to the verification page. twofa declares STEP_UP_REQUIRED in its `[exports.errors]`, so across
+ * modules it arrives as RENOX_MODULE_SERVICE with details.cause_code and the module's details in cause_details
+ * (ops.md 15.2, "Errors"; #769). It happens when the session's verification ran out within the principal's
+ * cache time (60 s), so the policy still saw mfa_verified. Nothing has been written. Any other failure throws.
+ */
+export async function stepUp(next: string): Promise<Response | null> {
+  try {
+    await twofa.requireRecent({ next });
+  } catch (e) {
+    const d = (e as { code?: string; details?: { cause_code?: unknown; cause_details?: { verify_url?: unknown } } }).details;
+    if ((e as { code?: string }).code === "RENOX_MODULE_SERVICE" && d?.cause_code === "STEP_UP_REQUIRED") {
+      return new Response(null, { status: 303, headers: { location: stepUpUrl(d.cause_details?.verify_url, next), "cache-control": "no-store" } });
+    }
+    throw e;
+  }
+  return null;
+}
+
+/**
  * The 403 of a refused policy decision, or null when `action` is allowed (and
- * then the second factor is asked for: without a recent one the step-up throws
- * its own 403). `action` is sensitive, so every decision is audited; the
+ * then the second factor is asked for: without a recent one, `stepUp`'s 303 to
+ * the verification page). `action` is sensitive, so every decision is audited; the
  * policy refuses each of them without a recent second factor (base.cedar).
  */
 export async function sensitive(
@@ -384,20 +405,7 @@ export async function sensitive(
     if ((e as { code?: string }).code === "RENOX_FORBIDDEN") return plain(403, "Forbidden");
     throw e;
   }
-  try {
-    await twofa.requireRecent({ next });
-  } catch (e) {
-    // requireRecent throws only for the step-up. Across modules it arrives as RENOX_MODULE_SERVICE naming
-    // the module and the service, without its own code or verify_url (cause_code carries RENOX_* codes only),
-    // so the verification page is named here. It happens when the session's verification ran out within the
-    // principal's cache time (60 s), so the policy above still saw mfa_verified. Nothing has been written.
-    const d = (e as { code?: string; details?: { module?: unknown; service?: unknown } }).details;
-    if ((e as { code?: string }).code === "RENOX_MODULE_SERVICE" && d?.module === "twofa" && d.service === "requireRecent") {
-      return new Response(null, { status: 303, headers: { location: `/2fa/verify?next=${encodeURIComponent(next)}`, "cache-control": "no-store" } });
-    }
-    throw e;
-  }
-  return null;
+  return stepUp(next);
 }
 
 // ------------------------------------------------------- second-factor reset

@@ -4,6 +4,14 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.16 (unreleased)
 
+**Modules**
+
+- `booking` 1.1.0: the reminder job reads its payload from `ctx.job.payload` (the runtime calls `run(ctx)` with one argument; before, every reminder run was a no-op, so no reminder was ever sent). New hook `booking.remind` (`{ booking_id, kind, customer, service, start_at, handled }`): a filler that delivers the reminder itself (WhatsApp, SMS) sets `handled = true`; when none did, the email goes as before and is skipped without error when `customer` is not an auth user with an email. A run without a payload logs one warning. (#799)
+- `org` 1.3.0: `org.bootstrap` also requires `ctx.caller === "app"` (the app's own code or the platform's setup call); a module caller, in `shared` or `isolate` mode, gets `RENOX_FORBIDDEN` with `details.reason: "caller"`. In `shared` mode `ctx.caller` is only as strong as the shared boundary; `isolate` closes that (#763).
+
+**SDK**
+
+- `@renoxium/sdk/test`: `t.deliver(event, payload, { module, to?, timeoutMs? })` writes one durable delivery of a module event to the app (or a module) as the outbox worker writes it, and waits until the handler ran. It rejects when the target has no `on` handler for the event, or when the handler fails (#787).
 **Worker**
 
 - The principal's `has_password` is a platform attribute of `Renox::User` in the Cedar schema (`false` when the principal carries none, `false` for an agent), so a policy can read `principal.has_password`; and an app may declare its own boolean attributes (`renox.toml [authz] user_attrs`), which the merged schema adds to `Renox::User` and entity building sets to `false` when the principal has none, so `forbid ... when { principal.portal }` is never skipped for want of the attribute (`ops.md` 1.23.0, `artifact.md` 1.12; #791).

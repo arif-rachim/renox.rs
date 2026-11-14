@@ -1,7 +1,10 @@
-// A booking's reminder (#334), enqueued 24 h and 2 h before the start when it
-// is confirmed: once per kind, only while the booking is still confirmed,
-// through email (a WhatsApp template is the whatsapp module's, not wired
-// here). The address is the customer's in auth's public view.
+// A booking's reminder (#334, #799), queued 24 h and 2 h before the start when
+// the booking is confirmed: once per kind, only while the booking is still
+// confirmed. The queued payload is `ctx.job.payload` (the runtime calls
+// `run(ctx)` with one argument). The job first runs the hook `booking.remind`:
+// an app that delivers the reminder itself (WhatsApp, SMS) sets `handled`. When
+// no filler did, the reminder goes by email to the customer's address in auth's
+// public view, and is skipped when the customer has none.
 import { email } from "renox:modules";
 
 import * as core from "../lib/core.ts";
@@ -10,12 +13,6 @@ import * as core from "../lib/core.ts";
 // runs come from confirm()'s enqueue, and the yearly tick (no payload) does nothing.
 export const schedule = "0 4 1 1 *";
 
-export async function run(ctx: core.BookingCtx, payload?: { booking_id?: string; kind?: "24h" | "2h" }): Promise<void> {
-  if (typeof payload?.booking_id !== "string" || (payload.kind !== "24h" && payload.kind !== "2h")) return;
-  const due = await core.reminderDue(ctx, payload.booking_id, payload.kind);
-  if (due === null) return;
-  const u = await ctx.db.queryOne<{ email: string }>("select email from auth__public_users_v1 where id = ?", [due.customer]);
-  if (u === null) return;
-  const when = new Date(due.start_at).toISOString().replace("T", " ").slice(0, 16);
-  await email.sendRaw({ to: u.email, subject: `Reminder: ${due.service} at ${when} UTC`, text: `Your booking for ${due.service} is at ${when} UTC. To cancel, open your bookings page.` });
+export async function run(ctx: core.RemindCtx): Promise<void> {
+  await core.remind(ctx, ctx.job?.payload, (m) => email.sendRaw(m));
 }

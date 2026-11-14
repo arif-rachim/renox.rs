@@ -5,7 +5,7 @@ Appointments for salons, clinics and other services:
 - **Holds** that expire.
 - **Deposits** paid through `billing`.
 - **Cancellation** with a window, and no-shows.
-- **Reminders** 24 h and 2 h before, through `email`.
+- **Reminders** 24 h and 2 h before, through the hook `booking.remind` or `email`.
 - **A staff calendar** that updates live over the change feed.
 
 ## Install
@@ -37,7 +37,26 @@ All three need `booking.manage`. An app with its own roles grants `booking.manag
 
 **No double booking.** The slot search refuses a taken start. A unique index allows one live booking per staff member and start, so the second writer of a race is answered "taken".
 
-**Reminders.** `jobs/reminder.ts` runs are queued at confirmation for 24 h and 2 h before the start. Each kind is sent once (`booking__reminders`), and only while the booking is still confirmed. They go by email to the customer's address in auth's public view. WhatsApp templates are not wired; they are the `whatsapp` module's.
+**Reminders.** `jobs/reminder.ts` runs are queued at confirmation for 24 h and 2 h before the start. Each kind is sent once (`booking__reminders`), and only while the booking is still confirmed. The run reads its payload (`{ booking_id, kind }`) from `ctx.job.payload`; a run without one does nothing and logs one warning. A cancelled or moved booking (a move is a new booking with the old one cancelled) sends nothing.
+
+The job runs the hook `booking.remind` first, then, when no filler handled it, sends the email to the customer's address in auth's public view (skipped without error when `customer` is not an auth user with an email).
+
+| Hook | Args | A filler |
+| --- | --- | --- |
+| `booking.remind` | `{ booking_id, kind: "24h" \| "2h", customer, service, start_at, handled }` | Delivers the reminder itself (for example by WhatsApp) and sets `args.handled = true`; booking then sends no email |
+
+`customer` is whatever id the app passed to `hold`/`book`: an auth user id, or the app's own customer or draft id. Only an auth user id can get the email. An app whose customers are not auth users fills the hook in its `hooks.ts`:
+
+```ts
+export const hooks = {
+  "booking.remind": {
+    async handle(ctx, args) {
+      await sendWhatsApp(args.customer, args.service, args.start_at, args.kind);
+      args.handled = true;
+    },
+  },
+};
+```
 
 ## Pages and roles
 
@@ -56,7 +75,7 @@ Default policy:
 
 ## Not built
 
-- WhatsApp reminders.
+- WhatsApp reminders in the module (an app fills `booking.remind`).
 - The `org` scope for several branches.
 - Classes with capacity.
 

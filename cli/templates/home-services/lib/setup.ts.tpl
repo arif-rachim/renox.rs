@@ -16,7 +16,7 @@ import type { Authz, DbStatements, TxDb } from "@renoxium/sdk";
 import { audit, auth, org } from "renox:modules";
 
 import { STAFF_ROLES, type StaffRole } from "./admin";
-import { DEFAULT_HOURS } from "./booking-sync";
+import { DEFAULT_HOURS, markSyncPending } from "./booking-sync";
 import { branchDb } from "./scope";
 
 export const EMIRATES = ["abu_dhabi", "dubai", "sharjah", "ajman", "umm_al_quwain", "ras_al_khaimah", "fujairah"] as const;
@@ -217,6 +217,8 @@ export async function writeSetup(ctx: SetupCtx, input: SetupInput, hash: string)
     for (const p of people) {
       await sdb.execute("insert into app__staff_invites (branch_id, org_id, email, role, invited_by, created_at, applied_at) values (?, ?, ?, ?, ?, ?, null)", [firstBranch, first.id, p.email, p.role, owner.id, at]);
     }
+    // The route has no principal and so no booking.manage: the owner's first staff request mirrors the services.
+    await markSyncPending(tx);
     await audit.record({ action: "setup.write", actor: { kind: "system", id: "platform" }, resource: { type: "Settings", id: "setup" }, details: { branches: made, services: input.services.length, invited: people.length } });
     return { invited: people.map((p) => ({ email: p.email, role: p.role })), skipped };
   });

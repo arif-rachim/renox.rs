@@ -6,12 +6,11 @@
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { allBranches, branchEmirates, branchSchema, clockOf, createBranch, hoursFromForm, replaceHours, sensitive, updateBranch } from "../../lib/admin";
-import { hoursOf, jobsOutsideHours, syncHours, WEEK_ORDER } from "../../lib/booking-sync";
+import { hoursOf, jobsOutsideHours, syncCatalogue, WEEK_ORDER } from "../../lib/booking-sync";
 import { check } from "../../lib/forms";
 import { shell } from "../../lib/page";
 import { invalid } from "../../lib/invalid";
 import { branchDb, branchOf, findBranch, noBranch } from "../../lib/scope";
-import { techniciansOf } from "../../lib/technicians";
 
 export const guard = { action: "settings.read" };
 
@@ -86,9 +85,8 @@ export const actions = {
       const echo = WEEK_ORDER.map((wd) => ({ weekday: wd, name_key: `backoffice.hours.day.${wd}`, closed: typed(`closed_${wd}`) !== "", open: typed(`open_${wd}`), close: typed(`close_${wd}`), error: bad.errors[`hours_${wd}`] ?? "" }));
       return { ...bad, week_for: id, week_echo: echo, week_error: bad.errors.hours ?? "" };
     }
-    const technicians = await techniciansOf(ctx, branch);
     await replaceHours(ctx, id, input.value);
-    await syncHours(ctx.db, branch, technicians);
+    await syncCatalogue(ctx, id);
     return redirect(`/admin/branches?saved=hours&for=${id}`);
   },
 
