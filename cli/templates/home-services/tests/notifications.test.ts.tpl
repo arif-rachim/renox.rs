@@ -273,13 +273,9 @@ describe("a customer's reply", () => {
     const notes = rows("select count(*) as n from notifications__items")[0]?.n;
     const message = rows("select id, phone from whatsapp__messages where wa_id = 'wamid.layla-cancel'")[0] as { id: string; phone: string };
     // A redelivery, as the outbox makes one after a crash between the handler's commit and its bookkeeping:
-    // the delivery row written the way the worker writes one (the lock taken first), then a message from a
-    // number nobody knows wakes the outbox.
-    const id = `01HS${crypto.randomUUID().replace(/-/gu, "").slice(0, 22).toUpperCase()}`; // 26 characters, like the platform's ULIDs
-    rw((db) => db.transaction(() => db.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, 'app', 'whatsapp.message_received', ?, 'whatsapp', ?, 0, ?)").run(id, JSON.stringify({ message_id: message.id, from: message.phone }), Date.now(), Date.now())).immediate());
-    expect((await inbound("971500000000", `ping ${++seq}`)).status).toBe(200);
-    await handled();
-    expect(rows("select 1 from renox__outbox_dead where id = ?", [id])).toEqual([]);
+    // t.deliver writes the durable delivery of whatsapp's event to the app the way the broker writes it,
+    // and resolves once the app's handler has run (it rejects if the handler failed or the delivery died).
+    await t.deliver("whatsapp.message_received", { message_id: message.id, from: message.phone }, { module: "whatsapp" });
     expect(rows("select count(*) as n from app__tasks")[0]?.n).toBe(1);
     expect(rows("select count(*) as n from notifications__items")[0]?.n).toBe(notes);
   });
